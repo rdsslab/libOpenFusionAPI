@@ -694,3 +694,287 @@ export async function getLogSummaryByAppStatusCode(data) {
     throw new Error("El parámetro idapp es obligatorio");
   }
 }
+
+function normalizeTraceId(trace_id) {
+  const normalized = typeof trace_id === "string" ? trace_id.trim() : "";
+  if (!normalized) {
+    throw new Error("trace_id es obligatorio y debe ser una cadena no vacia");
+  }
+  return normalized;
+}
+
+function normalizePositiveInt(value, fallback) {
+  if (value === undefined || value === null || value === "") {
+    return fallback;
+  }
+  const normalized = Number(value);
+  if (!Number.isInteger(normalized) || normalized < 1) {
+    throw new Error("El valor debe ser un entero positivo");
+  }
+  return normalized;
+}
+
+function parseBooleanOption(value, defaultValue) {
+  if (value === undefined || value === null || value === "") {
+    return defaultValue;
+  }
+
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  if (typeof value === "number") {
+    return value !== 0;
+  }
+
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["true", "1", "yes", "y", "on"].includes(normalized)) {
+      return true;
+    }
+    if (["false", "0", "no", "n", "off"].includes(normalized)) {
+      return false;
+    }
+  }
+
+  return defaultValue;
+}
+
+/**
+ * Obtiene solo eventos problematicos por trace_id.
+ * Problematicos = 3xx + 4xx + 5xx (configurable).
+ */
+export async function getTraceErrorsOnly(options = {}) {
+  try {
+    const trace_id = normalizeTraceId(options.trace_id);
+    const include_redirects = parseBooleanOption(options.include_redirects, true);
+    const include_client_errors = parseBooleanOption(
+      options.include_client_errors,
+      true,
+    );
+    const include_server_errors = parseBooleanOption(
+      options.include_server_errors,
+      true,
+    );
+
+    const limit = normalizePositiveInt(options.limit, 200);
+    const offset = Number(options.offset || 0);
+    if (!Number.isInteger(offset) || offset < 0) {
+      throw new Error("offset debe ser un entero mayor o igual a 0");
+    }
+
+    const statusFilters = [];
+    if (include_redirects) {
+      statusFilters.push({ [Op.between]: [300, 399] });
+    }
+    if (include_client_errors) {
+      statusFilters.push({ [Op.between]: [400, 499] });
+    }
+    if (include_server_errors) {
+      statusFilters.push({ [Op.between]: [500, 599] });
+    }
+
+    if (statusFilters.length === 0) {
+      return [];
+    }
+
+    const where = {
+      trace_id,
+      status_code: {
+        [Op.or]: statusFilters,
+      },
+    };
+
+    return await LogEntry.findAll({
+      where,
+      attributes: [
+        "id",
+        "timestamp",
+        "trace_id",
+        "idapp",
+        "idendpoint",
+        "url",
+        "method",
+        "status_code",
+        "log_level",
+        "response_time",
+        "message",
+      ],
+      order: [["timestamp", "ASC"]],
+      limit,
+      offset,
+      raw: true,
+    });
+  } catch (error) {
+    console.error("Error en getTraceErrorsOnly:", error);
+    throw error;
+  }
+}
+
+/**
+ * Devuelve endpoints mas lentos dentro de un trace_id.
+ */
+export async function getTraceSlowestHops(options = {}) {
+  try {
+    const trace_id = normalizeTraceId(options.trace_id);
+    const threshold_ms = Number(options.threshold_ms ?? 500);
+    if (!Number.isFinite(threshold_ms) || threshold_ms < 0) {
+      throw new Error("threshold_ms debe ser un numero mayor o igual a 0");
+    }
+    const top_n = normalizePositiveInt(options.top_n, 10);
+
+    const rows = await LogEntry.findAll({
+      where: {
+        trace_id,
+        response_time: {
+          [Op.gte]: threshold_ms,
+        },
+      },
+      attributes: [
+        "idendpoint",
+        "url",
+        "method",
+        [Sequelize.fn("COUNT", Sequelize.col("id")), "hits"],
+        [Sequelize.fn("AVG", Sequelize.col("response_time")), "avg_response_time"],
+        [Sequelize.fn("MAX", Sequelize.col("response_time")), "max_response_time"],
+        [Sequelize.fn("MIN", Sequelize.col("response_time")), "min_response_time"],
+        [Sequelize.fn("SUM", Sequelize.col("response_time")), "total_response_time"],
+      ],
+      group: ["idendpoint", "url", "method"],
+      order: [[Sequelize.literal("max_response_time"), "DESC"]],
+      limit: top_n,
+      raw: true,
+    });
+
+    return rows.map((row) => ({
+      ...row,
+      hits: Number(row.hits || 0),
+      avg_response_time: Number(row.avg_response_time || 0),
+      max_response_time: Number(row.max_response_time || 0),
+      min_response_time: Number(row.min_response_time || 0),
+      total_response_time: Number(row.total_response_time || 0),
+    }));
+  } catch (error) {
+    console.error("Error en getTraceSlowestHops:", error);
+    throw error;
+  }
+}
+
+/**
+ * Resumen compacto del trace para agentes IA.
+ */
+export async function getTraceSummary(options = {}) {
+  try {
+    const trace_id = normalizeTraceId(options.trace_id);
+    const slow_threshold_ms = Number(options.slow_threshold_ms ?? 500);
+    if (!Number.isFinite(slow_threshold_ms) || slow_threshold_ms < 0) {
+      throw new Error("slow_threshold_ms debe ser un numero mayor o igual a 0");
+    }
+
+    const traceLogs = await LogEntry.findAll({
+      where: { trace_id },
+      attributes: [
+        "timestamp",
+        "idendpoint",
+        "url",
+        "method",
+        "status_code",
+        "response_time",
+      ],
+      order: [["timestamp", "ASC"]],
+      raw: true,
+    });
+
+    if (!traceLogs.length) {
+      return {
+        trace_id,
+        total_requests: 0,
+        by_status_family: {
+          "2xx": 0,
+          "3xx": 0,
+          "4xx": 0,
+          "5xx": 0,
+          other: 0,
+        },
+        errors_total: 0,
+        slow_requests_total: 0,
+        unique_endpoints: 0,
+        first_timestamp: null,
+        last_timestamp: null,
+        worst_status_code: null,
+        first_problematic_request: null,
+        slowest_request: null,
+      };
+    }
+
+    const statusFamily = { "2xx": 0, "3xx": 0, "4xx": 0, "5xx": 0, other: 0 };
+    let errors_total = 0;
+    let slow_requests_total = 0;
+    let first_problematic_request = null;
+    let slowest_request = null;
+    let worst_status_code = 0;
+    const uniqueEndpointKeys = new Set();
+
+    for (const log of traceLogs) {
+      const sc = Number(log.status_code || 0);
+      if (sc >= 200 && sc <= 299) statusFamily["2xx"]++;
+      else if (sc >= 300 && sc <= 399) statusFamily["3xx"]++;
+      else if (sc >= 400 && sc <= 499) statusFamily["4xx"]++;
+      else if (sc >= 500 && sc <= 599) statusFamily["5xx"]++;
+      else statusFamily.other++;
+
+      if (sc >= 300) {
+        errors_total++;
+        if (!first_problematic_request) {
+          first_problematic_request = {
+            timestamp: log.timestamp,
+            idendpoint: log.idendpoint,
+            url: log.url,
+            method: log.method,
+            status_code: sc,
+            response_time: Number(log.response_time || 0),
+          };
+        }
+      }
+
+      const rt = Number(log.response_time || 0);
+      if (rt >= slow_threshold_ms) {
+        slow_requests_total++;
+      }
+
+      if (!slowest_request || rt > Number(slowest_request.response_time || 0)) {
+        slowest_request = {
+          timestamp: log.timestamp,
+          idendpoint: log.idendpoint,
+          url: log.url,
+          method: log.method,
+          status_code: sc,
+          response_time: rt,
+        };
+      }
+
+      if (sc > worst_status_code) {
+        worst_status_code = sc;
+      }
+
+      uniqueEndpointKeys.add(`${log.method || ""}::${log.url || ""}::${log.idendpoint || ""}`);
+    }
+
+    return {
+      trace_id,
+      total_requests: traceLogs.length,
+      by_status_family: statusFamily,
+      errors_total,
+      slow_requests_total,
+      unique_endpoints: uniqueEndpointKeys.size,
+      first_timestamp: traceLogs[0]?.timestamp || null,
+      last_timestamp: traceLogs[traceLogs.length - 1]?.timestamp || null,
+      worst_status_code,
+      first_problematic_request,
+      slowest_request,
+    };
+  } catch (error) {
+    console.error("Error en getTraceSummary:", error);
+    throw error;
+  }
+}

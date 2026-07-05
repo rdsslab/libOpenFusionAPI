@@ -120,6 +120,48 @@ export const CreateMCPHandler = async (app_name, environment) => {
     return String(value);
   };
 
+  const getMcpField = (endpoint, fieldName) => {
+    return endpoint?.mcp?.[fieldName] ?? endpoint?.mcp?.meta?.[fieldName];
+  };
+
+  const buildMcpMetadataDescription = (endpoint) => {
+    const lines = [];
+    const operationMode = toCompactText(getMcpField(endpoint, "operation_mode")).trim();
+    const requiresConfirmation = getMcpField(endpoint, "requires_explicit_confirmation");
+    const sideEffects = toCompactText(getMcpField(endpoint, "side_effects")).trim();
+    const safeAlternative = toCompactText(getMcpField(endpoint, "safe_alternative")).trim();
+    const riskLevel = toCompactText(getMcpField(endpoint, "risk_level")).trim();
+
+    if (operationMode) {
+      lines.push(`operation_mode: ${operationMode}`);
+    }
+
+    if (requiresConfirmation !== undefined && requiresConfirmation !== null) {
+      lines.push(`requires_explicit_confirmation: ${String(requiresConfirmation)}`);
+    }
+
+    if (sideEffects) {
+      lines.push(`side_effects: ${sideEffects}`);
+    }
+
+    if (safeAlternative) {
+      lines.push(`safe_alternative: ${safeAlternative}`);
+    }
+
+    if (riskLevel) {
+      lines.push(`risk_level: ${riskLevel}`);
+    }
+
+    if (lines.length === 0) {
+      return "";
+    }
+
+    return [
+      "MCP metadata:",
+      ...lines.map((line) => `- ${line}`),
+    ].join("\n");
+  };
+
   const isEmptyObject = (value) => {
     return (
       value &&
@@ -464,7 +506,36 @@ export const CreateMCPHandler = async (app_name, environment) => {
     return schema?.type === "object" && schema?.additionalProperties === false;
   };
 
-  const schemaHasNoDeclaredTopLevelFields = (schema) => {
+  const schemaHasCompositionOrNestedInput = (schema) => {
+    if (!schema || typeof schema !== "object") return false;
+
+    // If these keys exist, there is non-trivial input structure and the
+    // tool should not be documented as argument-less.
+    return Boolean(
+      schema.items ||
+      schema.prefixItems ||
+      schema.contains ||
+      schema.anyOf ||
+      schema.oneOf ||
+      schema.allOf ||
+      schema.not ||
+      schema.if ||
+      schema.then ||
+      schema.else ||
+      schema.patternProperties ||
+      schema.propertyNames ||
+      schema.dependencies ||
+      schema.dependentRequired ||
+      schema.minProperties ||
+      schema.maxProperties
+    );
+  };
+
+  const schemaIsEmptyObjectInput = (schema) => {
+    if (!schema || typeof schema !== "object") return false;
+    if (schema.type !== "object") return false;
+    if (schemaHasCompositionOrNestedInput(schema)) return false;
+    if (getRequiredFields(schema).length > 0) return false;
     return getTopLevelProperties(schema).length === 0;
   };
 
@@ -484,6 +555,95 @@ export const CreateMCPHandler = async (app_name, environment) => {
     );
   };
 
+  const getRootSchemaKind = (schema) => {
+    if (!schema || typeof schema !== "object") return "unspecified";
+    if (schema.type === "object") return "object";
+    if (schema.type === "array") return "array";
+    if (schema.anyOf || schema.oneOf || schema.allOf) return "composed";
+    if (typeof schema.type === "string") return schema.type;
+    return "unspecified";
+  };
+
+  const buildBehaviorNotes = ({
+    inputSchema,
+    isArgumentlessTool,
+    isEffectivelyNoArgTool,
+    schemaWasNormalized,
+    outputSchemaWasInferred,
+    varsDeprecated,
+    overrideNotes,
+    legacyToolName,
+    safeToolName,
+  }) => {
+    const requiredFields = getRequiredFields(inputSchema);
+    const rootKind = getRootSchemaKind(inputSchema);
+    const topLevelFields = getTopLevelProperties(inputSchema);
+    const hasConditionalKeywords = schemaHasCompositionOrNestedInput(inputSchema);
+
+    const notes = [];
+
+    if (isArgumentlessTool) {
+      notes.push("This tool does not require input arguments; call it with an empty object `{}`.");
+    } else if (isEffectivelyNoArgTool) {
+      notes.push("This tool is typically called with an empty object `{}`; additional fields are not required unless explicitly documented elsewhere.");
+    } else {
+      notes.push("Use this tool only with fields defined in the input schema.");
+    }
+
+    if (requiredFields.length > 0) {
+      notes.push(`Required always (top-level): ${requiredFields.join(", ")}.`);
+    } else {
+      notes.push("Required always (top-level): none.");
+    }
+
+    if (!isEffectivelyNoArgTool) {
+      if (rootKind === "array") {
+        notes.push("Root payload type: array. Send a JSON array, not an empty object.");
+      } else if (rootKind === "composed") {
+        notes.push("Root payload type: composed schema (anyOf/oneOf/allOf). Ensure at least one branch validates.");
+      } else if (rootKind !== "object" && rootKind !== "unspecified") {
+        notes.push(`Root payload type: ${rootKind}. Ensure the payload matches this type.`);
+      }
+    }
+
+    if (hasConditionalKeywords && !isEffectivelyNoArgTool) {
+      notes.push("Required conditionally: review composition/items constraints in the input schema (for example anyOf, oneOf, allOf, items).\n");
+    }
+
+    if (topLevelFields.length > 0 && !isEffectivelyNoArgTool) {
+      notes.push(`Top-level input fields: ${topLevelFields.join(", ")}.`);
+    }
+
+    notes.push("If schema marks a field as deprecated, avoid it for new integrations.");
+    notes.push("Access level above indicates if credentials are required.");
+    notes.push(
+      schemaWasNormalized
+        ? "Internal runtime validation schema was normalized for MCP compatibility (unsupported JSON Schema keywords removed)."
+        : "Runtime validation uses the published JSON schema directly.",
+    );
+    notes.push(
+      outputSchemaWasInferred
+        ? "Output schema was inferred from a real example response because the declared output schema is too generic."
+        : "Output schema is documented as declared by the endpoint contract.",
+    );
+
+    if (varsDeprecated) {
+      notes.push("Field `vars` is deprecated (compatibility only). Use appvar_upsert for new app variables.");
+    } else if (!isEffectivelyNoArgTool) {
+      notes.push("Validate required fields before sending the request.");
+    }
+
+    if (Array.isArray(overrideNotes) && overrideNotes.length > 0) {
+      notes.push(...overrideNotes);
+    }
+
+    if (legacyToolName !== safeToolName) {
+      notes.push(`Legacy alias \`${legacyToolName}\` remains registered for backward compatibility.`);
+    }
+
+    return notes.map((note) => `- ${note}`).join("\n  ");
+  };
+
   const buildAgentToolDescription = ({
     endpoint,
     safeToolName,
@@ -501,9 +661,11 @@ export const CreateMCPHandler = async (app_name, environment) => {
     const accessLabel = endpoint.access == 0 ? "public" : "private";
     const strictSchema = isStrictObjectSchema(inputSchema);
     const minimalPayload = toPrettyText(exampleRequest, "No example available.");
+    const mcpMetadataDescription = buildMcpMetadataDescription(endpoint);
 
     const lines = [
       `Purpose: ${purpose}`,
+      ...(mcpMetadataDescription ? [mcpMetadataDescription] : []),
       `Tool name: ${safeToolName}`,
       `Access: ${accessLabel}`,
       `HTTP target: ${endpoint.method} ${endpoint.resource}`,
@@ -512,7 +674,8 @@ export const CreateMCPHandler = async (app_name, environment) => {
       `Top-level input fields: ${topLevelProperties.length > 0 ? topLevelProperties.join(", ") : "none declared"}`,
       `Additional properties: ${strictSchema ? "not allowed" : "allowed or unspecified"}`,
       `Minimal example payload: ${minimalPayload}`,
-      "Agent guidance: send only fields defined by the input schema unless the schema explicitly allows additional properties.",
+//      "Agent guidance: do not duplicate in mcp.description the facts already present in mcp.title, mcp.meta, or json_schema.in; the tool renderer exposes those structured fields automatically.",
+//      "Agent guidance: send only fields defined by the input schema unless the schema explicitly allows additional properties.",
     ];
 
     if (hasStructuredRuntimeSpecificPayload(endpoint.handler)) {
@@ -538,222 +701,7 @@ export const CreateMCPHandler = async (app_name, environment) => {
     return lines.join("\n");
   };
 
-  const TOOL_DOC_OVERRIDES = {
-    app_data: {
-      exampleRequest: {
-        idapp: "00000000-0000-0000-0000-000000000001",
-      },
-    },
-    app_create_update: {
-      exampleRequest: {
-        app: "my_new_app",
-        enabled: true,
-        description: "Example application",
-      },
-    },
-    read_endpoint_data: {
-      exampleRequest: {
-        idendpoint: "00000000-0000-0000-0000-000000000002",
-      },
-      notes: [
-        "Send the endpoint identifier in `idendpoint` exactly as defined in the input schema.",
-        "Use this response as a read-before-write step prior to endpoint_upsert changes.",
-      ],
-    },
-    endpoint_source_summary: {
-      exampleRequest: {
-        idendpoint: "00000000-0000-0000-0000-000000000002",
-        preview_lines: 40,
-      },
-      notes: [
-        "Prefer this over `read_endpoint_data` when the agent only needs a quick code preview or wants to estimate source size before requesting the full endpoint configuration.",
-      ],
-    },
-    app_vars: {
-      exampleRequest: {
-        idapp: "00000000-0000-0000-0000-000000000001",
-      },
-      notes: [
-        "The request field is `idapp`; send the application identifier there.",
-        "Values may be stored as strings even when they represent JSON or other structured content; inspect each variable `type` before reusing it.",
-      ],
-    },
-    appvars_effective_resolve: {
-      exampleRequest: {
-        idapp: "00000000-0000-0000-0000-000000000001",
-        environment: "prd",
-        name: "MY_CONFIG_VALUE",
-      },
-      notes: [
-        "Use this after `appvar_upsert` when you need to confirm the runtime value that endpoints will actually see.",
-        "If the result indicates cached data and you expected a fresh value, inspect cache state or invalidate cache before retesting dependent endpoints.",
-      ],
-    },
-    available_functions_modules: {
-      exampleRequest: {},
-      exampleResponse: {
-        "$_RETURN_DATA_": {
-          description: "Assign endpoint output payload in JS handlers.",
-        },
-        "$_EXCEPTION_": {
-          description: "Raise controlled errors with status and details from JS handlers.",
-        },
-      },
-      notes: [
-        "Useful to validate allowed imports/helpers before publishing JS endpoints.",
-        "Expect metadata and examples rather than a rigid contract: helper globals, module names, and short usage notes may all appear in the response.",
-        "For deeper JS runtime rules and examples, also consult the JS handler documentation via `handler_documentation` with `handler=JS`.",
-      ],
-    },
-    app_endpoints: {
-      exampleRequest: {
-        idapp: "00000000-0000-0000-0000-000000000001",
-      },
-      notes: [
-        "Use this when you need more than discovery, for example when comparing endpoint settings across one app or reviewing multiple endpoint records together.",
-        "Prefer `app_endpoints_catalog` for initial discovery because that catalog is lighter and excludes larger payload fields by default.",
-      ],
-    },
-    app_endpoints_catalog: {
-      exampleRequest: {
-        idapp: "00000000-0000-0000-0000-000000000001",
-        environment: "prd",
-        include_code: false,
-      },
-      notes: [
-        "Prefer this over `app_endpoints` for discovery workflows because it avoids large `code` payloads unless explicitly requested.",
-        "Escalate to `app_endpoints` or `read_endpoint_data` only after you already know which endpoint needs detailed inspection.",
-      ],
-    },
-    app_vars_catalog: {
-      exampleRequest: {
-        idapp: "00000000-0000-0000-0000-000000000001",
-        environment: "prd",
-        include_values: false,
-      },
-      notes: [
-        "Prefer this over `app_vars` for discovery workflows because it avoids returning variable values unless explicitly requested.",
-      ],
-    },
-    apps_list: {
-      exampleRequest: {},
-      notes: [
-        "This can be a large payload because it expands nested app variables and endpoints for every application.",
-        "Prefer `apps_catalog` for initial discovery and use this full list only when you explicitly need nested data for many applications at once.",
-      ],
-    },
-    apps_catalog: {
-      exampleRequest: {
-        enabled: true,
-        limit: 50,
-        offset: 0,
-      },
-      notes: [
-        "Prefer this over `apps_list` for initial discovery because the payload is smaller and excludes nested endpoint trees.",
-        "Move to `apps_list` or `get_app_list_filters` only when you need nested endpoints, variables, or filter-driven inspection.",
-      ],
-    },
-    endpoint_change_history: {
-      exampleRequest: {
-        idendpoint: "00000000-0000-0000-0000-000000000002",
-      },
-      notes: [
-        "Entries are typically ordered by newest-first unless the backend configuration defines otherwise.",
-        "History rows are snapshots for inspection; restoring a version still requires an explicit write operation.",
-      ],
-    },
-    get_app_list_filters: {
-      exampleRequest: {
-        app: "my_app",
-        endpoint: {
-          environment: "prd",
-          enabled: true,
-        },
-      },
-      exampleResponse: [
-        {
-          idapp: "00000000-0000-0000-0000-000000000001",
-          app: "my_app",
-          enabled: true,
-          description: "Example application",
-          vrs: [
-            {
-              name: "MY_CONFIG",
-              type: "string",
-              environment: "prd",
-              value: "example-value",
-            },
-          ],
-          endpoints: [
-            {
-              idendpoint: "00000000-0000-0000-0000-000000000002",
-              resource: "/api/data",
-              method: "GET",
-              handler: "JS",
-              environment: "prd",
-              enabled: true,
-            },
-          ],
-        },
-      ],
-      notes: [
-        "When multiple filters are sent, backends commonly evaluate them as AND conditions.",
-        "The response is usually app-centric: each matched application may include nested variables and matched endpoints.",
-        "A practical workflow is: start with `apps_catalog` for broad discovery, then use this tool when you already know the filter dimensions you want to constrain.",
-      ],
-    },
-    system_health_stats: {
-      exampleRequest: {
-        last_hours: 1,
-      },
-      notes: [
-        "Use this as a quick health snapshot before running heavier inspection tools.",
-        "The response is summary-oriented: it helps detect recent failures and MCP exposure counts, but it does not replace detailed log inspection.",
-      ],
-    },
-    get_system_logs: {
-      exampleRequest: {
-        trace_id: "trace-id-example",
-        limit: 50,
-        orderDirection: "DESC",
-      },
-      notes: [
-        "Prefer `trace_id` as the first filter when investigating one failing execution path.",
-        "When using date windows, send `start_date` and `end_date` together to keep the range explicit.",
-        "Use `last_hours` for quick recent searches and reserve broad unfiltered scans for exceptional cases because log volume can be high.",
-      ],
-    },
-    appvar_upsert: {
-      exampleRequest: {
-        idapp: "00000000-0000-0000-0000-000000000001",
-        name: "MY_CONFIG_VALUE",
-        type: "string",
-        environment: "prd",
-        value: "example-value",
-      },
-      notes: [
-        "`value` is sent as string in this contract; serialize JSON when storing structured data.",
-        "Recommended workflow: create the application first, store shared configuration with appvar_upsert, and then create endpoints that reuse those variables.",
-        "When an endpoint JSON payload needs to reference an AppVar placeholder, embed it as a string such as `\"$_VAR_NAME\"`.",
-      ],
-    },
-    endpoint_upsert: {
-      outputSchema: {
-        type: "object",
-        additionalProperties: true,
-      },
-    },
-    handler_documentation: {
-      exampleRequest: {
-        handler: "JS",
-      },
-    },
-  };
 
-  const getToolDocOverride = (safeToolName) => {
-    if (!safeToolName) return null;
-    return TOOL_DOC_OVERRIDES[normalizeToolKey(safeToolName)] ?? null;
-  };
 
   const toPrettyText = (value, fallback = "No example available.") => {
     if (value === undefined || value === null) return fallback;
@@ -914,28 +862,33 @@ export const CreateMCPHandler = async (app_name, environment) => {
     const outputSchema = endpoint?.json_schema?.out?.schema ?? {};
     const inputSchemaNormalized = normalizeSchemaForZod(inputSchema);
     const schemaWasNormalized = stringifySafe(inputSchemaNormalized) !== stringifySafe(inputSchema);
-    const override = getToolDocOverride(safeToolName);
+    const mcpNotes = endpoint?.mcp?.notes ?? endpoint?.mcp?.meta?.notes;
+    const mcpExampleRequest = endpoint?.mcp?.exampleRequest ?? endpoint?.mcp?.meta?.exampleRequest;
+    const mcpExampleResponse = endpoint?.mcp?.exampleResponse ?? endpoint?.mcp?.meta?.exampleResponse;
+    const mcpOutputSchema = endpoint?.mcp?.outputSchema ?? endpoint?.mcp?.meta?.outputSchema;
+    const mcpDescription = endpoint?.mcp?.description ?? endpoint?.mcp?.meta?.description;
+
     const hasExplicitExampleRequest = Boolean(
-      override && Object.prototype.hasOwnProperty.call(override, "exampleRequest")
+      mcpExampleRequest !== undefined && mcpExampleRequest !== null
     );
     const rawExampleRequest = endpoint?.data_test?.body?.json?.code;
     const rawExampleResponse = endpoint?.data_test?.last_response?.data;
     const generatedRequestExample = buildExampleFromSchema(inputSchema);
     const generatedResponseExample = buildExampleFromSchema(outputSchema);
-    const exampleRequest = override?.exampleRequest ?? rawExampleRequest ?? generatedRequestExample;
-    const exampleResponse = override?.exampleResponse ?? rawExampleResponse ?? generatedResponseExample;
+    const exampleRequest = mcpExampleRequest ?? rawExampleRequest ?? generatedRequestExample;
+    const exampleResponse = mcpExampleResponse ?? rawExampleResponse ?? generatedResponseExample;
     const parsedExampleResponse = tryParseStructuredString(exampleResponse);
     const inferredOutputSchemaFromExample =
       (parsedExampleResponse !== undefined && parsedExampleResponse !== null)
         ? inferSchemaFromExample(parsedExampleResponse)
         : null;
-    const effectiveOutputSchema = override?.outputSchema ?? (
+    const effectiveOutputSchema = mcpOutputSchema ?? (
       isSchemaTooGeneric(outputSchema)
         ? (inferredOutputSchemaFromExample ?? outputSchema)
         : outputSchema
     );
     const outputSchemaWasInferred =
-      !override?.outputSchema &&
+      !mcpOutputSchema &&
       isSchemaTooGeneric(outputSchema) &&
       inferredOutputSchemaFromExample &&
       !isSchemaTooGeneric(inferredOutputSchemaFromExample);
@@ -950,11 +903,11 @@ export const CreateMCPHandler = async (app_name, environment) => {
       : endpoint.description;
     const effectiveDescription = (baseDescription && String(baseDescription).trim().length > 0)
       ? baseDescription
-      : override?.description;
-    const noDeclaredInputFields = schemaHasNoDeclaredTopLevelFields(inputSchema);
+      : mcpDescription;
     const inputAllowsExtraFields = schemaAllowsAdditionalProperties(inputSchema);
-    const isArgumentlessTool = noDeclaredInputFields && !inputAllowsExtraFields;
-    const isEffectivelyNoArgTool = noDeclaredInputFields;
+    const isEmptyObjectInput = schemaIsEmptyObjectInput(inputSchema);
+    const isArgumentlessTool = isEmptyObjectInput && !inputAllowsExtraFields;
+    const isEffectivelyNoArgTool = isEmptyObjectInput;
     const agentToolDescription = buildAgentToolDescription({
       endpoint,
       safeToolName,
@@ -1076,18 +1029,17 @@ ${toPrettyText(exampleResponse)}
 
 # Behavior Notes(for AI Agents)
 
-  ${isArgumentlessTool
-      ? "- This tool does not require input arguments; call it with an empty object `{}`."
-      : isEffectivelyNoArgTool
-        ? "- This tool is typically called with an empty object `{}`; additional fields are not required unless explicitly documented elsewhere."
-        : "- Use this tool only with fields defined in the input schema."}
-  - If schema marks a field as deprecated, avoid it for new integrations.
-  - Access level above indicates if credentials are required.
-  ${schemaWasNormalized ? "- Internal runtime validation schema was normalized for MCP compatibility (unsupported JSON Schema keywords removed)." : "- Runtime validation uses the published JSON schema directly."}
-  ${outputSchemaWasInferred ? "- Output schema was inferred from a real example response because the declared output schema is too generic." : "- Output schema is documented as declared by the endpoint contract."}
-  ${varsDeprecated ? "- Field `vars` is deprecated (compatibility only). Use appvar_upsert for new app variables." : isEffectivelyNoArgTool ? "- No required fields are declared for this tool." : "- Validate required fields before sending the request."}
-  ${(override?.notes ?? []).map((note) => `- ${note}`).join("\n  ")}
-  ${legacyToolName !== safeToolName ? `- Legacy alias \`${legacyToolName}\` remains registered for backward compatibility.` : ""}
+  ${buildBehaviorNotes({
+      inputSchema,
+      isArgumentlessTool,
+      isEffectivelyNoArgTool,
+      schemaWasNormalized,
+      outputSchemaWasInferred,
+      varsDeprecated,
+      overrideNotes: Array.isArray(mcpNotes) ? mcpNotes : (mcpNotes ? [mcpNotes] : null),
+      legacyToolName,
+      safeToolName,
+    })}
 
 ${endpointUpsertHandlerGuide}
 `);

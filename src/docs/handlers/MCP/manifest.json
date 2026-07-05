@@ -3,6 +3,16 @@
   "label": "MCP",
   "status": "active",
   "summary": "Exposes enabled endpoints as MCP tools for AI agents.",
+  "tool_contract": {
+    "name_pattern": "snake_case",
+    "preferred_patterns": ["verb_noun", "verb_domain_noun"],
+    "required_descriptive_fields": ["mcp.name", "mcp.title", "mcp.description", "json_schema.in"],
+    "recommended_governance_fields": ["mcp.meta.operation_mode", "mcp.meta.requires_explicit_confirmation", "mcp.meta.side_effects", "mcp.meta.safe_alternative", "mcp.meta.risk_level"],
+    "description_prefix_rules": {
+      "read_only": "READ ONLY:",
+      "write": "WRITE OPERATION:"
+    }
+  },
   "docs": {
     "main": "README.md",
     "generated": [],
@@ -10,6 +20,6 @@
   },
   "configuration": {
     "code": "Handler-specific configuration for the MCP gateway endpoint.",
-    "custom_data": "Optional runtime metadata for the MCP transport or server behavior."
+    "custom_data": "Optional runtime metadata for the MCP transport or server behavior. Keep MCP governance metadata in mcp.meta; use custom_data only for runtime/transport details."
   }
 }

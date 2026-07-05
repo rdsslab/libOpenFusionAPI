@@ -1,6 +1,6 @@
 {
-  "name": "@edwinspire/libopenfusionapi",
-  "version": "5.2.3",
+  "name": "@rdsslab/libopenfusionapi",
+  "version": "6.0.1",
   "description": "Library based on Fastify to create APIs quickly and easily from a web interface.",
   "scripts": {
     "test": "node ./dev/test/index.js",
@@ -25,7 +25,7 @@
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/edwinspire/libOpenFusionAPI.git"
+    "url": "git+https://github.com/rdsslab/libOpenFusionAPI.git"
   },
   "main": "index.js",
   "keywords": [
@@ -36,18 +36,18 @@
     "edwinspire",
     "SQL",
     "SOAP",
-    "Websocket"
+    "Websocket", "rdsslab"
   ],
   "author": "edwinspire",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/edwinspire/libOpenFusionAPI/issues"
+    "url": "https://github.com/rdsslab/libOpenFusionAPI/issues"
   },
-  "homepage": "https://github.com/edwinspire/libOpenFusionAPI#readme",
+  "homepage": "https://github.com/rdsslab/libOpenFusionAPI#readme",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.85.0",
-    "@edwinspire/sequential-promises": "https://github.com/edwinspire/sequential-promises",
-    "@edwinspire/universal-fetch": "https://github.com/edwinspire/universal-fetch.git",
+    "@rdsslab/sequential-promises": "https://github.com/rdsslab/sequential-promises.git",
+    "@rdsslab/uFetch": "https://github.com/rdsslab/uFetch.git",
     "@fastify/cookie": "^11.0.2",
     "@fastify/cors": "^11.2.0",
     "@fastify/formbody": "^8.0.2",

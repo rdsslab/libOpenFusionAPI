@@ -5,7 +5,11 @@ import {
 import {
   createLog,
   getLogs,
-  getLogsRecordsPerMinute, getLogSummaryByAppStatusCode
+  getLogsRecordsPerMinute,
+  getLogSummaryByAppStatusCode,
+  getTraceErrorsOnly,
+  getTraceSlowestHops,
+  getTraceSummary,
 } from "../../../../../db/log.js";
 import { getAllEndpoints } from "../../../../../db/endpoint.js";
 import { Application as App } from "../../../../../db/models.js";
@@ -40,6 +44,63 @@ export async function fnGetLogs(params) {
     r.code = 200;
   } catch (error) {
     r.data = error;
+    r.code = 500;
+  }
+  return r;
+}
+
+export async function fnGetTraceErrorsOnly(params) {
+  let r = { data: undefined, code: 204 };
+
+  try {
+    const queryParams = params?.request?.query || {};
+    const bodyParams = params?.request?.body || {};
+    const merged = { ...queryParams, ...bodyParams };
+
+    const data = await getTraceErrorsOnly(merged);
+
+    r.data = data;
+    r.code = 200;
+  } catch (error) {
+    r.data = { error: error?.message || String(error) };
+    r.code = 500;
+  }
+  return r;
+}
+
+export async function fnGetTraceSlowestHops(params) {
+  let r = { data: undefined, code: 204 };
+
+  try {
+    const queryParams = params?.request?.query || {};
+    const bodyParams = params?.request?.body || {};
+    const merged = { ...queryParams, ...bodyParams };
+
+    const data = await getTraceSlowestHops(merged);
+
+    r.data = data;
+    r.code = 200;
+  } catch (error) {
+    r.data = { error: error?.message || String(error) };
+    r.code = 500;
+  }
+  return r;
+}
+
+export async function fnGetTraceSummary(params) {
+  let r = { data: undefined, code: 204 };
+
+  try {
+    const queryParams = params?.request?.query || {};
+    const bodyParams = params?.request?.body || {};
+    const merged = { ...queryParams, ...bodyParams };
+
+    const data = await getTraceSummary(merged);
+
+    r.data = data;
+    r.code = 200;
+  } catch (error) {
+    r.data = { error: error?.message || String(error) };
     r.code = 500;
   }
   return r;

@@ -151,16 +151,29 @@ Generic signs that the URL is **not** a real WSDL URL:
 <details>
 <summary>🔍 Service Discovery</summary>
 
-To inspect a SOAP service and see available methods and inputs, you can include `"describe()": true` in your configuration or passed arguments.
+To inspect a SOAP service and obtain a full description of its services, ports, and methods as a JavaScript object, you can send `{"describe()": true}` in the request payload.
 
 ```json
 {
-  "wsdl": "...",
   "describe()": true
 }
 ```
 
-This returns the client description (methods, inputs, and outputs) directly as the response.
+This returns the client description directly as a JSON response similar to the following structure:
+
+```json
+{
+  "MyService": {
+    "MyPort": {
+      "MyFunction": {
+        "input": {
+          "name": "string"
+        }
+      }
+    }
+  }
+}
+```
 
 For agents, `describe()` should be the default first step whenever the callable method name is not already verified from a known-good contract.
 

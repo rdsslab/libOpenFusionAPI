@@ -821,7 +821,11 @@ export const system_app = {
         "enabled": true,
         "name": "cache_status",
         "title": "Get Endpoint Cache Status",
-        "description": "Returns a catalog of currently cached endpoints for one app and optional environment. Use it to inspect cache state before/after invalidation."
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns a catalog of currently cached endpoints for one app and optional environment. Use it to inspect cache state before/after invalidation.",
+        "operation_mode": "read",
+        "requires_explicit_confirmation": false,
+        "side_effects": "No persistent write side effects expected.",
+        "safe_alternative": "N/A"
       },
       "json_schema": {
         "in": {
@@ -985,7 +989,11 @@ export const system_app = {
         "enabled": true,
         "name": "upsert_mongodb_endpoint_handler",
         "title": "UPSERT MONGODB Endpoint",
-        "description": "Creates or updates MONGODB endpoints using a simplified payload. Send `mongo_code` and `mongo_config`, and this wrapper maps them to endpoint_upsert with handler=MONGODB."
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nCreates or updates MONGODB endpoints using a simplified payload. Send `mongo_code` and `mongo_config`, and this wrapper maps them to endpoint_upsert with handler=MONGODB.",
+        "operation_mode": "write",
+        "requires_explicit_confirmation": true,
+        "side_effects": "May create, update, delete, restore, migrate, or invalidate application resources.",
+        "safe_alternative": "Use a read-only catalog/search/status tool first to verify target ids and scope."
       },
       "json_schema": {
         "in": {
@@ -1531,11 +1539,16 @@ export const system_app = {
         "enabled": true,
         "name": "agent_onboarding",
         "title": "Agent Onboarding Guide",
-        "description": "Returns best practices, recommended workflows, and key tips for MCP agents (AI or human) to use the OpenFusionAPI toolset efficiently and safely. Agents must not modify endpoints unless the user explicitly requests it or explicitly authorizes it, with stricter caution for endpoints in the system application. All content is provided in English."
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns best practices, recommended workflows, and key tips for MCP agents (AI or human) to use the OpenFusionAPI toolset efficiently and safely. Agents must not modify endpoints unless the user explicitly requests it or explicitly authorizes it, with stricter caution for endpoints in the system application. All content is provided in English.",
+        "operation_mode": "read",
+        "requires_explicit_confirmation": false,
+        "side_effects": "No persistent write side effects expected.",
+        "safe_alternative": "N/A",
+        "exampleRequest": {}
       },
       "json_schema": {
         "in": {
-          "enabled": false,
+          "enabled": true,
           "schema": {
             "type": "object",
             "properties": {},
@@ -1562,6 +1575,12 @@ export const system_app = {
                     "type": "string"
                   },
                   "get_system_logs": {
+                    "type": "string"
+                  },
+                  "mcp_readme": {
+                    "type": "string"
+                  },
+                  "mcp_skill": {
                     "type": "string"
                   }
                 },
@@ -1976,7 +1995,18 @@ export const system_app = {
         "enabled": true,
         "name": "app_endpoints",
         "title": "List all endpoints of an app",
-        "description": "Returns the COMPLETE list of all endpoints for one application identified by 'idapp', across all environments (dev, qa, prd) and regardless of enabled/disabled status. Use this tool when you need the full inventory of endpoints for an app. To search for a specific endpoint by keyword, use 'search_endpoints' instead. To discover the idapp use 'apps_list' or 'apps_catalog'. Use the optional 'attributes' array to request only specific fields and reduce the payload size."
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns the COMPLETE list of all endpoints for one application identified by 'idapp', across all environments (dev, qa, prd) and regardless of enabled/disabled status. Use this tool when you need the full inventory of endpoints for an app. To search for a specific endpoint by keyword, use 'search_endpoints' instead. To discover the idapp use 'apps_list' or 'apps_catalog'. Use the optional 'attributes' array to request only specific fields and reduce the payload size.",
+        "operation_mode": "read",
+        "requires_explicit_confirmation": false,
+        "side_effects": "No persistent write side effects expected.",
+        "safe_alternative": "N/A",
+        "exampleRequest": {
+          "idapp": "00000000-0000-0000-0000-000000000001"
+        },
+        "notes": [
+          "Use this when you need more than discovery, for example when comparing endpoint settings across one app or reviewing multiple endpoint records together.",
+          "Prefer `app_endpoints_catalog` for initial discovery because that catalog is lighter and excludes larger payload fields by default."
+        ]
       },
       "json_schema": {
         "in": {
@@ -2102,7 +2132,19 @@ export const system_app = {
         "enabled": true,
         "name": "app_vars_catalog",
         "title": "List Application Variable Catalog (Lightweight)",
-        "description": "Returns a lightweight list of AppVar names, types and environments for one app — variable values are excluded unless 'include_values: true' is set. Use this to discover which variables exist before reading or updating them. For the full variable data including values use 'app_vars'. To resolve the effective runtime value of a specific variable use 'appvars_effective_resolve'."
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns a lightweight list of AppVar names, types and environments for one app — variable values are excluded unless 'include_values: true' is set. Use this to discover which variables exist before reading or updating them. For the full variable data including values use 'app_vars'. To resolve the effective runtime value of a specific variable use 'appvars_effective_resolve'.",
+        "operation_mode": "read",
+        "requires_explicit_confirmation": false,
+        "side_effects": "No persistent write side effects expected.",
+        "safe_alternative": "N/A",
+        "exampleRequest": {
+          "idapp": "00000000-0000-0000-0000-000000000001",
+          "environment": "prd",
+          "include_values": false
+        },
+        "notes": [
+          "Prefer this over `app_vars` for discovery workflows because it avoids returning variable values unless explicitly requested."
+        ]
       },
       "json_schema": {
         "in": {
@@ -2226,7 +2268,11 @@ export const system_app = {
         "enabled": true,
         "name": "cache_invalidate",
         "title": "Invalidate Endpoint Cache",
-        "description": "Invalidates endpoint cache entries by `idapp` (optionally `environment`) or by a specific `idendpoint`. Use this when endpoint definitions or app variables changed and you need fresh data on next request."
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nInvalidates endpoint cache entries by `idapp` (optionally `environment`) or by a specific `idendpoint`. Use this when endpoint definitions or app variables changed and you need fresh data on next request.",
+        "operation_mode": "write",
+        "requires_explicit_confirmation": true,
+        "side_effects": "May create, update, delete, restore, migrate, or invalidate application resources.",
+        "safe_alternative": "Use a read-only catalog/search/status tool first to verify target ids and scope."
       },
       "json_schema": {
         "in": {
@@ -2330,7 +2376,11 @@ export const system_app = {
         "enabled": true,
         "name": "upsert_fetch_endpoint_handler",
         "title": "UPSERT FETCH Endpoint",
-        "description": "Creates or updates FETCH endpoints using a simplified payload. Send `target_url` and this wrapper maps it to endpoint_upsert with handler=FETCH."
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nCreates or updates FETCH endpoints using a simplified payload. Send `target_url` and this wrapper maps it to endpoint_upsert with handler=FETCH.",
+        "operation_mode": "write",
+        "requires_explicit_confirmation": true,
+        "side_effects": "May create, update, delete, restore, migrate, or invalidate application resources.",
+        "safe_alternative": "Use a read-only catalog/search/status tool first to verify target ids and scope."
       },
       "json_schema": {
         "in": {
@@ -2613,7 +2663,11 @@ export const system_app = {
         "enabled": true,
         "name": "endpoint_migrate",
         "title": "Migrate Endpoint to Another Environment",
-        "description": "Copies one or more endpoints from their current environment to a target environment (dev, qa, or prd). The original endpoint is NOT deleted — this is a copy/promote operation, not a move. Each item in the array requires 'idendpoint' (UUID of the source endpoint) and 'target_env' (destination environment). Possible per-item outcomes: 'success' (migrated and new_idendpoint is returned), 'ignored' (source is already in target_env), 'already exists' (an endpoint with same app+resource+method already exists in target_env — treated as success, no duplicate is created), or 'error'. To obtain idendpoint values use 'app_endpoints' (full list) or 'search_endpoints' (by keyword). To verify the migration use 'app_endpoints' filtering by the target environment after calling this tool."
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nCopies one or more endpoints from their current environment to a target environment (dev, qa, or prd). The original endpoint is NOT deleted — this is a copy/promote operation, not a move. Each item in the array requires 'idendpoint' (UUID of the source endpoint) and 'target_env' (destination environment). Possible per-item outcomes: 'success' (migrated and new_idendpoint is returned), 'ignored' (source is already in target_env), 'already exists' (an endpoint with same app+resource+method already exists in target_env — treated as success, no duplicate is created), or 'error'. To obtain idendpoint values use 'app_endpoints' (full list) or 'search_endpoints' (by keyword). To verify the migration use 'app_endpoints' filtering by the target environment after calling this tool.",
+        "operation_mode": "write",
+        "requires_explicit_confirmation": true,
+        "side_effects": "May create, update, delete, restore, migrate, or invalidate application resources.",
+        "safe_alternative": "Use a read-only catalog/search/status tool first to verify target ids and scope."
       },
       "json_schema": {
         "in": {
@@ -2763,7 +2817,11 @@ export const system_app = {
         "enabled": true,
         "name": "appvar_migrate",
         "title": "Migrate AppVar to Another Environment",
-        "description": "Copies one or more application variables (AppVars) from their current environment to a target environment (dev, qa, or prd). The original AppVar is NOT deleted — this is a copy/promote operation, not a move. Each item in the array requires 'idappvar' (UUID of the source AppVar) and 'target_env' (destination environment). Possible per-item outcomes: 'success' (migrated and new_idappvar is returned), 'ignored' (source is already in target_env), 'already exists' (an AppVar with same app+name already exists in target_env — treated as success, variable replaced), or 'error'. To obtain idappvar values use 'app_vars' (full list) or query AppVars by idapp. To verify the migration use 'app_vars' filtering by the target environment after calling this tool."
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nCopies one or more application variables (AppVars) from their current environment to a target environment (dev, qa, or prd). The original AppVar is NOT deleted — this is a copy/promote operation, not a move. Each item in the array requires 'idappvar' (UUID of the source AppVar) and 'target_env' (destination environment). Possible per-item outcomes: 'success' (migrated and new_idappvar is returned), 'ignored' (source is already in target_env), 'already exists' (an AppVar with same app+name already exists in target_env — treated as success, variable replaced), or 'error'. To obtain idappvar values use 'app_vars' (full list) or query AppVars by idapp. To verify the migration use 'app_vars' filtering by the target environment after calling this tool.",
+        "operation_mode": "write",
+        "requires_explicit_confirmation": true,
+        "side_effects": "May create, update, delete, restore, migrate, or invalidate application resources.",
+        "safe_alternative": "Use a read-only catalog/search/status tool first to verify target ids and scope."
       },
       "json_schema": {
         "in": {
@@ -2913,7 +2971,11 @@ export const system_app = {
         "enabled": true,
         "name": "search_endpoints",
         "title": "Search Endpoints",
-        "description": "Full-text keyword search across endpoints. Searches title, description, resource, and keywords fields using a LIKE pattern. The 'query' parameter is optional — omitting it (or leaving other filters like idapp, environment, or handler) returns all matching endpoints. Optionally searches inside source code with 'search_code: true'. Returns a lightweight catalog (no source code by default). Max results: 200 (default 50, use 'offset' for pagination). To retrieve ALL endpoints of a specific app use 'app_endpoints' with the idapp."
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nFull-text keyword search across endpoints. Searches title, description, resource, and keywords fields using a LIKE pattern. The 'query' parameter is optional — omitting it (or leaving other filters like idapp, environment, or handler) returns all matching endpoints. Optionally searches inside source code with 'search_code: true'. Returns a lightweight catalog (no source code by default). Max results: 200 (default 50, use 'offset' for pagination). To retrieve ALL endpoints of a specific app use 'app_endpoints' with the idapp.",
+        "operation_mode": "read",
+        "requires_explicit_confirmation": false,
+        "side_effects": "No persistent write side effects expected.",
+        "safe_alternative": "N/A"
       },
       "json_schema": {
         "in": {
@@ -3054,7 +3116,11 @@ export const system_app = {
         "enabled": true,
         "name": "endpoint_versions_matrix",
         "title": "Get Endpoint Versions Matrix",
-        "description": "Returns endpoints grouped by resource+method with per-environment metadata (idendpoint, createdAt, updatedAt) plus comparison flags for code and configuration differences. Supports optional filtering by idendpoint (returns the same endpoint family across environments) and idapp. Use it to identify which environments are identical or different and which version is the best candidate to replicate."
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns endpoints grouped by resource+method with per-environment metadata (idendpoint, createdAt, updatedAt) plus comparison flags for code and configuration differences. Supports optional filtering by idendpoint (returns the same endpoint family across environments) and idapp. Use it to identify which environments are identical or different and which version is the best candidate to replicate.",
+        "operation_mode": "read",
+        "requires_explicit_confirmation": false,
+        "side_effects": "No persistent write side effects expected.",
+        "safe_alternative": "N/A"
       },
       "json_schema": {
         "in": {
@@ -3341,7 +3407,11 @@ export const system_app = {
         "enabled": true,
         "name": "endpoint_get_code",
         "title": "Get Endpoint Source Code",
-        "description": "Returns ONLY the source code and basic metadata of a specific endpoint by 'idendpoint'. Much lighter than 'read_endpoint_data' — use this when you need to read or modify the logic of an existing endpoint without downloading the full configuration (json_schema, data_test, ctrl, etc.). Call 'read_endpoint_data' first to discover the idendpoint if you do not already have it."
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns ONLY the source code and basic metadata of a specific endpoint by 'idendpoint'. Much lighter than 'read_endpoint_data' — use this when you need to read or modify the logic of an existing endpoint without downloading the full configuration (json_schema, data_test, ctrl, etc.). Call 'read_endpoint_data' first to discover the idendpoint if you do not already have it.",
+        "operation_mode": "read",
+        "requires_explicit_confirmation": false,
+        "side_effects": "No persistent write side effects expected.",
+        "safe_alternative": "N/A"
       },
       "json_schema": {
         "in": {
@@ -3707,7 +3777,11 @@ export const system_app = {
         "enabled": true,
         "name": "upsert_js_endpoint_handler",
         "title": "UPSERT JS Endpoint",
-        "description": "Creates or updates JS endpoints using a simplified payload. Send `js_code` and this wrapper maps it to endpoint_upsert with handler=JS."
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nCreates or updates JS endpoints using a simplified payload. Send `js_code` and this wrapper maps it to endpoint_upsert with handler=JS.",
+        "operation_mode": "write",
+        "requires_explicit_confirmation": true,
+        "side_effects": "May create, update, delete, restore, migrate, or invalidate application resources.",
+        "safe_alternative": "Use a read-only catalog/search/status tool first to verify target ids and scope."
       },
       "json_schema": {
         "in": {
@@ -3989,7 +4063,11 @@ export const system_app = {
         "enabled": true,
         "name": "list_api_clients",
         "title": "List API Clients",
-        "description": "Returns API clients with optional filters. If no filters are provided, it returns all clients ordered by username."
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns API clients with optional filters. If no filters are provided, it returns all clients ordered by username.",
+        "operation_mode": "read",
+        "requires_explicit_confirmation": false,
+        "side_effects": "No persistent write side effects expected.",
+        "safe_alternative": "N/A"
       },
       "json_schema": {
         "in": {
@@ -4104,7 +4182,11 @@ export const system_app = {
         "enabled": true,
         "name": "get_libopenfusionapi_latest_version",
         "title": "Get Latest libOpenFusionAPI Version",
-        "description": "Returns the latest published libOpenFusionAPI version from the GitHub repository."
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns the latest published libOpenFusionAPI version from the GitHub repository.",
+        "operation_mode": "read",
+        "requires_explicit_confirmation": false,
+        "side_effects": "No persistent write side effects expected.",
+        "safe_alternative": "N/A"
       },
       "json_schema": {
         "in": {
@@ -4214,7 +4296,11 @@ export const system_app = {
         "enabled": true,
         "name": "upsert_hana_endpoint_handler",
         "title": "UPSERT HANA Endpoint",
-        "description": "Creates or updates HANA endpoints using a simplified payload. Send `hana_code` and optional `hana_config`, and this wrapper maps them to endpoint_upsert with handler=HANA. Runtime note: repeated query-string keys follow Fastify semantics and are preserved as arrays."
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nCreates or updates HANA endpoints using a simplified payload. Send `hana_code` and optional `hana_config`, and this wrapper maps them to endpoint_upsert with handler=HANA. Runtime note: repeated query-string keys follow Fastify semantics and are preserved as arrays.",
+        "operation_mode": "write",
+        "requires_explicit_confirmation": true,
+        "side_effects": "May create, update, delete, restore, migrate, or invalidate application resources.",
+        "safe_alternative": "Use a read-only catalog/search/status tool first to verify target ids and scope."
       },
       "json_schema": {
         "in": {
@@ -4494,7 +4580,11 @@ export const system_app = {
         "enabled": true,
         "name": "get_app_list",
         "title": "Get Application List",
-        "description": "It returns the list of registered applications, but does not return the endpoints associated with each app."
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nIt returns the list of registered applications, but does not return the endpoints associated with each app.",
+        "operation_mode": "read",
+        "requires_explicit_confirmation": false,
+        "side_effects": "No persistent write side effects expected.",
+        "safe_alternative": "N/A"
       },
       "json_schema": {
         "in": {
@@ -4583,7 +4673,14 @@ export const system_app = {
         "enabled": true,
         "name": "handler_documentation",
         "title": "Handler Documentation",
-        "description": "Returns canonical documentation for one endpoint handler, including usage notes and optional generated references/examples. Call this before building complex handler payloads (for example SQL_BULK_I, SOAP, HANA, MONGODB, MCP, TELEGRAM_BOT) in `endpoint_upsert`."
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns canonical documentation for one endpoint handler, including usage notes and optional generated references/examples. Call this before building complex handler payloads (for example SQL_BULK_I, SOAP, HANA, MONGODB, MCP, TELEGRAM_BOT) in `endpoint_upsert`.",
+        "operation_mode": "read",
+        "requires_explicit_confirmation": false,
+        "side_effects": "No persistent write side effects expected.",
+        "safe_alternative": "N/A",
+        "exampleRequest": {
+          "handler": "JS"
+        }
       },
       "json_schema": {
         "in": {
@@ -4740,7 +4837,11 @@ export const system_app = {
         "enabled": true,
         "name": "handler_library_documentation",
         "title": "JS Handler Library Documentation",
-        "description": "Returns the detailed documentation for a specific library or helper function available in the JS handler sandbox (e.g., createPDFFromHTML, uFetch, luxon)."
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns the detailed documentation for a specific library or helper function available in the JS handler sandbox (e.g., createPDFFromHTML, uFetch, luxon).",
+        "operation_mode": "read",
+        "requires_explicit_confirmation": false,
+        "side_effects": "No persistent write side effects expected.",
+        "safe_alternative": "N/A"
       },
       "json_schema": {
         "in": {
@@ -4857,7 +4958,11 @@ export const system_app = {
         "enabled": true,
         "name": "get_handler_skill",
         "title": "Get Handler Skill",
-        "description": "Returns the AI agent skill instructions, role definition, templates, and constraints for a specific endpoint handler."
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns the AI agent skill instructions, role definition, templates, and constraints for a specific endpoint handler.",
+        "operation_mode": "read",
+        "requires_explicit_confirmation": false,
+        "side_effects": "No persistent write side effects expected.",
+        "safe_alternative": "N/A"
       },
       "json_schema": {
         "in": {
@@ -4962,7 +5067,11 @@ export const system_app = {
         "enabled": true,
         "name": "list_function_names",
         "title": "List Function Names",
-        "description": "Returns function names available for one application and environment. Required query fields: `environment` and `appName`."
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns function names available for one application and environment. Required query fields: `environment` and `appName`.",
+        "operation_mode": "read",
+        "requires_explicit_confirmation": false,
+        "side_effects": "No persistent write side effects expected.",
+        "safe_alternative": "N/A"
       },
       "json_schema": {
         "in": {
@@ -5169,7 +5278,15 @@ export const system_app = {
         "enabled": true,
         "name": "endpoint_upsert",
         "title": "Endpoint UPSERT",
-        "description": "Creates or updates an endpoint. For updates, retrieve the current endpoint state using `read_endpoint_data` first. Prefer handler-specific wrappers (such as `upsert_js_endpoint_handler`) over this generic endpoint."
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nCreates or updates an endpoint. For updates, retrieve the current endpoint state using `read_endpoint_data` first. Prefer handler-specific wrappers (such as `upsert_js_endpoint_handler`) over this generic endpoint.",
+        "operation_mode": "write",
+        "requires_explicit_confirmation": true,
+        "side_effects": "May create, update, delete, restore, migrate, or invalidate application resources.",
+        "safe_alternative": "Use a read-only catalog/search/status tool first to verify target ids and scope.",
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": true
+        }
       },
       "json_schema": {
         "in": {
@@ -5523,7 +5640,16 @@ export const system_app = {
         "enabled": true,
         "name": "app_create_update",
         "title": "Create or Update Application",
-        "description": "Creates or updates the main Application record only. This is the first step in the recommended workflow: create the application, then create shared AppVars with 'appvar_upsert', then attach endpoints with 'endpoint_upsert'. Does NOT create endpoints or AppVars by itself. Operation mode: omit 'idapp' for INSERT; include a valid UUID in 'idapp' for UPDATE. The 'app' name is normalized to lowercase, must be unique, and must match [a-zA-Z0-9_~.-] (max 50 chars)."
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nCreates or updates the main Application record only. This is the first step in the recommended workflow: create the application, then create shared AppVars with 'appvar_upsert', then attach endpoints with 'endpoint_upsert'. Does NOT create endpoints or AppVars by itself. Operation mode: omit 'idapp' for INSERT; include a valid UUID in 'idapp' for UPDATE. The 'app' name is normalized to lowercase, must be unique, and must match [a-zA-Z0-9_~.-] (max 50 chars).",
+        "operation_mode": "write",
+        "requires_explicit_confirmation": true,
+        "side_effects": "May create, update, delete, restore, migrate, or invalidate application resources.",
+        "safe_alternative": "Use a read-only catalog/search/status tool first to verify target ids and scope.",
+        "exampleRequest": {
+          "app": "my_new_app",
+          "enabled": true,
+          "description": "Example application"
+        }
       },
       "json_schema": {
         "in": {
@@ -5784,7 +5910,11 @@ export const system_app = {
         "enabled": true,
         "name": "list_all_bots",
         "title": "List All API Clients (Bots)",
-        "description": "Returns all registered API clients (also referred to as bots). An API client is an external agent or service that authenticates via API key to call OpenFusionAPI endpoints. Each entry includes the client credentials and the app it is associated with. Use 'list_api_clients' to filter by username or idclient."
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns all registered API clients (also referred to as bots). An API client is an external agent or service that authenticates via API key to call OpenFusionAPI endpoints. Each entry includes the client credentials and the app it is associated with. Use 'list_api_clients' to filter by username or idclient.",
+        "operation_mode": "read",
+        "requires_explicit_confirmation": false,
+        "side_effects": "No persistent write side effects expected.",
+        "safe_alternative": "N/A"
       },
       "json_schema": {
         "in": {
@@ -5918,7 +6048,11 @@ export const system_app = {
         "enabled": true,
         "name": "endpoint_restore_version",
         "title": "Restore Endpoint Version",
-        "description": "Restores an endpoint to a previous version using a specific 'idbackup'. This is a powerful one-click rollback tool. To find the correct idbackup, first call 'endpoint_change_history' with 'lightweight: true' to see the list of available backups and their timestamps."
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nRestores an endpoint to a previous version using a specific 'idbackup'. This is a powerful one-click rollback tool. To find the correct idbackup, first call 'endpoint_change_history' with 'lightweight: true' to see the list of available backups and their timestamps.",
+        "operation_mode": "write",
+        "requires_explicit_confirmation": true,
+        "side_effects": "May create, update, delete, restore, migrate, or invalidate application resources.",
+        "safe_alternative": "Use a read-only catalog/search/status tool first to verify target ids and scope."
       },
       "json_schema": {
         "in": {
@@ -6214,7 +6348,20 @@ export const system_app = {
         "enabled": true,
         "name": "appvars_effective_resolve",
         "title": "Resolve Effective AppVar Value",
-        "description": "Resolves the effective value of one AppVar for `idapp` + `environment`, indicating whether it came from cache snapshot or live DB lookup."
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nResolves the effective value of one AppVar for `idapp` + `environment`, indicating whether it came from cache snapshot or live DB lookup.",
+        "operation_mode": "read",
+        "requires_explicit_confirmation": false,
+        "side_effects": "No persistent write side effects expected.",
+        "safe_alternative": "N/A",
+        "exampleRequest": {
+          "idapp": "00000000-0000-0000-0000-000000000001",
+          "environment": "prd",
+          "name": "MY_CONFIG_VALUE"
+        },
+        "notes": [
+          "Use this after `appvar_upsert` when you need to confirm the runtime value that endpoints will actually see.",
+          "If the result indicates cached data and you expected a fresh value, inspect cache state or invalidate cache before retesting dependent endpoints."
+        ]
       },
       "json_schema": {
         "in": {
@@ -6360,7 +6507,11 @@ export const system_app = {
         "enabled": true,
         "name": "execute_endpoint_test",
         "title": "Execute Endpoint Test",
-        "description": "Executes an endpoint via an internal HTTP call and returns the result (status_code, response_time_ms, response body). Ideal for agents to verify that an endpoint they just created or modified works correctly. Simplest usage: provide only 'idendpoint' — the tool auto-resolves app name, resource and method from the DB. Optionally override 'environment' (default: prd), provide 'payload' for request bodies, 'query_params' for GET, 'headers' for custom request headers, and 'bearer_token' for authenticated endpoints. Saved test metadata (`data_test` / `headers_test`) is used only when `use_data_test_fallback=true`. When testing by explicit 'app' + 'resource', always send 'method' if you also send 'payload'. The result also includes the resolved query params, payload, headers, payload source, warnings, and serialized request body actually sent, so agents can debug request forwarding without writing local scripts. Endpoints that require auth and have no public access will need a valid bearer_token."
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nExecutes an endpoint via an internal HTTP call and returns the result (status_code, response_time_ms, response body). Ideal for agents to verify that an endpoint they just created or modified works correctly. Simplest usage: provide only 'idendpoint' — the tool auto-resolves app name, resource and method from the DB. Optionally override 'environment' (default: prd), provide 'payload' for request bodies, 'query_params' for GET, 'headers' for custom request headers, and 'bearer_token' for authenticated endpoints. Saved test metadata (`data_test` / `headers_test`) is used only when `use_data_test_fallback=true`. When testing by explicit 'app' + 'resource', always send 'method' if you also send 'payload'. The result also includes the resolved query params, payload, headers, payload source, warnings, and serialized request body actually sent, so agents can debug request forwarding without writing local scripts. Endpoints that require auth and have no public access will need a valid bearer_token.",
+        "operation_mode": "read",
+        "requires_explicit_confirmation": false,
+        "side_effects": "No persistent write side effects expected.",
+        "safe_alternative": "N/A"
       },
       "json_schema": {
         "in": {
@@ -6619,7 +6770,18 @@ export const system_app = {
         "enabled": true,
         "name": "endpoint_source_summary",
         "title": "Get Endpoint Source Summary",
-        "description": "Returns a compact source summary for one endpoint: code length, line count, and a configurable code preview — without downloading the full endpoint payload. Use this to quickly inspect endpoint logic before deciding whether to call 'endpoint_get_code' for the full source or 'read_endpoint_data' for the full configuration. Lighter than both alternatives."
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns a compact source summary for one endpoint: code length, line count, and a configurable code preview — without downloading the full endpoint payload. Use this to quickly inspect endpoint logic before deciding whether to call 'endpoint_get_code' for the full source or 'read_endpoint_data' for the full configuration. Lighter than both alternatives.",
+        "operation_mode": "read",
+        "requires_explicit_confirmation": false,
+        "side_effects": "No persistent write side effects expected.",
+        "safe_alternative": "N/A",
+        "exampleRequest": {
+          "idendpoint": "00000000-0000-0000-0000-000000000002",
+          "preview_lines": 40
+        },
+        "notes": [
+          "Prefer this over `read_endpoint_data` when the agent only needs a quick code preview or wants to estimate source size before requesting the full endpoint configuration."
+        ]
       },
       "json_schema": {
         "in": {
@@ -6743,10 +6905,14 @@ export const system_app = {
       },
       "cors": {},
       "mcp": {
-        "description": "Connects to a database using explicit Sequelize connection parameters, lists all tables (optional schema filter), and returns each table column structure.",
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nConnects to a database using explicit Sequelize connection parameters, lists all tables (optional schema filter), and returns each table column structure.",
         "enabled": true,
         "name": "describe_all_tables",
-        "title": "Describe All Database Tables"
+        "title": "Describe All Database Tables",
+        "operation_mode": "read",
+        "requires_explicit_confirmation": false,
+        "side_effects": "No persistent write side effects expected.",
+        "safe_alternative": "N/A"
       },
       "json_schema": {
         "in": {
@@ -6950,7 +7116,11 @@ export const system_app = {
         "enabled": true,
         "name": "endpoint_delete",
         "title": "Delete Endpoint",
-        "description": "Permanently deletes an endpoint from the database and registry."
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nPermanently deletes an endpoint from the database and registry.",
+        "operation_mode": "write",
+        "requires_explicit_confirmation": true,
+        "side_effects": "May create, update, delete, restore, migrate, or invalidate application resources.",
+        "safe_alternative": "Use a read-only catalog/search/status tool first to verify target ids and scope."
       },
       "json_schema": {
         "in": {
@@ -7097,7 +7267,20 @@ export const system_app = {
         "enabled": true,
         "name": "apps_catalog",
         "title": "List Application Catalog (Lightweight)",
-        "description": "Returns a lightweight list of applications: names, idapp, enabled status and description — without nested endpoints or AppVars. Use this to discover idapp values or check which apps exist. For a full payload including endpoints and variables use 'apps_list'. To get endpoints of a specific app use 'app_endpoints'."
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns a lightweight list of applications: names, idapp, enabled status and description — without nested endpoints or AppVars. Use this to discover idapp values or check which apps exist. For a full payload including endpoints and variables use 'apps_list'. To get endpoints of a specific app use 'app_endpoints'.",
+        "operation_mode": "read",
+        "requires_explicit_confirmation": false,
+        "side_effects": "No persistent write side effects expected.",
+        "safe_alternative": "N/A",
+        "exampleRequest": {
+          "enabled": true,
+          "limit": 50,
+          "offset": 0
+        },
+        "notes": [
+          "Prefer this over `apps_list` for initial discovery because the payload is smaller and excludes nested endpoint trees.",
+          "Move to `apps_list` or `get_app_list_filters` only when you need nested endpoints, variables, or filter-driven inspection."
+        ]
       },
       "json_schema": {
         "in": {
@@ -7347,7 +7530,11 @@ export const system_app = {
         "enabled": true,
         "name": "describe_table_structure",
         "title": "Describe Table Structure",
-        "description": "Returns table column metadata using explicit Sequelize connection settings provided in the request body."
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns table column metadata using explicit Sequelize connection settings provided in the request body.",
+        "operation_mode": "read",
+        "requires_explicit_confirmation": false,
+        "side_effects": "No persistent write side effects expected.",
+        "safe_alternative": "N/A"
       },
       "json_schema": {
         "in": {
@@ -7557,7 +7744,23 @@ export const system_app = {
         "enabled": true,
         "name": "appvar_upsert",
         "title": "Create or Update Application Variable",
-        "description": "Creates or updates a reusable application variable for a target `idapp` and `environment`. Use this after creating the application and before creating endpoints when configuration must be shared across multiple endpoints. Supported environments commonly used by agents are `dev`, `qa`, and `prd`. `value` is stored as a string in this contract. When an endpoint JSON payload needs an AppVar placeholder, embed it as the string `\"$_VAR_NAME\"`."
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nCreates or updates a reusable application variable for a target `idapp` and `environment`. Use this after creating the application and before creating endpoints when configuration must be shared across multiple endpoints. Supported environments commonly used by agents are `dev`, `qa`, and `prd`. `value` is stored as a string in this contract. When an endpoint JSON payload needs an AppVar placeholder, embed it as the string `\"$_VAR_NAME\"`.",
+        "operation_mode": "write",
+        "requires_explicit_confirmation": true,
+        "side_effects": "May create, update, delete, restore, migrate, or invalidate application resources.",
+        "safe_alternative": "Use a read-only catalog/search/status tool first to verify target ids and scope.",
+        "exampleRequest": {
+          "idapp": "00000000-0000-0000-0000-000000000001",
+          "name": "MY_CONFIG_VALUE",
+          "type": "string",
+          "environment": "prd",
+          "value": "example-value"
+        },
+        "notes": [
+          "`value` is sent as string in this contract; serialize JSON when storing structured data.",
+          "Recommended workflow: create the application first, store shared configuration with appvar_upsert, and then create endpoints that reuse those variables.",
+          "When an endpoint JSON payload needs to reference an AppVar placeholder, embed it as a string such as `\"$_VAR_NAME\"`."
+        ]
       },
       "json_schema": {
         "in": {
@@ -7698,7 +7901,14 @@ export const system_app = {
         "enabled": true,
         "name": "app_data",
         "title": "Get Application data",
-        "description": "Returns the main Application record for the provided `idapp`."
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns the main Application record for the provided `idapp`.",
+        "operation_mode": "read",
+        "requires_explicit_confirmation": false,
+        "side_effects": "No persistent write side effects expected.",
+        "safe_alternative": "N/A",
+        "exampleRequest": {
+          "idapp": "00000000-0000-0000-0000-000000000001"
+        }
       },
       "json_schema": {
         "in": {
@@ -7815,7 +8025,49 @@ export const system_app = {
         "enabled": true,
         "name": "get_app_list_filters",
         "title": "Get App with Endpoints by Filters",
-        "description": "Returns a SINGLE application with its nested endpoints and AppVars, filtered by any combination of app name, idapp, enabled status, and endpoint-level filters (environment, method, handler, resource, enabled). Use this when you need app data AND endpoint data in one call with precise filters. For simpler cases prefer: 'apps_catalog' (app names only), 'app_endpoints' (all endpoints for an app), or 'search_endpoints' (keyword search across endpoints)."
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns a SINGLE application with its nested endpoints and AppVars, filtered by any combination of app name, idapp, enabled status, and endpoint-level filters (environment, method, handler, resource, enabled). Use this when you need app data AND endpoint data in one call with precise filters. For simpler cases prefer: 'apps_catalog' (app names only), 'app_endpoints' (all endpoints for an app), or 'search_endpoints' (keyword search across endpoints).",
+        "operation_mode": "read",
+        "requires_explicit_confirmation": false,
+        "side_effects": "No persistent write side effects expected.",
+        "safe_alternative": "N/A",
+        "exampleRequest": {
+          "app": "my_app",
+          "endpoint": {
+            "environment": "prd",
+            "enabled": true
+          }
+        },
+        "exampleResponse": [
+          {
+            "idapp": "00000000-0000-0000-0000-000000000001",
+            "app": "my_app",
+            "enabled": true,
+            "description": "Example application",
+            "vrs": [
+              {
+                "name": "MY_CONFIG",
+                "type": "string",
+                "environment": "prd",
+                "value": "example-value"
+              }
+            ],
+            "endpoints": [
+              {
+                "idendpoint": "00000000-0000-0000-0000-000000000002",
+                "resource": "/api/data",
+                "method": "GET",
+                "handler": "JS",
+                "environment": "prd",
+                "enabled": true
+              }
+            ]
+          }
+        ],
+        "notes": [
+          "When multiple filters are sent, backends commonly evaluate them as AND conditions.",
+          "The response is usually app-centric: each matched application may include nested variables and matched endpoints.",
+          "A practical workflow is: start with `apps_catalog` for broad discovery, then use this tool when you already know the filter dimensions you want to constrain."
+        ]
       },
       "json_schema": {
         "in": {
@@ -8078,7 +8330,18 @@ export const system_app = {
         "enabled": true,
         "name": "read_endpoint_data",
         "title": "Read Endpoint Details",
-        "description": "Returns detailed data for a specific endpoint by `idendpoint`. Use the optional 'attributes' array to request only specific fields (e.g. ['idendpoint', 'json_schema', 'code']) and reduce payload size. If 'attributes' is omitted, all fields are returned."
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns detailed data for a specific endpoint by `idendpoint`. Use the optional 'attributes' array to request only specific fields (e.g. ['idendpoint', 'json_schema', 'code']) and reduce payload size. If 'attributes' is omitted, all fields are returned.",
+        "operation_mode": "read",
+        "requires_explicit_confirmation": false,
+        "side_effects": "No persistent write side effects expected.",
+        "safe_alternative": "N/A",
+        "exampleRequest": {
+          "idendpoint": "00000000-0000-0000-0000-000000000002"
+        },
+        "notes": [
+          "Send the endpoint identifier in `idendpoint` exactly as defined in the input schema.",
+          "Use this response as a read-before-write step prior to endpoint_upsert changes."
+        ]
       },
       "json_schema": {
         "in": {
@@ -8205,7 +8468,20 @@ export const system_app = {
         "enabled": true,
         "name": "app_endpoints_catalog",
         "title": "List endpoint catalog of an app",
-        "description": "Returns a lightweight catalog of endpoints for one application. Endpoint source code is excluded by default (set 'include_code: true' to include it). Supports filters: environment, method, handler, enabled. Use this for initial discovery or to list endpoints before calling 'read_endpoint_data' or 'endpoint_get_code'. Prefer this over 'app_endpoints' when you do not need the full endpoint payload."
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns a lightweight catalog of endpoints for one application. Endpoint source code is excluded by default (set 'include_code: true' to include it). Supports filters: environment, method, handler, enabled. Use this for initial discovery or to list endpoints before calling 'read_endpoint_data' or 'endpoint_get_code'. Prefer this over 'app_endpoints' when you do not need the full endpoint payload.",
+        "operation_mode": "read",
+        "requires_explicit_confirmation": false,
+        "side_effects": "No persistent write side effects expected.",
+        "safe_alternative": "N/A",
+        "exampleRequest": {
+          "idapp": "00000000-0000-0000-0000-000000000001",
+          "environment": "prd",
+          "include_code": false
+        },
+        "notes": [
+          "Prefer this over `app_endpoints` for discovery workflows because it avoids large `code` payloads unless explicitly requested.",
+          "Escalate to `app_endpoints` or `read_endpoint_data` only after you already know which endpoint needs detailed inspection."
+        ]
       },
       "json_schema": {
         "in": {
@@ -8339,7 +8615,21 @@ export const system_app = {
         "enabled": true,
         "name": "get_system_logs",
         "title": "Get System Logs",
-        "description": "Searches logs with optional filters. Prefer trace_id to follow a single execution trace across requests and errors."
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nSearches logs with optional filters. Prefer trace_id to follow a single execution trace across requests and errors.",
+        "operation_mode": "read",
+        "requires_explicit_confirmation": false,
+        "side_effects": "No persistent write side effects expected.",
+        "safe_alternative": "N/A",
+        "exampleRequest": {
+          "trace_id": "trace-id-example",
+          "limit": 50,
+          "orderDirection": "DESC"
+        },
+        "notes": [
+          "Prefer `trace_id` as the first filter when investigating one failing execution path.",
+          "When using date windows, send `start_date` and `end_date` together to keep the range explicit.",
+          "Use `last_hours` for quick recent searches and reserve broad unfiltered scans for exceptional cases because log volume can be high."
+        ]
       },
       "json_schema": {
         "in": {
@@ -8518,6 +8808,426 @@ export const system_app = {
           "status_success": 1,
           "status_redirect": 1,
           "status_client_error": 2,
+          "status_server_error": 3,
+          "level": 0
+        }
+      },
+      "cors": {},
+      "mcp": {
+        "enabled": true,
+        "name": "trace_errors_only",
+        "title": "Trace Errors Only",
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns only problematic HTTP requests for one trace_id. By default it includes 3xx, 4xx and 5xx records so agents can ignore successful noise and focus on failures or suspicious redirects.",
+        "operation_mode": "read",
+        "requires_explicit_confirmation": false,
+        "side_effects": "No persistent write side effects expected.",
+        "safe_alternative": "N/A"
+      },
+      "json_schema": {
+        "in": {
+          "enabled": true,
+          "schema": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "trace_id": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Trace identifier to inspect. This is required and should come from header ofapi-trace-id."
+              },
+              "include_redirects": {
+                "type": "boolean",
+                "default": true,
+                "description": "When true, include 3xx records."
+              },
+              "include_client_errors": {
+                "type": "boolean",
+                "default": true,
+                "description": "When true, include 4xx records."
+              },
+              "include_server_errors": {
+                "type": "boolean",
+                "default": true,
+                "description": "When true, include 5xx records."
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10000,
+                "default": 200,
+                "description": "Maximum number of problematic records to return."
+              },
+              "offset": {
+                "type": "integer",
+                "minimum": 0,
+                "default": 0,
+                "description": "Pagination offset."
+              }
+            },
+            "required": [
+              "trace_id"
+            ]
+          }
+        },
+        "out": {
+          "enabled": false,
+          "schema": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      },
+      "custom_data": {},
+      "headers_test": {},
+      "data_test": {
+        "query": [
+          {
+            "enabled": true,
+            "key": "trace_id",
+            "value": "trace-id-example",
+            "internal_hash_row": "",
+            "type": 1,
+            "_id": "trce001"
+          }
+        ],
+        "body": {
+          "selection": 0,
+          "json": {
+            "code": {}
+          },
+          "xml": {
+            "code": ""
+          },
+          "text": {
+            "value": ""
+          },
+          "form": [],
+          "urlencoded": []
+        },
+        "headers": [],
+        "auth": {
+          "selection": 0,
+          "basic": {
+            "username": "",
+            "password": ""
+          },
+          "bearer": {
+            "token": ""
+          }
+        },
+        "last_response": {
+          "data": "",
+          "sizeKBResponse": -1
+        }
+      },
+      "idendpoint": "f6a1a9d1-3d74-4c7e-95f7-5b7f0f4d5101",
+      "rowkey": 941,
+      "enabled": true,
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "environment": "prd",
+      "timeout": 30,
+      "resource": "/system/log/trace/errors",
+      "method": "GET",
+      "handler": "FUNCTION",
+      "access": 2,
+      "title": "Trace Errors Only",
+      "description": "Returns only problematic requests (3xx/4xx/5xx) for one trace_id.",
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "keywords": "trace_id,errors,3xx,4xx,5xx,diagnostics",
+      "code": "fnGetTraceErrorsOnly",
+      "cache_time": 0,
+      "createdAt": "2026-07-02T00:00:00.000Z",
+      "updatedAt": "2026-07-02T00:00:00.000Z"
+    },
+    {
+      "ctrl": {
+        "admin": true,
+        "users": [],
+        "log": {
+          "status_info": 1,
+          "status_success": 1,
+          "status_redirect": 1,
+          "status_client_error": 2,
+          "status_server_error": 3,
+          "level": 0
+        }
+      },
+      "cors": {},
+      "mcp": {
+        "enabled": true,
+        "name": "trace_slowest_hops",
+        "title": "Trace Slowest Hops",
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns the slowest endpoints involved in one trace_id. Results are grouped by endpoint and sorted by maximum response time so agents can quickly identify latency bottlenecks.",
+        "operation_mode": "read",
+        "requires_explicit_confirmation": false,
+        "side_effects": "No persistent write side effects expected.",
+        "safe_alternative": "N/A"
+      },
+      "json_schema": {
+        "in": {
+          "enabled": true,
+          "schema": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "trace_id": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Trace identifier to analyze."
+              },
+              "threshold_ms": {
+                "type": "number",
+                "minimum": 0,
+                "default": 500,
+                "description": "Optional latency threshold. Only requests with response_time >= threshold_ms are analyzed."
+              },
+              "top_n": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100,
+                "default": 10,
+                "description": "Maximum number of grouped endpoints to return."
+              }
+            },
+            "required": [
+              "trace_id"
+            ]
+          }
+        },
+        "out": {
+          "enabled": false,
+          "schema": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      },
+      "custom_data": {},
+      "headers_test": {},
+      "data_test": {
+        "query": [
+          {
+            "enabled": true,
+            "key": "trace_id",
+            "value": "trace-id-example",
+            "internal_hash_row": "",
+            "type": 1,
+            "_id": "trce002"
+          },
+          {
+            "enabled": true,
+            "key": "threshold_ms",
+            "value": "500",
+            "internal_hash_row": "",
+            "type": 1,
+            "_id": "trce003"
+          }
+        ],
+        "body": {
+          "selection": 0,
+          "json": {
+            "code": {}
+          },
+          "xml": {
+            "code": ""
+          },
+          "text": {
+            "value": ""
+          },
+          "form": [],
+          "urlencoded": []
+        },
+        "headers": [],
+        "auth": {
+          "selection": 0,
+          "basic": {
+            "username": "",
+            "password": ""
+          },
+          "bearer": {
+            "token": ""
+          }
+        },
+        "last_response": {
+          "data": "",
+          "sizeKBResponse": -1
+        }
+      },
+      "idendpoint": "f6a1a9d1-3d74-4c7e-95f7-5b7f0f4d5102",
+      "rowkey": 942,
+      "enabled": true,
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "environment": "prd",
+      "timeout": 30,
+      "resource": "/system/log/trace/slow",
+      "method": "GET",
+      "handler": "FUNCTION",
+      "access": 2,
+      "title": "Trace Slowest Hops",
+      "description": "Returns grouped slowest endpoints for a trace_id using an optional threshold.",
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "keywords": "trace_id,latency,slow,response_time,diagnostics",
+      "code": "fnGetTraceSlowestHops",
+      "cache_time": 0,
+      "createdAt": "2026-07-02T00:00:00.000Z",
+      "updatedAt": "2026-07-02T00:00:00.000Z"
+    },
+    {
+      "ctrl": {
+        "admin": true,
+        "users": [],
+        "log": {
+          "status_info": 1,
+          "status_success": 1,
+          "status_redirect": 1,
+          "status_client_error": 2,
+          "status_server_error": 3,
+          "level": 0
+        }
+      },
+      "cors": {},
+      "mcp": {
+        "enabled": true,
+        "name": "trace_summary",
+        "title": "Trace Summary",
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns a compact diagnostic summary for one trace_id: request totals, status distribution, first problematic request, and slowest request. Ideal as the first tool call before deeper analysis.",
+        "operation_mode": "read",
+        "requires_explicit_confirmation": false,
+        "side_effects": "No persistent write side effects expected.",
+        "safe_alternative": "N/A"
+      },
+      "json_schema": {
+        "in": {
+          "enabled": true,
+          "schema": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "trace_id": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Trace identifier to summarize."
+              },
+              "slow_threshold_ms": {
+                "type": "number",
+                "minimum": 0,
+                "default": 500,
+                "description": "Optional threshold used to count slow requests in the summary."
+              }
+            },
+            "required": [
+              "trace_id"
+            ]
+          }
+        },
+        "out": {
+          "enabled": false,
+          "schema": {
+            "type": "object",
+            "properties": {
+              "trace_id": {
+                "type": "string"
+              },
+              "total_requests": {
+                "type": "integer"
+              },
+              "errors_total": {
+                "type": "integer"
+              },
+              "slow_requests_total": {
+                "type": "integer"
+              },
+              "unique_endpoints": {
+                "type": "integer"
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "custom_data": {},
+      "headers_test": {},
+      "data_test": {
+        "query": [
+          {
+            "enabled": true,
+            "key": "trace_id",
+            "value": "trace-id-example",
+            "internal_hash_row": "",
+            "type": 1,
+            "_id": "trce004"
+          }
+        ],
+        "body": {
+          "selection": 0,
+          "json": {
+            "code": {}
+          },
+          "xml": {
+            "code": ""
+          },
+          "text": {
+            "value": ""
+          },
+          "form": [],
+          "urlencoded": []
+        },
+        "headers": [],
+        "auth": {
+          "selection": 0,
+          "basic": {
+            "username": "",
+            "password": ""
+          },
+          "bearer": {
+            "token": ""
+          }
+        },
+        "last_response": {
+          "data": "",
+          "sizeKBResponse": -1
+        }
+      },
+      "idendpoint": "f6a1a9d1-3d74-4c7e-95f7-5b7f0f4d5103",
+      "rowkey": 943,
+      "enabled": true,
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "environment": "prd",
+      "timeout": 30,
+      "resource": "/system/log/trace/summary",
+      "method": "GET",
+      "handler": "FUNCTION",
+      "access": 2,
+      "title": "Trace Summary",
+      "description": "Returns a compact trace_id diagnostic summary with counts, first problematic hop and slowest hop.",
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "keywords": "trace_id,summary,diagnostics,errors,slow",
+      "code": "fnGetTraceSummary",
+      "cache_time": 0,
+      "createdAt": "2026-07-02T00:00:00.000Z",
+      "updatedAt": "2026-07-02T00:00:00.000Z"
+    },
+    {
+      "ctrl": {
+        "admin": true,
+        "users": [],
+        "log": {
+          "status_info": 1,
+          "status_success": 1,
+          "status_redirect": 1,
+          "status_client_error": 2,
           "status_server_error": 3
         }
       },
@@ -8526,7 +9236,16 @@ export const system_app = {
         "enabled": true,
         "name": "apps_list",
         "title": "List Apps",
-        "description": "Returns all applications with their application variables and related endpoints. This is a very heavy endpoint — use the optional 'attributes' array to request only specific fields or use 'apps_catalog' for a lightweight list."
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns all applications with their application variables and related endpoints. This is a very heavy endpoint — use the optional 'attributes' array to request only specific fields or use 'apps_catalog' for a lightweight list.",
+        "operation_mode": "read",
+        "requires_explicit_confirmation": false,
+        "side_effects": "No persistent write side effects expected.",
+        "safe_alternative": "N/A",
+        "exampleRequest": {},
+        "notes": [
+          "This can be a large payload because it expands nested app variables and endpoints for every application.",
+          "Prefer `apps_catalog` for initial discovery and use this full list only when you explicitly need nested data for many applications at once."
+        ]
       },
       "json_schema": {
         "in": {
@@ -8634,7 +9353,18 @@ export const system_app = {
         "enabled": true,
         "name": "endpoint_change_history",
         "title": "Endpoint Change History",
-        "description": "Returns the ordered change history (backup list) of an endpoint. Use 'lightweight: true' (recommended for agents) to get only idbackup, hash, and createdAt without the heavy full-snapshot 'data' field. Use 'lightweight: false' to retrieve the full snapshot data inline. To rollback to a specific version, copy the 'idbackup' value and call 'endpoint_restore_version'."
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns the ordered change history (backup list) of an endpoint. Use 'lightweight: true' (recommended for agents) to get only idbackup, hash, and createdAt without the heavy full-snapshot 'data' field. Use 'lightweight: false' to retrieve the full snapshot data inline. To rollback to a specific version, copy the 'idbackup' value and call 'endpoint_restore_version'.",
+        "operation_mode": "read",
+        "requires_explicit_confirmation": false,
+        "side_effects": "No persistent write side effects expected.",
+        "safe_alternative": "N/A",
+        "exampleRequest": {
+          "idendpoint": "00000000-0000-0000-0000-000000000002"
+        },
+        "notes": [
+          "Entries are typically ordered by newest-first unless the backend configuration defines otherwise.",
+          "History rows are snapshots for inspection; restoring a version still requires an explicit write operation."
+        ]
       },
       "json_schema": {
         "in": {
@@ -8761,7 +9491,11 @@ export const system_app = {
         "enabled": true,
         "name": "upsert_soap_endpoint_handler",
         "title": "UPSERT SOAP Endpoint",
-        "description": "Creates or updates SOAP endpoints using a simplified payload. Send `soap_config` and this wrapper maps it to endpoint_upsert with handler=SOAP."
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nCreates or updates SOAP endpoints using a simplified payload. Send `soap_config` and this wrapper maps it to endpoint_upsert with handler=SOAP.",
+        "operation_mode": "write",
+        "requires_explicit_confirmation": true,
+        "side_effects": "May create, update, delete, restore, migrate, or invalidate application resources.",
+        "safe_alternative": "Use a read-only catalog/search/status tool first to verify target ids and scope."
       },
       "json_schema": {
         "in": {
@@ -9050,7 +9784,25 @@ export const system_app = {
         "enabled": true,
         "name": "available_functions_modules",
         "title": "List Available JS Functions and Modules",
-        "description": "Returns the list of built-in functions and helper modules available in scope for endpoints using the JS handler. Call this before creating or editing a JS endpoint to discover what functions (e.g. uFetch, uFetchAutoEnv, askIAWithProviderMCP) are available without importing them."
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns the list of built-in functions and helper modules available in scope for endpoints using the JS handler. Call this before creating or editing a JS endpoint to discover what functions (e.g. uFetch, uFetchAutoEnv, askIAWithProviderMCP) are available without importing them.",
+        "operation_mode": "read",
+        "requires_explicit_confirmation": false,
+        "side_effects": "No persistent write side effects expected.",
+        "safe_alternative": "N/A",
+        "exampleRequest": {},
+        "exampleResponse": {
+          "$_RETURN_DATA_": {
+            "description": "Assign endpoint output payload in JS handlers."
+          },
+          "$_EXCEPTION_": {
+            "description": "Raise controlled errors with status and details from JS handlers."
+          }
+        },
+        "notes": [
+          "Useful to validate allowed imports/helpers before publishing JS endpoints.",
+          "Expect metadata and examples rather than a rigid contract: helper globals, module names, and short usage notes may all appear in the response.",
+          "For deeper JS runtime rules and examples, also consult the JS handler documentation via `handler_documentation` with `handler=JS`."
+        ]
       },
       "json_schema": {
         "in": {
@@ -9151,7 +9903,18 @@ export const system_app = {
         "enabled": true,
         "name": "app_vars",
         "title": "Get Application Variables",
-        "description": "Returns all application variables (AppVars) for the given `idapp`, including their values across all environments. Use this when you need the full variable data to read or inspect values. For a lightweight list without values use 'app_vars_catalog'. To resolve the effective runtime value of a single variable use 'appvars_effective_resolve'."
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns all application variables (AppVars) for the given `idapp`, including their values across all environments. Use this when you need the full variable data to read or inspect values. For a lightweight list without values use 'app_vars_catalog'. To resolve the effective runtime value of a single variable use 'appvars_effective_resolve'.",
+        "operation_mode": "read",
+        "requires_explicit_confirmation": false,
+        "side_effects": "No persistent write side effects expected.",
+        "safe_alternative": "N/A",
+        "exampleRequest": {
+          "idapp": "00000000-0000-0000-0000-000000000001"
+        },
+        "notes": [
+          "The request field is `idapp`; send the application identifier there.",
+          "Values may be stored as strings even when they represent JSON or other structured content; inspect each variable `type` before reusing it."
+        ]
       },
       "json_schema": {
         "in": {
@@ -9260,7 +10023,11 @@ export const system_app = {
         "enabled": true,
         "name": "upsert_sql_endpoint_handler",
         "title": "UPSERT SQL Endpoint",
-        "description": "Create or modify in OpenFusion API an endpoint that executes SQL statements (CRUD) on SQL databases supported by Sequelize. Supports HTTP methods GET, POST, PUT, PATCH, DELETE, OPTIONS, and HEAD for the created endpoint. Runtime note: repeated query-string keys follow Fastify semantics and are preserved as arrays."
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nCreate or modify in OpenFusion API an endpoint that executes SQL statements (CRUD) on SQL databases supported by Sequelize. Supports HTTP methods GET, POST, PUT, PATCH, DELETE, OPTIONS, and HEAD for the created endpoint. Runtime note: repeated query-string keys follow Fastify semantics and are preserved as arrays.",
+        "operation_mode": "write",
+        "requires_explicit_confirmation": true,
+        "side_effects": "May create, update, delete, restore, migrate, or invalidate application resources.",
+        "safe_alternative": "Use a read-only catalog/search/status tool first to verify target ids and scope."
       },
       "json_schema": {
         "in": {
@@ -9510,7 +10277,11 @@ export const system_app = {
         "enabled": true,
         "name": "upsert_text_endpoint_handler",
         "title": "UPSERT TEXT Endpoint",
-        "description": "Creates or updates TEXT endpoints using a simplified payload for plain text plus MIME metadata. Internally maps the input into endpoint_upsert with handler=TEXT."
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nCreates or updates TEXT endpoints using a simplified payload for plain text plus MIME metadata. Internally maps the input into endpoint_upsert with handler=TEXT.",
+        "operation_mode": "write",
+        "requires_explicit_confirmation": true,
+        "side_effects": "May create, update, delete, restore, migrate, or invalidate application resources.",
+        "safe_alternative": "Use a read-only catalog/search/status tool first to verify target ids and scope."
       },
       "json_schema": {
         "in": {
@@ -9801,7 +10572,11 @@ export const system_app = {
         "enabled": true,
         "name": "upsert_sql_bulk_i_endpoint_handler",
         "title": "UPSERT SQL_BULK_I Endpoint",
-        "description": "Creates or updates SQL_BULK_I endpoints using a simplified payload. Send `table_name` plus optional `bulk_config`, and this wrapper maps them to endpoint_upsert with handler=SQL_BULK_I."
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nCreates or updates SQL_BULK_I endpoints using a simplified payload. Send `table_name` plus optional `bulk_config`, and this wrapper maps them to endpoint_upsert with handler=SQL_BULK_I.",
+        "operation_mode": "write",
+        "requires_explicit_confirmation": true,
+        "side_effects": "May create, update, delete, restore, migrate, or invalidate application resources.",
+        "safe_alternative": "Use a read-only catalog/search/status tool first to verify target ids and scope."
       },
       "json_schema": {
         "in": {
@@ -10088,7 +10863,18 @@ export const system_app = {
         "enabled": true,
         "name": "system_health_stats",
         "title": "System Health Stats",
-        "description": "Returns a compact health snapshot of the OpenFusionAPI system: total apps, total endpoints (enabled and MCP-enabled), and recent error metrics grouped by HTTP status code. Very small payload — ideal as a first call to orient an agent before deeper exploration. The 'last_hours' parameter controls the time window for log metrics (default: 1 hour)."
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns a compact health snapshot of the OpenFusionAPI system: total apps, total endpoints (enabled and MCP-enabled), and recent error metrics grouped by HTTP status code. Very small payload — ideal as a first call to orient an agent before deeper exploration. The 'last_hours' parameter controls the time window for log metrics (default: 1 hour).",
+        "operation_mode": "read",
+        "requires_explicit_confirmation": false,
+        "side_effects": "No persistent write side effects expected.",
+        "safe_alternative": "N/A",
+        "exampleRequest": {
+          "last_hours": 1
+        },
+        "notes": [
+          "Use this as a quick health snapshot before running heavier inspection tools.",
+          "The response is summary-oriented: it helps detect recent failures and MCP exposure counts, but it does not replace detailed log inspection."
+        ]
       },
       "json_schema": {
         "in": {
@@ -10227,4 +11013,4 @@ export const system_app = {
       "updatedAt": "2026-04-30T12:00:00.000Z"
     }
   ]
-}
+};

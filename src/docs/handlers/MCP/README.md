@@ -48,6 +48,39 @@ Your app
 
 An AI agent connecting to `/mcp/server` will automatically discover all N tools.
 
+## Standard Tool Contract
+
+Every MCP-enabled endpoint should keep its tool contract structured and predictable. Use this order of truth:
+
+1. `mcp.name` - unique tool identifier in `snake_case`.
+2. `mcp.title` - short human-readable label.
+3. `mcp.description` - action-oriented text that states what the tool does, when to use it, required inputs, and what it returns.
+4. `mcp.meta` - structured governance metadata for agents and validators.
+5. `json_schema.in` - input contract that the MCP server will expose as tool parameters.
+
+Recommended `mcp.meta` fields:
+
+- `operation_mode`: `read` or `write`.
+- `requires_explicit_confirmation`: `true` for mutating tools.
+- `side_effects`: short description of persistent impact.
+- `safe_alternative`: the safest read-only tool to inspect before using a mutating tool.
+- `risk_level`: optional severity label such as `low`, `medium`, `high`.
+
+Naming rules:
+
+- Use `snake_case` only.
+- Prefer `verb_noun` or `verb_domain_noun` patterns.
+- Keep the name short, explicit, and stable over time.
+- Avoid ambiguous names such as `get_data`, `process`, or `tool1`.
+
+Description rules:
+
+- Start with either `READ ONLY:` or `WRITE OPERATION:`.
+- State the minimum required parameters.
+- State the expected result shape or effect.
+- If the tool is mutating, explain the confirmation expectation clearly.
+- Do not repeat in `mcp.description` the data already represented in `mcp.title`, `mcp.meta`, or `json_schema.in`; the server exposes those fields automatically when the tool is called.
+
 </details>
 
 ---
