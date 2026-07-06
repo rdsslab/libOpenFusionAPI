@@ -95,10 +95,11 @@ export const replyException = (request, reply, error) => {
       : error?.message || "Internal Server Error";
 
   if (message == "" && typeof error === "object") {
-    // Este se lo puso para el caso de errores de sequelize que a veces no tienen mensaje pero si un array de errores con mensajes adentro
+    // Para errores de validación de Sequelize (v6) u otros errores con la propiedad `errors` directamente
+    const validationErrors = error?.errors || error?.parent?.errors;
     message =
-      Array.isArray(error?.parent?.errors) && error.parent.errors.length > 0
-        ? error.parent.errors.map((e) => e.message).join(", ")
+      Array.isArray(validationErrors) && validationErrors.length > 0
+        ? validationErrors.map((e) => e.message).join(", ")
         : "Internal Server Error.";
   }
 

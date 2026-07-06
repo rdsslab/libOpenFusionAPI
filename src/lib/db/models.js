@@ -430,8 +430,12 @@ export const Application = dbsequelize.define(
     timestamps: true,
     indexes: [],
     hooks: {
-      beforeUpsert: (instance) => {
-        if (instance.app && !validateAppName(instance.app)) {
+      /**
+       * In Sequelize v6, beforeUpsert receives raw values as a plain object instead of a Model instance.
+       * @param {object} values - Plain object containing fields to insert/update.
+       */
+      beforeUpsert: (values) => {
+        if (values.app && !validateAppName(values.app)) {
           throw new Error("The application name cannot be empty or invalid.");
         }
       },

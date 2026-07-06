@@ -404,14 +404,14 @@ export const getLogStats = async (filters = {}) => {
     const queryOptions = {
       where: {},
       attributes: [
-        [sequelize.fn("COUNT", sequelize.col("*")), "total_logs"],
-        [sequelize.fn("MIN", sequelize.col("timestamp")), "oldest_log"],
-        [sequelize.fn("MAX", sequelize.col("timestamp")), "newest_log"],
+        [dbsequelize.fn("COUNT", dbsequelize.col("*")), "total_logs"],
+        [dbsequelize.fn("MIN", dbsequelize.col("timestamp")), "oldest_log"],
+        [dbsequelize.fn("MAX", dbsequelize.col("timestamp")), "newest_log"],
         [
-          sequelize.fn("AVG", sequelize.col("response_time")),
+          dbsequelize.fn("AVG", dbsequelize.col("response_time")),
           "avg_response_time",
         ],
-        [sequelize.fn("COUNT", sequelize.col("level")), "logs_by_level"],
+        [dbsequelize.fn("COUNT", dbsequelize.col("level")), "logs_by_level"],
       ],
       raw: true,
     };
