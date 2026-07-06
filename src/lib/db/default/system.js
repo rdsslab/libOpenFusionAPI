@@ -1973,7 +1973,7 @@ export const system_app = {
       "price_kb_request": 1,
       "price_kb_response": 1,
       "keywords": "libopenfusionapi,github,version",
-      "code": "const url =\n  \"https://raw.githubusercontent.com/edwinspire/libOpenFusionAPI/main/package.json\";\n\nconst uF = new uFetch(url);\nconst response = await uF.get();\nconst json = await response.json();\n\n$_RETURN_DATA_ = { libOpenFusionAPI: { version: json.version } };\n",
+      "code": "const url =\n  \"https://raw.githubusercontent.com/rdsslab/libOpenFusionAPI/main/package.json\";\n\nconst uF = new uFetch(url);\nconst response = await uF.get();\nconst json = await response.json();\n\n$_RETURN_DATA_ = { libOpenFusionAPI: { version: json.version } };\n",
       "cache_time": 90,
       "createdAt": "2026-04-12T23:38:14.887Z",
       "updatedAt": "2026-04-12T23:38:14.887Z"
@@ -9861,7 +9861,7 @@ export const system_app = {
           }
         },
         "last_response": {
-          "data": "{\n  \"$_CUSTOM_HEADERS_\": {\n    \"fn\": {},\n    \"description\": \"Custom headers to send in the reply.\",\n    \"web\": \"https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Map\",\n    \"return\": \"Map object with custom headers\",\n    \"example\": \"\\n$_CUSTOM_HEADERS_.set(\\\"Content-Type\\\", \\\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\\\");\\n$_CUSTOM_HEADERS_.set(\\n  \\\"Content-Disposition\\\",\\n  'attachment; filename=\\\"file.xlsx\\\"',\\n);\\n      \"\n  },\n  \"$_EXCEPTION_\": {\n    \"description\": \"Interrupts the program flow and throws an exception with a specific message and status code.\",\n    \"web\": \"https://github.com/edwinspire/libOpenFusionAPI\",\n    \"params\": [\n      {\n        \"name\": \"message\",\n        \"description\": \"The error message to display.\",\n        \"required\": true,\n        \"type\": \"string\",\n        \"default\": \"\"\n      },\n      {\n        \"name\": \"data\",\n        \"description\": \"Additional context data for the error.\",\n        \"required\": false,\n  ",
+          "data": "{\n  \"$_CUSTOM_HEADERS_\": {\n    \"fn\": {},\n    \"description\": \"Custom headers to send in the reply.\",\n    \"web\": \"https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Map\",\n    \"return\": \"Map object with custom headers\",\n    \"example\": \"\\n$_CUSTOM_HEADERS_.set(\\\"Content-Type\\\", \\\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\\\");\\n$_CUSTOM_HEADERS_.set(\\n  \\\"Content-Disposition\\\",\\n  'attachment; filename=\\\"file.xlsx\\\"',\\n);\\n      \"\n  },\n  \"$_EXCEPTION_\": {\n    \"description\": \"Interrupts the program flow and throws an exception with a specific message and status code.\",\n    \"web\": \"https://github.com/rdsslab/libOpenFusionAPI\",\n    \"params\": [\n      {\n        \"name\": \"message\",\n        \"description\": \"The error message to display.\",\n        \"required\": true,\n        \"type\": \"string\",\n        \"default\": \"\"\n      },\n      {\n        \"name\": \"data\",\n        \"description\": \"Additional context data for the error.\",\n        \"required\": false,\n  ",
           "sizeKBResponse": "16.79"
         }
       },

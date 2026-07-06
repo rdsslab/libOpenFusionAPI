@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import PromiseSequence from "@edwinspire/sequential-promises";
+import PromiseSequence from "@rddslab/sequential-promises";
 import mongoose from "mongoose";
 import * as luxon from "luxon";
 import * as sequelize from "sequelize";
@@ -21,7 +21,7 @@ import {
 } from "../server/pdf-generator.js";
 import { isValidHttpStatusCode } from "../handler/utils.js";
 import { default_port } from "./utils_path.js";
-import uFetch from "@edwinspire/universal-fetch";
+import uFetch from "@rddslab/uFetch";
 import jwt from "jsonwebtoken";
 import xmlFormatter from "xml-formatter";
 import xml2js from "xml2js";
@@ -83,7 +83,7 @@ const nodemailerSafe = {
 /**
  * @param {any} data
  */
-export function GenToken(data, exp_seconds = 3600 *2 /* 2 horas */, key = JWTKEY) {
+export function GenToken(data, exp_seconds = 3600 * 2 /* 2 horas */, key = JWTKEY) {
   let exp = Math.floor(Date.now() / 1000) + Number(exp_seconds);
   return jwt.sign({ data: { ...data, _rnd_: Math.random() }, exp: exp }, key);
 }
@@ -378,7 +378,7 @@ export const listFunctionsVars = (request, reply, environment) => {
 
   const fnUrlae = new URLAutoEnvironment({ environment, port: PORT, headers });
 
-  const own_repo = "https://github.com/edwinspire/libOpenFusionAPI";
+  const own_repo = "https://github.com/rdsslab/libOpenFusionAPI";
 
   const ofapi = {
     server: reply ? reply?.openfusionapi?.server : undefined,
@@ -613,7 +613,7 @@ const hex = hash.digest('hex');
 $_RETURN_DATA_ = hex;
       `,
     },
-    $_ENV_: {fn: environment, description: "Current runtime environment (dev, qa, prd)", web: own_repo, return: "string", notes: ["This variable is injected automatically based on the server environment and can be used for environment-specific logic in handlers."], example: `if ($_ENV_ === 'dev') { /* dev-only code */ }`},
+    $_ENV_: { fn: environment, description: "Current runtime environment (dev, qa, prd)", web: own_repo, return: "string", notes: ["This variable is injected automatically based on the server environment and can be used for environment-specific logic in handlers."], example: `if ($_ENV_ === 'dev') { /* dev-only code */ }` },
     $_RETURN_DATA_: {
       fn: {},
       description: "Primary output slot for JS handlers. Assign the final payload here instead of using return.",
@@ -682,7 +682,7 @@ $_RETURN_DATA_ = {
     uFetch: {
       fn: request && reply ? uFetch : undefined,
       description: "Universal HTTP client for Node.js and browsers. Primary use is standard fetch-style requests (get/post/put/patch/delete); batch adds controlled parallel processing for large input sets.",
-      web: "https://github.com/edwinspire/universal-fetch",
+      web: "https://github.com/rdsslab/uFetch",
       params: [
         {
           name: "constructor(url?, redirect_in_unauthorized?)",
@@ -794,7 +794,7 @@ $_RETURN_DATA_ = {
     uFetchAutoEnv: {
       fn: request && reply ? fnUrlae : undefined,
       description: `OpenFusionAPI helper that wraps uFetch for same-instance calls. Use it mainly with get/post/put/patch/delete and optionally with batch for parallelized internal fan-out. It resolves /auto or /env suffixes to the current runtime environment.`,
-      web: "https://github.com/edwinspire/universal-fetch",
+      web: "https://github.com/rdsslab/uFetch",
       params: [
         {
           name: "create(url, shouldApplyAuto = true)",
@@ -861,7 +861,7 @@ $_RETURN_DATA_ = {
     PromiseSequence: {
       fn: request && reply ? PromiseSequence : undefined,
       description: "Utility for processing async tasks sequentially or in controlled batches.",
-      web: "https://github.com/edwinspire/sequential-promises",
+      web: "https://github.com/rdsslab/sequential-promises",
       notes: [
         "Useful when you must avoid flooding an external API or database with too many parallel calls.",
       ],
@@ -887,7 +887,7 @@ $_RETURN_DATA_ = result;
     sequentialPromises: {
       fn: request && reply ? PromiseSequence : undefined,
       description: "Legacy alias of PromiseSequence kept for backward compatibility.",
-      web: "https://github.com/edwinspire/sequential-promises",
+      web: "https://github.com/rdsslab/sequential-promises",
       notes: [
         "Deprecated alias. Prefer PromiseSequence in new endpoint code.",
       ],

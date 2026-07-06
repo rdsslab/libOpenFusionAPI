@@ -63,14 +63,14 @@ En los schemas y herramientas MCP, el campo `log_level` acepta estos valores (0-
 -   The dual exposure is intentional. It does not duplicate values in storage; it only creates two access paths to the same runtime data.
 
 `uFetch` / `uFetchAutoEnv` note:
-- `@edwinspire/universal-fetch` changes over time. Before creating or editing endpoint code that depends on it, verify the current official documentation or the installed package version.
+- `@rddslab/uFetch` changes over time. Before creating or editing endpoint code that depends on it, verify the current official documentation or the installed package version.
 - Do not assume legacy aliases such as `GET()` or `POST()` are still the preferred API.
 
 `uFetch` source-of-truth policy (hybrid):
 - For repository integration patterns in this handler, this local document is the operational source of truth.
 - For package-level API contracts, the upstream docs are canonical.
 - If they differ, update this local guide immediately with a compatibility note and migration guidance.
-- Dedicated dependency guide for maintainers and agents: [../../dependencies/universal-fetch.md](../../dependencies/universal-fetch.md).
+- Dedicated dependency guide for maintainers and agents: [../../dependencies/uFetch.md](../../dependencies/uFetch.md).
 - Last local verification against upstream contract: `2026-06-20`.
 
 `uFetch.batch` quick reference:

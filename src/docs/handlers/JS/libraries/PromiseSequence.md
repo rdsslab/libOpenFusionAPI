@@ -1,6 +1,6 @@
 # `PromiseSequence`
 
-[External Documentation](https://github.com/edwinspire/sequential-promises) 
+[External Documentation](https://github.com/rdsslab/sequential-promises) 
 
 Utility for processing async tasks sequentially or in controlled batches.
 

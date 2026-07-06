@@ -1,6 +1,6 @@
 # `createPDFFromHTML([html], [url], [format], [landscape], [margin], [printBackground])`
 
-[External Documentation](https://github.com/edwinspire/libOpenFusionAPI) 
+[External Documentation](https://github.com/rdsslab/libOpenFusionAPI) 
 
 Generates a PDF document from an HTML string or a URL.
 

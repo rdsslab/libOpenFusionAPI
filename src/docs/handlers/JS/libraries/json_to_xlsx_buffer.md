@@ -1,6 +1,6 @@
 # `json_to_xlsx_buffer([data])`
 
-[External Documentation](https://github.com/edwinspire/libOpenFusionAPI) 
+[External Documentation](https://github.com/rdsslab/libOpenFusionAPI) 
 
 Builds an XLSX workbook in memory and returns the binary buffer plus download metadata.
 

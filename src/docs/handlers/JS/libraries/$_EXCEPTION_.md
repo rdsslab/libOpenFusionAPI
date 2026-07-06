@@ -1,6 +1,6 @@
 # `$_EXCEPTION_(message, [data], [statusCode])`
 
-[External Documentation](https://github.com/edwinspire/libOpenFusionAPI) 
+[External Documentation](https://github.com/rdsslab/libOpenFusionAPI) 
 
 Interrupts the program flow and throws an exception with a specific message and status code.
 

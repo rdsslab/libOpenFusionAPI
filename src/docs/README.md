@@ -4,7 +4,7 @@
 
 - Handler docs index: see [handlers/README.md](handlers/README.md).
 - External dependency doc template (hybrid local + upstream model): see [templates/EXTERNAL_DEPENDENCY_DOC_TEMPLATE.md](templates/EXTERNAL_DEPENDENCY_DOC_TEMPLATE.md).
-- universal-fetch dependency guide (instantiated template): see [dependencies/universal-fetch.md](dependencies/universal-fetch.md).
+- uFetch dependency guide (instantiated template): see [dependencies/uFetch.md](dependencies/uFetch.md).
 - Each handler now owns a dedicated folder with a `README.md` plus a `manifest.json` contract for tooling.
 - SQL scope: [handlers/SQL/README.md](handlers/SQL/README.md) documents the generic relational handler that runs through Sequelize.
 - HANA scope: [handlers/HANA/README.md](handlers/HANA/README.md) documents the dedicated SAP HANA handler that uses `@sap/hana-client`.

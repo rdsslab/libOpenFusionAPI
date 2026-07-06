@@ -29,5 +29,5 @@ When using `upsert_fetch_endpoint_handler` to create/update an endpoint:
 ## Minimal Working Example / Template
 * **Target URL (`code`)**:
 ```text
-https://api.github.com/repos/edwinspire/libOpenFusionAPI/issues
+https://api.github.com/repos/rdsslab/libOpenFusionAPI/issues
 ```

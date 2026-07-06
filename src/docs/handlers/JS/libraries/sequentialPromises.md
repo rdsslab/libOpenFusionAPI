@@ -1,6 +1,6 @@
 # `sequentialPromises`
 
-[External Documentation](https://github.com/edwinspire/sequential-promises) 
+[External Documentation](https://github.com/rdsslab/sequential-promises) 
 
 Legacy alias of PromiseSequence kept for backward compatibility.
 

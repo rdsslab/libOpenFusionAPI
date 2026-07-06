@@ -1,6 +1,6 @@
 {
   "name": "@rdsslab/libopenfusionapi",
-  "version": "6.0.2",
+  "version": "6.0.3",
   "description": "Library based on Fastify to create APIs quickly and easily from a web interface.",
   "scripts": {
     "test": "node ./dev/test/index.js",
@@ -39,7 +39,7 @@
     "Websocket",
     "rdsslab"
   ],
-  "author": "edwinspire",
+  "author": "edwinspire <edwinspire@gmail.com>",
   "license": "MIT",
   "bugs": {
     "url": "https://github.com/rdsslab/libOpenFusionAPI/issues"
@@ -55,8 +55,8 @@
     "@fastify/websocket": "^11.2.0",
     "@google/genai": "^1.48.0",
     "@modelcontextprotocol/sdk": "^1.26.0",
-    "@edwinspire/sequential-promises": "git+https://github.com/rdsslab/sequential-promises.git",
-    "@edwinspire/universal-fetch": "git+https://github.com/rdsslab/uFetch.git",
+    "@rddslab/sequential-promises": "git+https://github.com/rdsslab/sequential-promises.git",
+    "@rddslab/uFetch": "git+https://github.com/rdsslab/uFetch.git",
     "@sap/hana-client": "^2.22.32",
     "@sparticuz/chromium": "^141.0.0",
     "@xmldom/xmldom": "^0.9.9",

@@ -4,7 +4,7 @@ import { Handlers } from "../../../handler/handler.js";
 import { readHandlerSkill } from "../../handlerDocs.js";
 import { internal_url_endpoint } from "../../utils_path.js";
 import * as z from "zod";
-//import uFetch from "@edwinspire/universal-fetch";
+//import uFetch from "@rddslab/uFetch";
 import { URLAutoEnvironment } from "../../functionVars.js";
 
 export const CreateMCPHandler = async (app_name, environment) => {

@@ -1,6 +1,6 @@
 # `uFetch([constructor(url?, redirect_in_unauthorized?)], [request(url, method, data, headers, options)], [get|post|put|patch|delete({ url, data, headers, options })], [batch({ url, method, items, headers, options, config })], [batch_old(url, method, items, headers, options, config)])`
 
-[External Documentation](https://github.com/edwinspire/universal-fetch) 
+[External Documentation](https://github.com/rdsslab/uFetch) 
 
 Universal HTTP client for Node.js and browsers. Primary use is standard fetch-style requests (get/post/put/patch/delete); batch adds controlled parallel processing for large input sets.
 

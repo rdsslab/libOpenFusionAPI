@@ -1,6 +1,6 @@
 # `listMcpTools(options.mcpServers, [options.clientName], [options.clientVersion])`
 
-[External Documentation](https://github.com/edwinspire/libOpenFusionAPI) 
+[External Documentation](https://github.com/rdsslab/libOpenFusionAPI) 
 
 Connects to one or more MCP servers and returns the discovered tools without running an AI conversation.
 

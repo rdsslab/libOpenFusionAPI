@@ -1,16 +1,16 @@
-# universal-fetch Integration Guide
+# uFetch Integration Guide
 
-This page defines how libOpenFusionAPI documents and consumes @edwinspire/universal-fetch.
+This page defines how libOpenFusionAPI documents and consumes @rddslab/uFetch.
 
 ## Summary
 
-- Dependency: @edwinspire/universal-fetch
+- Dependency: @rddslab/uFetch
 - Used in: JS handler runtime helpers and FETCH handler integration behavior
 - Primary local guides:
   - docs/handlers/JS/README.md
   - docs/handlers/JS/api.generated.md
   - docs/handlers/FETCH/README.md
-- Upstream canonical docs: https://github.com/edwinspire/universal-fetch
+- Upstream canonical docs: https://github.com/rdsslab/uFetch
 
 ## Source of Truth Rules
 
@@ -48,8 +48,8 @@ This page defines how libOpenFusionAPI documents and consumes @edwinspire/univer
 
 ## Verification Metadata
 
-- Last verified date: 2026-06-20
-- Verified against upstream source: README.md and src/fetch.js in edwinspire/universal-fetch
+- Last verified date: 2026-07-05
+- Verified against upstream source: README.md and src/fetch.js in rdsslab/uFetch
 - Verified by: libOpenFusionAPI maintenance workflow
 
 ## Change Response Playbook

@@ -1,10 +1,10 @@
 # FETCH Handler – HTTP Proxy & Forwarder
 
 The **FETCH handler** enables OpenFusionAPI to act as a robust HTTP proxy, forwarding requests to external services while managing headers, caching, and response transformation.  
-Internally it uses `@edwinspire/universal-fetch` to perform standardized HTTP requests.
+Internally it uses `@rddslab/uFetch` to perform standardized HTTP requests.
 
 Agent note:
-- `@edwinspire/universal-fetch` may evolve frequently. Before updating FETCH behavior, examples, or helper snippets, confirm the current official documentation or the installed package contract.
+- `@rddslab/uFetch` may evolve frequently. Before updating FETCH behavior, examples, or helper snippets, confirm the current official documentation or the installed package contract.
 - If you use `uFetch.batch`, the current contract is a single object argument; positional batch calls are legacy and should move to `batch_old(...)`.
 
 ---

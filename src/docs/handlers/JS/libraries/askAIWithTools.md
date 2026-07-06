@@ -1,6 +1,6 @@
 # `askAIWithTools(options.provider, [options.provider.provider|modelProvider|name|vendor], options.provider.model, [options.provider.baseUrl|baseURL], [options.provider.apiKey|api_key], [options.provider.azureApiKey|azure_api_key], [options.provider.apiVersion|api_version|api-version], [options.provider.clientName], [options.provider.clientVersion], [options.provider.defaultQuery|default_query], [options.provider.headers], [options.provider.temperature], [options.provider.maxTokens|max_tokens], [options.provider.toolChoice|tool_choice], [options.provider.timeout], [options.provider.responseTimeout|responseTimeoutMs|runTimeout], options.prompts, [options.mcpServers], [options.mcpServers[].name], options.mcpServers[].url, [options.mcpServers[].headers], [options.mcpServers[].timeout], [options.mcpServers[].transportPriority], [options.maxToolRounds], [options.includeDiagnostics], [options.signal])`
 
-[External Documentation](https://github.com/edwinspire/libOpenFusionAPI) 
+[External Documentation](https://github.com/rdsslab/libOpenFusionAPI) 
 
 Generic AI helper that accepts a provider configuration, connects to the selected AI service, and optionally enables MCP tools from one or more MCP servers during the conversation.
 

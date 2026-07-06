@@ -1,4 +1,4 @@
-import uFetch from "@edwinspire/universal-fetch";
+import uFetch from "@rddslab/uFetch";
 
 const { PORT } = process.env;
 

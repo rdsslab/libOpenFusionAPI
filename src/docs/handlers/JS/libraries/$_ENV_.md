@@ -1,6 +1,6 @@
 # `$_ENV_`
 
-[External Documentation](https://github.com/edwinspire/libOpenFusionAPI) 
+[External Documentation](https://github.com/rdsslab/libOpenFusionAPI) 
 
 Current runtime environment (dev, qa, prd)
 

@@ -1,6 +1,6 @@
 # `askIAWithMCP(options.ai, [options.ai.modelProvider], options.ai.model, [options.ai.baseUrl|baseURL], [options.ai.apiKey|api_key], [options.ai.azureApiKey|azure_api_key], [options.ai.apiVersion|api_version|api-version], [options.ai.defaultQuery|default_query], [options.ai.temperature], [options.ai.maxTokens|max_tokens], [options.ai.toolChoice|tool_choice], [options.ai.headers], [options.ai.organization], [options.ai.project], [options.ai.timeout], [options.ai.responseTimeout|responseTimeoutMs|runTimeout], options.prompts, [options.mcpServers], [options.mcpServers[].name], options.mcpServers[].url, [options.mcpServers[].headers], [options.mcpServers[].timeout], [options.mcpServers[].transportPriority], [options.maxToolRounds], [options.includeDiagnostics], [options.signal])`
 
-[External Documentation](https://github.com/edwinspire/libOpenFusionAPI) 
+[External Documentation](https://github.com/rdsslab/libOpenFusionAPI) 
 
 Legacy compatibility wrapper over askAIWithTools. It accepts `options.ai` instead of `options.provider`, then runs a chat completion and can connect the model to MCP servers so it can discover and invoke tools during the conversation.
 

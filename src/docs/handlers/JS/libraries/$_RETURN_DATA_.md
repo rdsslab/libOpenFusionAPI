@@ -1,6 +1,6 @@
 # `$_RETURN_DATA_`
 
-[External Documentation](https://github.com/edwinspire/libOpenFusionAPI) 
+[External Documentation](https://github.com/rdsslab/libOpenFusionAPI) 
 
 Primary output slot for JS handlers. Assign the final payload here instead of using return.
 

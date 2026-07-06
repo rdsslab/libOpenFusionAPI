@@ -1,6 +1,6 @@
 # `uFetchAutoEnv([create(url, shouldApplyAuto = true)], [auto(url)])`
 
-[External Documentation](https://github.com/edwinspire/universal-fetch) 
+[External Documentation](https://github.com/rdsslab/uFetch) 
 
 OpenFusionAPI helper that wraps uFetch for same-instance calls. Use it mainly with get/post/put/patch/delete and optionally with batch for parallelized internal fan-out. It resolves /auto or /env suffixes to the current runtime environment.
 

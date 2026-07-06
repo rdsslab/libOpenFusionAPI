@@ -1,5 +1,5 @@
 // @ts-ignore
-import uFetch from "@edwinspire/universal-fetch";
+import uFetch from "@rddslab/uFetch";
 import {
   getAppVarContext,
   getHandlerExecutionContext,

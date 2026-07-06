@@ -33,7 +33,7 @@ Each active handler must keep its material inside its own folder:
 - If a handler endpoint belongs to a seeded app such as `demo`, repository defaults can restore its metadata on startup. Persisted changes may require updating `src/lib/db/default/` too.
 - For [TELEGRAM_BOT](./TELEGRAM_BOT/README.md), treat HTTP validation and worker startup validation as separate checks.
 - For external libraries used by handlers, follow the hybrid documentation model in [../templates/EXTERNAL_DEPENDENCY_DOC_TEMPLATE.md](../templates/EXTERNAL_DEPENDENCY_DOC_TEMPLATE.md).
-- Instantiated dependency guide for `@edwinspire/universal-fetch`: [../dependencies/universal-fetch.md](../dependencies/universal-fetch.md).
+- Instantiated dependency guide for `@rddslab/uFetch`: [../dependencies/uFetch.md](../dependencies/uFetch.md).
 
 > Auto-generated from `src/lib/handler/handler.js` and per-handler `manifest.json` files.
 

@@ -1,6 +1,6 @@
 # `createAIProviderMCPClient(options.provider, [options.mcpServers])`
 
-[External Documentation](https://github.com/edwinspire/libOpenFusionAPI) 
+[External Documentation](https://github.com/rdsslab/libOpenFusionAPI) 
 
 Low-level MCP-aware AI client factory. Use this when you need explicit connect/list/run/close control instead of a single helper call.
 

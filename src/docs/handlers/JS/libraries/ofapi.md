@@ -1,6 +1,6 @@
 # `ofapi`
 
-[External Documentation](https://github.com/edwinspire/libOpenFusionAPI) 
+[External Documentation](https://github.com/rdsslab/libOpenFusionAPI) 
 
 OpenFusionAPI runtime helpers exposed to JS handlers.
 

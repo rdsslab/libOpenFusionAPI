@@ -1,6 +1,6 @@
 # `askIAWithProviderMCP(options.provider, [options.provider.provider|modelProvider|name|vendor], options.provider.model, [options.provider.baseUrl|baseURL], [options.provider.apiKey|api_key], [options.provider.azureApiKey|azure_api_key], [options.provider.apiVersion|api_version|api-version], [options.provider.temperature], [options.provider.maxTokens|max_tokens], [options.provider.toolChoice|tool_choice], [options.provider.timeout], [options.provider.responseTimeout|responseTimeoutMs|runTimeout], options.prompts, [options.mcpServers], [options.maxToolRounds], [options.includeDiagnostics], [options.signal])`
 
-[External Documentation](https://github.com/edwinspire/libOpenFusionAPI) 
+[External Documentation](https://github.com/rdsslab/libOpenFusionAPI) 
 
 Primary provider-first AI helper for JS handlers. It accepts `options.provider`, can connect to one or more MCP servers, exposes those tools to the model, executes tool calls, and returns either the final text or rich diagnostics.
 

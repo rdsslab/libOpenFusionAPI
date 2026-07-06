@@ -1,6 +1,6 @@
 # `createImageFromHTML([html], [url], [type], [quality], [fullPage])`
 
-[External Documentation](https://github.com/edwinspire/libOpenFusionAPI) 
+[External Documentation](https://github.com/rdsslab/libOpenFusionAPI) 
 
 Renders HTML content or a URL into an image buffer.
 
