@@ -133,8 +133,29 @@ export const getLogs = async (options = {}) => {
 
     const normalizedLimit = Number(limit);
     const normalizedOffset = Number(offset);
-    const normalizedOrderDirection = String(orderDirection).toUpperCase().trim();
-    const normalizedOrder = typeof order === "string" ? order.trim() : "";
+    const hasOrderDirection = Object.prototype.hasOwnProperty.call(
+      options,
+      "orderDirection"
+    );
+    const rawOrder = Array.isArray(order) ? order[0] : order;
+    const rawOrderDirection = Array.isArray(orderDirection)
+      ? orderDirection[0]
+      : orderDirection;
+
+    const orderAliases = {
+      createdat: "timestamp",
+      updatedat: "timestamp",
+      idapp: "idapp",
+      idendpoint: "idendpoint",
+      traceid: "trace_id",
+      statuscode: "status_code",
+      loglevel: "log_level",
+      useragent: "user_agent",
+      reqheaders: "req_headers",
+      resheaders: "res_headers",
+      responsetime: "response_time",
+      responsedata: "response_data",
+    };
 
     const validOrderFields = [
       "id",
@@ -177,16 +198,116 @@ export const getLogs = async (options = {}) => {
       throw new Error('El offset no puede ser negativo');
     }
 
-    // Validar dirección de orden
+    const orderInput = typeof rawOrder === "string" ? rawOrder.trim() : "";
+    const orderInputMatch = orderInput.match(
+      /^([a-zA-Z_][a-zA-Z0-9_]*)(?:\s+(ASC|DESC))?$/i
+    );
+
+    const requestedOrderField = orderInputMatch
+      ? orderInputMatch[1]
+      : orderInput;
+    const requestedInlineOrderDirection = orderInputMatch
+      ? orderInputMatch[2]
+      : undefined;
+
+    const requestedOrderKey = String(requestedOrderField || "")
+      .trim()
+      .toLowerCase();
+    const aliasedOrder = orderAliases[requestedOrderKey] || requestedOrderField;
+
+    let normalizedOrder = typeof aliasedOrder === "string" ? aliasedOrder.trim() : "";
+
+    // Validar dirección de orden (con soporte para "timestamp DESC" cuando no se envía orderDirection)
     const validOrderDirections = ["ASC", "DESC"];
+    let normalizedOrderDirection = String(rawOrderDirection || "DESC")
+      .toUpperCase()
+      .trim();
+
+    if (!hasOrderDirection && requestedInlineOrderDirection) {
+      normalizedOrderDirection = requestedInlineOrderDirection.toUpperCase();
+    }
+
+    const serializeValue = (value) => {
+      if (value === undefined) return "undefined";
+      if (value === null) return "null";
+      if (typeof value === "string") return value;
+      try {
+        return JSON.stringify(value);
+      } catch {
+        return String(value);
+      }
+    };
+
+      const throwValidationError = ({ field, message, received, accepted, range }) => {
+        const validationError = new Error(message);
+        validationError.name = "ValidationError";
+        validationError.statusCode = 400;
+        validationError.details = {
+          field,
+          ...(received !== undefined ? { received } : {}),
+          ...(accepted ? { accepted } : {}),
+          ...(range ? { range } : {}),
+        };
+        throw validationError;
+      };
+
+      // Validate pagination bounds
+      if (!Number.isInteger(normalizedLimit)) {
+        throwValidationError({
+          field: "limit",
+          message: `Invalid 'limit' value '${serializeValue(limit)}'. 'limit' must be an integer between 1 and 999999.`,
+          received: limit,
+          range: { min: 1, max: 999999 },
+        });
+      }
+
+      if (normalizedLimit > 999999 || normalizedLimit < 1) {
+        throwValidationError({
+          field: "limit",
+          message: `Invalid 'limit' value '${serializeValue(limit)}'. Accepted range is 1 to 999999.`,
+          received: limit,
+          range: { min: 1, max: 999999 },
+        });
+      }
+
+      if (!Number.isInteger(normalizedOffset)) {
+        throwValidationError({
+          field: "offset",
+          message: `Invalid 'offset' value '${serializeValue(offset)}'. 'offset' must be an integer greater than or equal to 0.`,
+          received: offset,
+          range: { min: 0 },
+        });
+      }
+
+      if (normalizedOffset < 0) {
+        throwValidationError({
+          field: "offset",
+          message: `Invalid 'offset' value '${serializeValue(offset)}'. Accepted range is 0 or greater.`,
+          received: offset,
+          range: { min: 0 },
+        });
+      }
+
     if (!validOrderDirections.includes(normalizedOrderDirection)) {
-      throw new Error("La dirección de orden debe ser ASC o DESC");
+      const acceptedValues = validOrderDirections.join(", ");
+      const receivedValue = serializeValue(rawOrderDirection);
+        throwValidationError({
+        field: "orderDirection",
+          message: `Invalid 'orderDirection' value '${receivedValue}'. Accepted values are: ${acceptedValues}.`,
+        received: rawOrderDirection,
+        accepted: validOrderDirections,
+        });
     }
 
     if (!validOrderFields.includes(normalizedOrder)) {
-      throw new Error(
-        `order debe ser uno de: ${validOrderFields.join(", ")}`
-      );
+      const acceptedValues = validOrderFields.join(", ");
+      const receivedValue = serializeValue(rawOrder || orderInput);
+        throwValidationError({
+        field: "order",
+          message: `Invalid 'order' value '${receivedValue}'. Accepted values are: ${acceptedValues}.`,
+        received: rawOrder,
+        accepted: validOrderFields,
+        });
     }
 
     // === CONSTRUCCIÓN DE CONDICIONES WHERE ===
@@ -203,14 +324,20 @@ export const getLogs = async (options = {}) => {
       const endDate = new Date(end_date);
 
       if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
-        throw new Error("Las fechas proporcionadas no son válidas");
+          throwValidationError({
+            field: "start_date,end_date",
+            message: `Invalid date range. Received start_date='${serializeValue(start_date)}' and end_date='${serializeValue(end_date)}'. Both values must be valid datetime strings.`,
+            received: { start_date, end_date },
+          });
       }
 
       // Asegurar que end_date sea posterior a start_date (Esto se debería validar en el lado del cliente)
       if (startDate >= endDate) {
-        throw new Error(
-          "La fecha de inicio debe ser anterior a la fecha de fin"
-        );
+          throwValidationError({
+            field: "start_date,end_date",
+            message: `Invalid date range. 'start_date' must be earlier than 'end_date'. Received start_date='${serializeValue(start_date)}' and end_date='${serializeValue(end_date)}'.`,
+            received: { start_date, end_date },
+          });
       }
 
       dateFilter = {
@@ -220,7 +347,12 @@ export const getLogs = async (options = {}) => {
       const last_hours_int = Number(last_hours);
       // Si se proporciona last_hours, calcular desde ahora hacia atrás
       if (!Number.isInteger(last_hours_int) || last_hours_int <= 0) {
-        throw new Error("last_hours debe ser un número positivo");
+          throwValidationError({
+            field: "last_hours",
+            message: `Invalid 'last_hours' value '${serializeValue(last_hours)}'. It must be a positive integer.`,
+            received: last_hours,
+            range: { min: 1 },
+          });
       }
       // TODO: Es posible que se deba usar Luxon para los calculos de fechas
       //const now = new Date();
@@ -258,18 +390,23 @@ export const getLogs = async (options = {}) => {
         normalizedLogLevel < 1 ||
         normalizedLogLevel > 3
       ) {
-        throw new Error(
-          "log_level debe ser un entero entre 1 y 3 (SMALLINT)"
-        );
+          throwValidationError({
+            field: "log_level",
+            message: `Invalid 'log_level' value '${serializeValue(log_level)}'. Accepted values are integers from 1 to 3.`,
+            received: log_level,
+            range: { min: 1, max: 3 },
+          });
       }
       whereConditions.log_level = normalizedLogLevel;
     }
 
     if (trace_id !== undefined && trace_id !== null) {
       if (typeof trace_id !== "string" || trace_id.trim().length === 0) {
-        throw new Error(
-          "trace_id debe ser una cadena de texto no vacia para poder rastrear la cadena de errores"
-        );
+        throwValidationError({
+          field: "trace_id",
+          message: `Invalid 'trace_id' value '${serializeValue(trace_id)}'. It must be a non-empty string.`,
+          received: trace_id,
+        });
       }
       whereConditions.trace_id = trace_id.trim();
     }
@@ -277,7 +414,11 @@ export const getLogs = async (options = {}) => {
     // Filtro por method
     if (method) {
       if (typeof method !== "string" || method.trim().length === 0) {
-        throw new Error("method debe ser una cadena de texto válida");
+        throwValidationError({
+          field: "method",
+          message: `Invalid 'method' value '${serializeValue(method)}'. It must be a non-empty string.`,
+          received: method,
+        });
       }
       whereConditions.method = method.toUpperCase().trim();
     }
@@ -290,9 +431,12 @@ export const getLogs = async (options = {}) => {
         normalizedStatusCode < 100 ||
         normalizedStatusCode > 599
       ) {
-        throw new Error(
-          "status_code debe ser un entero positivo entre 100 y 599"
-        );
+        throwValidationError({
+          field: "status_code",
+          message: `Invalid 'status_code' value '${serializeValue(status_code)}'. Accepted range is 100 to 599.`,
+          received: status_code,
+          range: { min: 100, max: 599 },
+        });
       }
       whereConditions.status_code = normalizedStatusCode;
     }
@@ -303,7 +447,11 @@ export const getLogs = async (options = {}) => {
     } else if (idendpoint) {
       // Usar el endpoint individual
       if (typeof idendpoint !== "string" || idendpoint.length === 0) {
-        throw new Error("idendpoint debe ser una cadena de texto válida");
+        throwValidationError({
+          field: "idendpoint",
+          message: `Invalid 'idendpoint' value '${serializeValue(idendpoint)}'. It must be a non-empty string.`,
+          received: idendpoint,
+        });
       }
       whereConditions.idendpoint = idendpoint;
     }
@@ -375,7 +523,7 @@ export const getLogs = async (options = {}) => {
 
     return logs;
   } catch (error) {
-    console.error("❌ Error en getLogs:", error);
+    console.error("❌ Error in getLogs:", error);
 
     throw error;
   }

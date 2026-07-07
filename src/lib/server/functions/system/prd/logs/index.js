@@ -43,8 +43,18 @@ export async function fnGetLogs(params) {
     r.data = data;
     r.code = 200;
   } catch (error) {
-    r.data = error;
-    r.code = 500;
+    const statusCode = Number(error?.statusCode);
+    const isClientValidationError =
+      error?.name === "ValidationError" &&
+      Number.isInteger(statusCode) &&
+      statusCode >= 400 &&
+      statusCode < 500;
+
+    r.data = {
+      error: error?.message || "Unexpected error while retrieving logs.",
+      ...(error?.details ? { details: error.details } : {}),
+    };
+    r.code = isClientValidationError ? statusCode : 500;
   }
   return r;
 }
