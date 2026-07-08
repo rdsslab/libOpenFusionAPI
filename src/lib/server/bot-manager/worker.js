@@ -12,30 +12,8 @@ parentPort.on("message", async (message) => {
       console.log(`[Worker ${botId}] Starting...`);
 
       const defaults = {
-        // Valores explícitamente permitidos
         grammy: grammyModule,
-        setTimeout,
-        clearInterval,
-        clearTimeout,
-        clearInterval,
-        AbortController,
-        console,
-        Date,
-        Math,
-        JSON,
-        Array,
-        Object,
-        String,
-        Number,
-        Boolean,
-        Promise,
-        FormData,
-        Blob,
-        Buffer,
-        RegExp,
-        parseInt,
-        parseFloat,
-        $BOT_TOKEN: token, // The bot code can access 'botToken' variable
+        $BOT_TOKEN: token, // The bot code can access '$BOT_TOKEN' variable
       };
 
       const sandbox = { ...defaults, ...functionsVars(true, true, environment), ...app_env_vars };
@@ -74,8 +52,26 @@ Nota importante: Este tiempo límite aplica solo a la carga inicial del código 
           // Handle bot errors to prevent crash
           activeBot.catch((err) => {
             console.error(`[Worker ${botId}] Bot Error (caught):`, err);
-            // We could notify manager here if needed, but for now we keep running
+            
+            // In grammY, the thrown error is wrapped in err.error
+            const innerError = err.error || err;
+            const errorInfo = {
+              message: innerError.message || String(innerError),
+              stack: innerError.stack || "",
+              update: err.ctx?.update || null
+            };
+
+            parentPort.postMessage({
+              type: "BOT_ERROR",
+              botId,
+              error: errorInfo
+            });
           });
+
+          // Validate token and connection before starting
+          console.log(`[Worker ${botId}] Validating bot connection and token...`);
+          const botInfo = await activeBot.api.getMe();
+          console.log(`[Worker ${botId}] Authenticated successfully as @${botInfo.username}`);
 
           // Start the bot without handling signals (manager handles that)
           activeBot.start({
@@ -87,14 +83,37 @@ Nota importante: Este tiempo límite aplica solo a la carga inicial del código 
             handleSignals: false
           });
 
-          parentPort.postMessage({ type: "STARTED", botId });
+          parentPort.postMessage({ type: "STARTED", botId, botInfo });
         } else {
           throw new Error("Code did not define a valid $BOT instance.");
         }
 
       } catch (err) {
         console.error(`[Worker ${botId}] Execution/Startup Error:`, err);
-        parentPort.postMessage({ type: "ERROR", botId, error: err.message });
+        
+        let errorType = "STARTUP_ERROR";
+        let status = 500;
+        
+        if (err.name === "GrammyError" && err.status === 401) {
+          errorType = "INVALID_TOKEN";
+          status = 401;
+        } else if (err.name === "HttpError") {
+          errorType = "CONNECTION_ERROR";
+          status = 502;
+        }
+
+        parentPort.postMessage({
+          type: "ERROR",
+          botId,
+          error: err.message || String(err),
+          errorInfo: {
+            message: err.message || String(err),
+            stack: err.stack || "",
+            name: err.name || "Error",
+            status: err.status || status,
+            errorType
+          }
+        });
       }
     } else if (message.type === "STOP") {
       if (activeBot) {

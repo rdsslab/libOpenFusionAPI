@@ -24,8 +24,9 @@ export class BotManager extends EventEmitter {
    * @param {string} code - The Javascript code string to execute
    * @param {string} environment - The environment to run the bot in (e.g. 'dev', 'prd')
    * @param {Object} app_env_vars - The appvars object to run the bot in (e.g. 'dev', 'prd')
+   * @param {string} [idapp] - The UUID of the application
    */
-  startBot(botId, token, code, environment, app_env_vars) {
+  startBot(botId, token, code, environment, app_env_vars, idapp) {
     return new Promise(async (resolve, reject) => {
 
       if (!(botId && token && code && token.length > 0 && code.length > 0)) {
@@ -67,9 +68,38 @@ export class BotManager extends EventEmitter {
       worker.on("message", (msg) => {
         if (msg.type === "STARTED") {
           console.log(`[Manager] Bot ${botId} started successfully.`);
+          const entry = this.activeBots.get(botId);
+          if (entry) {
+            entry.botInfo = msg.botInfo;
+          }
+          this.emit("bot_log", {
+            botId,
+            idapp,
+            type: "STARTED",
+            botInfo: msg.botInfo
+          });
           resolve();
         } else if (msg.type === "ERROR") {
           console.error(`[Manager] Bot ${botId} reported error: ${msg.error}`);
+          this.emit("bot_log", {
+            botId,
+            idapp,
+            type: "ERROR",
+            error: msg.errorInfo || { message: msg.error }
+          });
+          this.activeBots.delete(botId);
+          worker.terminate();
+          reject(new Error(msg.error));
+        } else if (msg.type === "BOT_ERROR") {
+          console.error(`[Manager] Bot ${botId} runtime error:`, msg.error);
+          const entry = this.activeBots.get(botId);
+          this.emit("bot_log", {
+            botId,
+            idapp,
+            type: "BOT_ERROR",
+            error: msg.error,
+            botInfo: entry ? entry.botInfo : null
+          });
         } else if (msg.type === "STOPPED") {
           console.log(`[Manager] Bot ${botId} stopped.`);
         }
@@ -77,41 +107,66 @@ export class BotManager extends EventEmitter {
 
       worker.on("error", (err) => {
         console.error(`[Manager] Worker for bot ${botId} error:`, err);
+        const entry = this.activeBots.get(botId);
+        this.emit("bot_log", {
+          botId,
+          idapp,
+          type: "BOT_CRASH",
+          error: {
+            message: `Worker crash: ${err.message}`,
+            stack: err.stack
+          },
+          botInfo: entry ? entry.botInfo : null
+        });
         this.activeBots.delete(botId);
+        reject(err);
       });
 
       worker.on("exit", (code) => {
-        if (code !== 0) {
-          console.error(
-            `[Manager] Worker for bot ${botId} stopped with exit code ${code}`,
-          );
-
-          // Handle error history and cooldown
-          let history = this.botErrorHistory.get(botId);
-          if (!history) {
-            history = { timestamps: [], cooldownUntil: 0 };
-            this.botErrorHistory.set(botId, history);
-          }
-
-          const now = Date.now();
-          history.timestamps.push(now);
-
-          // Keep only errors within the failure window
-          history.timestamps = history.timestamps.filter(
-            (t) => now - t < BOT_FAILURE_WINDOW_MS,
-          );
-
-          if (history.timestamps.length >= BOT_FAILURE_THRESHOLD) {
+        const entry = this.activeBots.get(botId);
+        if (entry && entry.worker === worker) {
+          if (code !== 0) {
             console.error(
-              `[Manager] Bot ${botId} reached ${BOT_FAILURE_THRESHOLD} failures in 5 minutes. Disabling endpoint.`,
+              `[Manager] Worker for bot ${botId} stopped with exit code ${code}`,
             );
-            history.cooldownUntil = now + BOT_FAILURE_WINDOW_MS;
-            history.timestamps = [];
-            // Notify callers so they can persist enabled=false in the DB
-            this.emit("disable", { botId });
+
+            this.emit("bot_log", {
+              botId,
+              idapp,
+              type: "BOT_CRASH",
+              error: {
+                message: `Worker exited with non-zero exit code: ${code}`
+              },
+              botInfo: entry.botInfo
+            });
+
+            // Handle error history and cooldown
+            let history = this.botErrorHistory.get(botId);
+            if (!history) {
+              history = { timestamps: [], cooldownUntil: 0 };
+              this.botErrorHistory.set(botId, history);
+            }
+
+            const now = Date.now();
+            history.timestamps.push(now);
+
+            // Keep only errors within the failure window
+            history.timestamps = history.timestamps.filter(
+              (t) => now - t < BOT_FAILURE_WINDOW_MS,
+            );
+
+            if (history.timestamps.length >= BOT_FAILURE_THRESHOLD) {
+              console.error(
+                `[Manager] Bot ${botId} reached ${BOT_FAILURE_THRESHOLD} failures in 5 minutes. Disabling endpoint.`,
+              );
+              history.cooldownUntil = now + BOT_FAILURE_WINDOW_MS;
+              history.timestamps = [];
+              // Notify callers so they can persist enabled=false in the DB
+              this.emit("disable", { botId });
+            }
           }
+          this.activeBots.delete(botId);
         }
-        this.activeBots.delete(botId);
       });
 
       // Send payload to worker
@@ -120,7 +175,7 @@ export class BotManager extends EventEmitter {
         payload: { botId, token, code, environment, app_env_vars },
       });
 
-      this.activeBots.set(botId, { worker, codeHash });
+      this.activeBots.set(botId, { worker, codeHash, idapp, botInfo: null });
     });
   }
 

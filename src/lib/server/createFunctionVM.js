@@ -1,6 +1,4 @@
 import vm from "node:vm";
-import { Blob } from "node:buffer";
-import fs from "fs";
 
 const TIMEOUT_VM_MS = 1 * 60 * 1000; // 1 minute
 //const TIMEOUT_SANDBOX_JAVASCRIPT = process.env.TIMEOUT_SANDBOX_JAVASCRIPT && Number(process.env.TIMEOUT_SANDBOX_JAVASCRIPT) > 0 ? Number(process.env.TIMEOUT_SANDBOX_JAVASCRIPT) : TIMEOUT_VM_MS;
@@ -50,34 +48,8 @@ export const createFunctionVM = async (
      * Se retorna una función ejecutable
      */
     return async (customVarsAndFunctions = {}) => {
-      const defaults = {
-        // Valores explícitamente permitidos
-        setTimeout,
-        clearTimeout,
-        clearInterval,
-        AbortController,
-        console,
-        Date,
-        Math,
-        JSON,
-        Array,
-        Object,
-        String,
-        Number,
-        Boolean,
-        Promise,
-        FormData,
-        Blob,
-        Buffer,
-        RegExp,
-        parseInt,
-        parseFloat,
-        fs
-      };
-
       const sandbox = {
         ...customVarsAndFunctions,
-        ...defaults,
         // App Vars are intentionally exposed twice:
         // 1. spread directly for ergonomic access like `$_VAR_NAME`
         // 2. grouped under `$_APP_VARS_` for enumeration and collision-safe access

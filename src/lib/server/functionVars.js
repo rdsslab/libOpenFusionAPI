@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { Blob } from "node:buffer";
 import PromiseSequence from "@rddslab/sequential-promises";
 import mongoose from "mongoose";
 import * as luxon from "luxon";
@@ -2124,6 +2125,111 @@ $_CUSTOM_HEADERS_.set('Content-Type', 'application/vnd.openxmlformats-officedocu
 $_CUSTOM_HEADERS_.set('Content-Disposition', 'attachment; filename="styled-demo.xlsx"');
 $_RETURN_DATA_ = Buffer.from(buffer);
       `
+    },
+    setTimeout: {
+      fn: setTimeout,
+      description: "Schedules execution of a one-time callback after delay milliseconds.",
+      web: "https://developer.mozilla.org/en-US/docs/Web/API/setTimeout",
+      return: "Timeout ID"
+    },
+    clearTimeout: {
+      fn: clearTimeout,
+      description: "Cancels a timeout previously established by calling setTimeout().",
+      web: "https://developer.mozilla.org/en-US/docs/Web/API/clearTimeout"
+    },
+    clearInterval: {
+      fn: clearInterval,
+      description: "Cancels a timed, repeating action which was previously established by a call to setInterval().",
+      web: "https://developer.mozilla.org/en-US/docs/Web/API/clearInterval"
+    },
+    AbortController: {
+      fn: AbortController,
+      description: "A controller object that allows you to abort one or more Web APIs (like fetch requests).",
+      web: "https://developer.mozilla.org/en-US/docs/Web/API/AbortController",
+      return: "AbortController constructor"
+    },
+    console: {
+      fn: console,
+      description: "Provides access to the browser/runtime debugging console.",
+      web: "https://developer.mozilla.org/en-US/docs/Web/API/console"
+    },
+    Date: {
+      fn: Date,
+      description: "Constructor for creating and managing dates.",
+      web: "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date",
+      return: "Date instance or current timestamp"
+    },
+    Math: {
+      fn: Math,
+      description: "A built-in object that has properties and methods for mathematical constants and functions.",
+      web: "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Math"
+    },
+    JSON: {
+      fn: JSON,
+      description: "A built-in object that contains methods for parsing JavaScript Object Notation (JSON) and converting values to JSON.",
+      web: "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/JSON"
+    },
+    Array: {
+      fn: Array,
+      description: "Global Array constructor.",
+      web: "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array"
+    },
+    Object: {
+      fn: Object,
+      description: "Global Object constructor.",
+      web: "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Object"
+    },
+    String: {
+      fn: String,
+      description: "Global String constructor.",
+      web: "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/String"
+    },
+    Number: {
+      fn: Number,
+      description: "Global Number constructor.",
+      web: "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Number"
+    },
+    Boolean: {
+      fn: Boolean,
+      description: "Global Boolean constructor.",
+      web: "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Boolean"
+    },
+    Promise: {
+      fn: Promise,
+      description: "Global Promise constructor.",
+      web: "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Promise"
+    },
+    FormData: {
+      fn: FormData,
+      description: "Global FormData constructor.",
+      web: "https://developer.mozilla.org/en-US/docs/Web/API/FormData"
+    },
+    Blob: {
+      fn: Blob,
+      description: "Global Blob constructor.",
+      web: "https://developer.mozilla.org/en-US/docs/Web/API/Blob"
+    },
+    Buffer: {
+      fn: Buffer,
+      description: "Global Buffer constructor (Node.js).",
+      web: "https://nodejs.org/api/buffer.html"
+    },
+    RegExp: {
+      fn: RegExp,
+      description: "Global RegExp constructor.",
+      web: "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/RegExp"
+    },
+    parseInt: {
+      fn: parseInt,
+      description: "Parses a string argument and returns an integer of the specified radix.",
+      web: "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/parseInt",
+      return: "Integer"
+    },
+    parseFloat: {
+      fn: parseFloat,
+      description: "Parses a string argument and returns a floating point number.",
+      web: "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/parseFloat",
+      return: "Floating point number"
     },
   };
 };

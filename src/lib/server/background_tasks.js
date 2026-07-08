@@ -5,7 +5,7 @@ export class BackgroundTaskManager {
   constructor(serverAPI) {
     this.serverAPI = serverAPI;
     this.systemInfoTask = new SystemInfoTask({ serverAPI: this.serverAPI });
-    this.botLifecycleTask = new BotLifecycleTask({});
+    this.botLifecycleTask = new BotLifecycleTask({ serverAPI: this.serverAPI });
   }
 
   startAll() {
