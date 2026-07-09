@@ -2,6 +2,7 @@ import { parentPort, workerData } from "node:worker_threads";
 import vm from "node:vm";
 import * as grammyModule from "grammy";
 import { functionsVars } from "../functionVars.js";
+import crypto from "node:crypto";
 
 let activeBot = null;
 
@@ -16,7 +17,34 @@ parentPort.on("message", async (message) => {
         $BOT_TOKEN: token, // The bot code can access '$BOT_TOKEN' variable
       };
 
-      const sandbox = { ...defaults, ...functionsVars(true, true, environment), ...app_env_vars };
+      const mockRequest = {
+        headers: { "ofapi-trace-id": crypto.randomUUID() },
+        openfusionapi: {
+          handler: {
+            params: {
+              idapp: app_env_vars?.idapp || null,
+              idendpoint: botId,
+            }
+          }
+        },
+        method: "TELEGRAM_BOT",
+        url: `telegram://bot/${botId}`,
+        ip: "localhost"
+      };
+
+      const mockReply = {
+        openfusionapi: {
+          server: {
+            TasksInterval: {
+              pushLog: (logData) => {
+                parentPort.postMessage({ type: "BOT_LOG_PUSH", logData });
+              }
+            }
+          }
+        }
+      };
+
+      const sandbox = { ...defaults, ...functionsVars(mockRequest, mockReply, environment), ...app_env_vars };
 
       // 2. Create Context
       vm.createContext(sandbox);
@@ -114,6 +142,9 @@ Nota importante: Este tiempo límite aplica solo a la carga inicial del código 
             errorType
           }
         });
+
+        // Gracefully exit the worker thread instead of waiting to be terminated abruptly
+        process.exit(1);
       }
     } else if (message.type === "STOP") {
       if (activeBot) {

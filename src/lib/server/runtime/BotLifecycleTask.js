@@ -93,10 +93,32 @@ export class BotLifecycleTask {
           this.serverAPI.TasksInterval.pushLog(logData);
         } else {
           console.warn("[BotLifecycleTask] serverAPI or TasksInterval not available, logging to DB directly");
-          await createLog(logData);
+          if (typeof createLog === "function") {
+            await createLog(logData);
+          } else {
+            console.error("[URGENTE] [BotLifecycleTask] La función 'createLog' de base de datos no está disponible. No se pudo guardar el log.");
+          }
         }
       } catch (err) {
         console.error("[BotLifecycleTask] Failed to save bot log:", err);
+      }
+    });
+
+    // Listen to custom bot logs pushed from worker sandboxes
+    this.manager.on("bot_log_push", async ({ botId, idapp, logData }) => {
+      try {
+        if (this.serverAPI && this.serverAPI.TasksInterval) {
+          this.serverAPI.TasksInterval.pushLog(logData);
+        } else {
+          console.warn("[BotLifecycleTask] La cola de logs asíncrona no está disponible. Guardando directamente en BD.");
+          if (typeof createLog === "function") {
+            await createLog(logData);
+          } else {
+            console.error("[URGENTE] [BotLifecycleTask] La función 'createLog' de base de datos no está disponible. No se pudo guardar el log de push.");
+          }
+        }
+      } catch (err) {
+        console.error("[BotLifecycleTask] Failed to push custom bot log:", err);
       }
     });
   }
@@ -138,7 +160,7 @@ export class BotLifecycleTask {
                 await this.manager.stopBot(element.idendpoint);
               }
             } catch (error) {
-              console.error("Error managing bot " + element.idbot);
+              console.error("Error managing bot " + element.idendpoint, error);
             }
           }
         }

@@ -22,6 +22,7 @@ import {
 } from "../server/pdf-generator.js";
 import { isValidHttpStatusCode } from "../handler/utils.js";
 import { default_port } from "./utils_path.js";
+import { createLog } from "../db/log.js";
 import uFetch from "@rddslab/uFetch";
 import jwt from "jsonwebtoken";
 import xmlFormatter from "xml-formatter";
@@ -391,6 +392,62 @@ export const listFunctionsVars = (request, reply, environment) => {
         : 500;
       throw { message, data, date: new Date(), statusCode: status };
     },
+
+    log: (message, data = null, level = "info") => {
+      try {
+        const trace_id = request?.headers?.["ofapi-trace-id"] || request?.headers?.get?.("ofapi-trace-id") || crypto.randomUUID();
+        const idapp = request?.openfusionapi?.handler?.params?.idapp || null;
+        const idendpoint = request?.openfusionapi?.handler?.params?.idendpoint || null;
+        
+        let status_code = 200;
+        let log_level = 2; // INFO
+        
+        const lvl = String(level).toLowerCase();
+        if (lvl === "debug") {
+          log_level = 1;
+        } else if (lvl === "warn" || lvl === "warning") {
+          log_level = 3;
+          status_code = 400; // soft warning status
+        } else if (lvl === "error" || lvl === "fatal") {
+          log_level = 4;
+          status_code = 500; // error status
+        }
+
+        const logData = {
+          trace_id,
+          timestamp: new Date(),
+          idapp,
+          idendpoint,
+          method: request?.method || "LOG",
+          url: request?.url || "custom-log",
+          status_code,
+          log_level,
+          client: request?.ip || "localhost",
+          message: {
+            log: message,
+            data
+          },
+          response_time: 0
+        };
+
+        const pushLogFn = reply?.openfusionapi?.server?.TasksInterval?.pushLog;
+
+        if (typeof pushLogFn === "function") {
+          pushLogFn.call(reply.openfusionapi.server.TasksInterval, logData);
+        } else {
+          console.warn("[URGENTE] deofapi: La cola de logs asíncrona (TasksInterval) no está disponible. Guardando directamente en BD.");
+          if (typeof createLog === "function") {
+            createLog(logData).catch((err) => {
+              console.error("[URGENTE] deofapi: Error crítico al guardar log de fallback en la base de datos:", err);
+            });
+          } else {
+            console.error("[URGENTE] deofapi: La función 'createLog' de base de datos no está disponible. No se pudo guardar el log.");
+          }
+        }
+      } catch (err) {
+        console.error("[URGENTE] deofapi: Error inesperado en ofapi.log:", err);
+      }
+    },
   };
 
   return {
@@ -434,6 +491,7 @@ $_RETURN_DATA_ = {
           { name: "server", type: "object", description: "Runtime server information when available." },
           { name: "genToken", type: "function", description: "Signs a JWT token for OpenFusionAPI usage." },
           { name: "throw", type: "function", description: "Throws a controlled HTTP exception." },
+          { name: "log", type: "function", description: "Saves a log entry asynchronously in the high-performance log queue (accepts message, data, level)." },
         ],
       },
       notes: [

@@ -88,7 +88,12 @@ export class BotManager extends EventEmitter {
             error: msg.errorInfo || { message: msg.error }
           });
           this.activeBots.delete(botId);
-          worker.terminate();
+          // Safe fallback cleanup: terminate only if the worker didn't exit on its own after 1 second
+          setTimeout(() => {
+            if (worker.threadId !== -1) {
+              worker.terminate().catch(() => {});
+            }
+          }, 1000);
           reject(new Error(msg.error));
         } else if (msg.type === "BOT_ERROR") {
           console.error(`[Manager] Bot ${botId} runtime error:`, msg.error);
@@ -99,6 +104,12 @@ export class BotManager extends EventEmitter {
             type: "BOT_ERROR",
             error: msg.error,
             botInfo: entry ? entry.botInfo : null
+          });
+        } else if (msg.type === "BOT_LOG_PUSH") {
+          this.emit("bot_log_push", {
+            botId,
+            idapp,
+            logData: msg.logData
           });
         } else if (msg.type === "STOPPED") {
           console.log(`[Manager] Bot ${botId} stopped.`);

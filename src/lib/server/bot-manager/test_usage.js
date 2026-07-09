@@ -46,6 +46,45 @@ async function main() {
     }
 
     console.log('\nActive Bots:', manager.listActiveBots());
+
+    // Test ofapi.log directly
+    console.log('\n--- Testing ofapi.log direct invocation ---');
+    try {
+        const { functionsVars } = await import('../functionVars.js');
+        const mockRequest = {
+            headers: { "ofapi-trace-id": "test-trace-id" },
+            openfusionapi: {
+                handler: {
+                    params: {
+                        idapp: 'app_123',
+                        idendpoint: 'bot_test',
+                    }
+                }
+            },
+            method: "TELEGRAM_BOT",
+            url: "telegram://bot/bot_test",
+            ip: "127.0.0.1"
+        };
+
+        const mockReply = {
+            openfusionapi: {
+                server: {
+                    TasksInterval: {
+                        pushLog: (logData) => {
+                            console.log('[PUSH LOG QUEUE CALLED]', JSON.stringify(logData, null, 2));
+                        }
+                    }
+                }
+            }
+        };
+
+        const sandbox = functionsVars(mockRequest, mockReply, 'dev');
+        
+        console.log('Invoking log...');
+        sandbox.ofapi.log('This is a custom message', { details: 'extra details' }, 'warn');
+    } catch (importErr) {
+        console.error('Direct ofapi.log test failed:', importErr);
+    }
 }
 
 main().catch(console.error);
