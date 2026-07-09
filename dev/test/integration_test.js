@@ -99,7 +99,37 @@ async function runTests() {
     method: "POST",
     environment: "dev",
     handler: "JS",
-    code: "$_RETURN_DATA_ = { status: 'created', input: $_APP_VARS_ };",
+    code: `
+      const map = new Map();
+      map.set('test', 'ok');
+      const set = new Set();
+      set.add('ok');
+      const url = new URL('https://example.com/api?a=1');
+      const params = new URLSearchParams(url.search);
+      const encoder = new TextEncoder();
+      const bytes = encoder.encode('hello');
+      const decoder = new TextDecoder();
+      const str = decoder.decode(bytes);
+      const encodedUri = encodeURIComponent('a=b');
+      const decodedUri = decodeURIComponent(encodedUri);
+      const base64 = btoa('hello');
+      const decodedBase64 = atob(base64);
+      const arrayBuffer = new ArrayBuffer(8);
+      const uint8 = new Uint8Array(arrayBuffer);
+      
+      $_RETURN_DATA_ = { 
+        status: 'created', 
+        mapVal: map.get('test'),
+        setHas: set.has('ok'),
+        urlHost: url.host,
+        paramVal: params.get('a'),
+        decodedString: str,
+        decodedUri,
+        decodedBase64,
+        uint8Length: uint8.length,
+        hasSetInterval: typeof setInterval === 'function'
+      };
+    `,
     enabled: true,
     access: 0,
     title: "Integration Test Endpoint"
@@ -120,8 +150,17 @@ async function runTests() {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ test: "data" })
   });
-  assert.strictEqual(verifyRes.status, 200, `Created endpoint verification failed (Status ${verifyRes.status})`);
+  assert.strictEqual(verifyRes.status, 200, `Created endpoint verification failed (Status ${verifyRes.status}). Data: ${JSON.stringify(verifyRes.data)}`);
   assert.strictEqual(verifyRes.data.status, "created", "Endpoint returned unexpected data");
+  assert.strictEqual(verifyRes.data.mapVal, 'ok');
+  assert.strictEqual(verifyRes.data.setHas, true);
+  assert.strictEqual(verifyRes.data.urlHost, 'example.com');
+  assert.strictEqual(verifyRes.data.paramVal, '1');
+  assert.strictEqual(verifyRes.data.decodedString, 'hello');
+  assert.strictEqual(verifyRes.data.decodedUri, 'a=b');
+  assert.strictEqual(verifyRes.data.decodedBase64, 'hello');
+  assert.strictEqual(verifyRes.data.uint8Length, 8);
+  assert.strictEqual(verifyRes.data.hasSetInterval, true);
 
   console.log("   - Modifying endpoint code...");
   const updatedData = {

@@ -2289,5 +2289,106 @@ $_RETURN_DATA_ = Buffer.from(buffer);
       web: "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/parseFloat",
       return: "Floating point number"
     },
+    setInterval: {
+      fn: setInterval,
+      description: "Schedules execution of a repeating callback after every delay milliseconds.",
+      web: "https://nodejs.org/api/timers.html#setintervalcallback-delay-args",
+      return: "Interval ID"
+    },
+    Map: {
+      fn: Map,
+      description: "Standard JavaScript Map constructor for key-value collections.",
+      web: "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Map",
+      return: "Map instance"
+    },
+    Set: {
+      fn: Set,
+      description: "Standard JavaScript Set constructor for collections of unique values.",
+      web: "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Set",
+      return: "Set instance"
+    },
+    WeakMap: {
+      fn: WeakMap,
+      description: "Standard JavaScript WeakMap constructor for collections of key-value pairs where keys must be objects.",
+      web: "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/WeakMap",
+      return: "WeakMap instance"
+    },
+    WeakSet: {
+      fn: WeakSet,
+      description: "Standard JavaScript WeakSet constructor for collections of unique objects.",
+      web: "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/WeakSet",
+      return: "WeakSet instance"
+    },
+    URL: {
+      fn: URL,
+      description: "Standard Web API URL constructor to parse, construct, and validate URLs (available globally in Node.js).",
+      web: "https://nodejs.org/api/url.html#class-url",
+      return: "URL instance"
+    },
+    URLSearchParams: {
+      fn: URLSearchParams,
+      description: "Standard Web API URLSearchParams constructor to work with query string parameters of a URL (available globally in Node.js).",
+      web: "https://nodejs.org/api/url.html#class-urlsearchparams",
+      return: "URLSearchParams instance"
+    },
+    TextEncoder: {
+      fn: TextEncoder,
+      description: "Standard Web API TextEncoder constructor to encode a string into a stream of bytes (Uint8Array) using UTF-8 (available globally in Node.js).",
+      web: "https://nodejs.org/api/util.html#class-textencoder",
+      return: "TextEncoder instance"
+    },
+    TextDecoder: {
+      fn: TextDecoder,
+      description: "Standard Web API TextDecoder constructor to decode a stream of bytes into a string (available globally in Node.js).",
+      web: "https://nodejs.org/api/util.html#class-textdecoder",
+      return: "TextDecoder instance"
+    },
+    encodeURIComponent: {
+      fn: encodeURIComponent,
+      description: "Encodes a Uniform Resource Identifier (URI) component by replacing certain characters with UTF-8 escape sequences.",
+      web: "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/encodeURIComponent",
+      return: "Encoded string"
+    },
+    decodeURIComponent: {
+      fn: decodeURIComponent,
+      description: "Decodes a Uniform Resource Identifier (URI) component previously created by encodeURIComponent.",
+      web: "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/decodeURIComponent",
+      return: "Decoded string"
+    },
+    encodeURI: {
+      fn: encodeURI,
+      description: "Encodes a complete Uniform Resource Identifier (URI).",
+      web: "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/encodeURI",
+      return: "Encoded string"
+    },
+    decodeURI: {
+      fn: decodeURI,
+      description: "Decodes a Uniform Resource Identifier (URI) previously created by encodeURI.",
+      web: "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/decodeURI",
+      return: "Decoded string"
+    },
+    btoa: {
+      fn: btoa,
+      description: "Creates a Base64-encoded ASCII string from a string of binary data (available globally in Node.js).",
+      web: "https://nodejs.org/api/globals.html#btoa",
+      return: "Base64-encoded string"
+    },
+    atob: {
+      fn: atob,
+      description: "Decodes a string of data which has been encoded using Base64 encoding (available globally in Node.js).",
+      web: "https://nodejs.org/api/globals.html#atob",
+      return: "Decoded string"
+    },
+    ArrayBuffer: {
+      fn: ArrayBuffer,
+      description: "Global ArrayBuffer constructor.",
+      web: "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer"
+    },
+    Uint8Array: {
+      fn: Uint8Array,
+      description: "Global Uint8Array typed array constructor.",
+      web: "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Uint8Array"
+    },
   };
 };
+

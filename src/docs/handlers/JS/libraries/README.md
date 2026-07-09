@@ -10,12 +10,14 @@ Below is the index of available libraries and functions inside the JS handler VM
 | [\$_RETURN_DATA_](./$_RETURN_DATA_.md) | `$_RETURN_DATA_` | Primary output slot for JS handlers. | Prefer assigning to $_RETURN_DATA_ over calling reply.send() directly unless you need low-level Fastify control. |
 | [AbortController](./AbortController.md) | `AbortController()` | A controller object that allows you to abort one or more Web APIs (like fetch requests). | - |
 | [Array](./Array.md) | `Array()` | Global Array constructor. | - |
+| [ArrayBuffer](./ArrayBuffer.md) | `ArrayBuffer()` | Global ArrayBuffer constructor. | - |
 | [Blob](./Blob.md) | `Blob()` | Global Blob constructor. | - |
 | [Boolean](./Boolean.md) | `Boolean()` | Global Boolean constructor. | - |
 | [Buffer](./Buffer.md) | `Buffer()` | Global Buffer constructor (Node. | - |
 | [Date](./Date.md) | `Date()` | Constructor for creating and managing dates. | - |
 | [FormData](./FormData.md) | `FormData()` | Global FormData constructor. | - |
 | [JSON](./JSON.md) | `JSON` | A built-in object that contains methods for parsing JavaScript Object Notation (JSON) and converting values to JSON. | - |
+| [Map](./Map.md) | `Map()` | Standard JavaScript Map constructor for key-value collections. | - |
 | [Math](./Math.md) | `Math` | A built-in object that has properties and methods for mathematical constants and functions. | - |
 | [Number](./Number.md) | `Number()` | Global Number constructor. | - |
 | [Object](./Object.md) | `Object()` | Global Object constructor. | - |
@@ -23,10 +25,20 @@ Below is the index of available libraries and functions inside the JS handler VM
 | [Promise](./Promise.md) | `Promise()` | Global Promise constructor. | - |
 | [PromiseSequence](./PromiseSequence.md) | `PromiseSequence` | Utility for processing async tasks sequentially or in controlled batches. | Use this when order matters or when downstream systems require throttled execution. |
 | [RegExp](./RegExp.md) | `RegExp()` | Global RegExp constructor. | - |
+| [Set](./Set.md) | `Set()` | Standard JavaScript Set constructor for collections of unique values. | - |
 | [String](./String.md) | `String()` | Global String constructor. | - |
+| [TextDecoder](./TextDecoder.md) | `TextDecoder()` | Standard Web API TextDecoder constructor to decode a stream of bytes into a string (available globally in Node. | - |
+| [TextEncoder](./TextEncoder.md) | `TextEncoder()` | Standard Web API TextEncoder constructor to encode a string into a stream of bytes (Uint8Array) using UTF-8 (available globally in Node. | - |
+| [URL](./URL.md) | `URL()` | Standard Web API URL constructor to parse, construct, and validate URLs (available globally in Node. | - |
+| [URLSearchParams](./URLSearchParams.md) | `URLSearchParams()` | Standard Web API URLSearchParams constructor to work with query string parameters of a URL (available globally in Node. | - |
+| [Uint8Array](./Uint8Array.md) | `Uint8Array()` | Global Uint8Array typed array constructor. | - |
+| [WeakMap](./WeakMap.md) | `WeakMap()` | Standard JavaScript WeakMap constructor for collections of key-value pairs where keys must be objects. | - |
+| [WeakSet](./WeakSet.md) | `WeakSet()` | Standard JavaScript WeakSet constructor for collections of unique objects. | - |
 | [askAIWithTools](./askAIWithTools.md) | `askAIWithTools(options.provider, [options.provider.provider|modelProvider|name|vendor], options.provider.model, [options.provider.baseUrl|baseURL], [options.provider.apiKey|api_key], [options.provider.azureApiKey|azure_api_key], [options.provider.apiVersion|api_version|api-version], [options.provider.clientName], [options.provider.clientVersion], [options.provider.defaultQuery|default_query], [options.provider.headers], [options.provider.temperature], [options.provider.maxTokens|max_tokens], [options.provider.toolChoice|tool_choice], [options.provider.timeout], [options.provider.responseTimeout|responseTimeoutMs|runTimeout], options.prompts, [options.mcpServers], [options.mcpServers[].name], options.mcpServers[].url, [options.mcpServers[].headers], [options.mcpServers[].timeout], [options.mcpServers[].transportPriority], [options.maxToolRounds], [options.includeDiagnostics], [options.signal])` | Generic AI helper that accepts a provider configuration, connects to the selected AI service, and optionally enables MCP tools from one or more MCP servers during the conversation. | Prefer this helper over askIAWithMCP for new work because it is provider-agnostic and easier to parameterize from request bodies or App Vars. |
 | [askIAWithMCP](./askIAWithMCP.md) | `askIAWithMCP(options.ai, [options.ai.modelProvider], options.ai.model, [options.ai.baseUrl|baseURL], [options.ai.apiKey|api_key], [options.ai.azureApiKey|azure_api_key], [options.ai.apiVersion|api_version|api-version], [options.ai.defaultQuery|default_query], [options.ai.temperature], [options.ai.maxTokens|max_tokens], [options.ai.toolChoice|tool_choice], [options.ai.headers], [options.ai.organization], [options.ai.project], [options.ai.timeout], [options.ai.responseTimeout|responseTimeoutMs|runTimeout], options.prompts, [options.mcpServers], [options.mcpServers[].name], options.mcpServers[].url, [options.mcpServers[].headers], [options.mcpServers[].timeout], [options.mcpServers[].transportPriority], [options.maxToolRounds], [options.includeDiagnostics], [options.signal])` | Legacy compatibility wrapper over askAIWithTools. | Use this only when you must preserve the old `ai` field shape. Otherwise use askAIWithTools. |
 | [askIAWithProviderMCP](./askIAWithProviderMCP.md) | `askIAWithProviderMCP(options.provider, [options.provider.provider|modelProvider|name|vendor], options.provider.model, [options.provider.baseUrl|baseURL], [options.provider.apiKey|api_key], [options.provider.azureApiKey|azure_api_key], [options.provider.apiVersion|api_version|api-version], [options.provider.temperature], [options.provider.maxTokens|max_tokens], [options.provider.toolChoice|tool_choice], [options.provider.timeout], [options.provider.responseTimeout|responseTimeoutMs|runTimeout], options.prompts, [options.mcpServers], [options.maxToolRounds], [options.includeDiagnostics], [options.signal])` | Primary provider-first AI helper for JS handlers. | Prefer this helper when you are writing new JS handler code and want the name to communicate clearly that both the provider and MCP servers are configurable inputs. |
+| [atob](./atob.md) | `atob()` | Decodes a string of data which has been encoded using Base64 encoding (available globally in Node. | - |
+| [btoa](./btoa.md) | `btoa()` | Creates a Base64-encoded ASCII string from a string of binary data (available globally in Node. | - |
 | [clearInterval](./clearInterval.md) | `clearInterval()` | Cancels a timed, repeating action which was previously established by a call to setInterval(). | - |
 | [clearTimeout](./clearTimeout.md) | `clearTimeout()` | Cancels a timeout previously established by calling setTimeout(). | - |
 | [console](./console.md) | `console` | Provides access to the browser/runtime debugging console. | - |
@@ -34,7 +46,11 @@ Below is the index of available libraries and functions inside the JS handler VM
 | [createImageFromHTML](./createImageFromHTML.md) | `createImageFromHTML([html], [url], [type], [quality], [fullPage])` | Renders HTML content or a URL into an image buffer. | Use this when the endpoint must return a screenshot-like image artifact generated on demand. |
 | [createPDFFromHTML](./createPDFFromHTML.md) | `createPDFFromHTML([html], [url], [format], [landscape], [margin], [printBackground])` | Generates a PDF document from an HTML string or a URL. | Use this for report exports, tickets, or printable documents assembled inside the handler. |
 | [crypto](./crypto.md) | `crypto` | Node. | - |
+| [decodeURI](./decodeURI.md) | `decodeURI()` | Decodes a Uniform Resource Identifier (URI) previously created by encodeURI. | - |
+| [decodeURIComponent](./decodeURIComponent.md) | `decodeURIComponent()` | Decodes a Uniform Resource Identifier (URI) component previously created by encodeURIComponent. | - |
 | [dnsPromises](./dnsPromises.md) | `dnsPromises` | The DNS module enables name resolution functions. | - |
+| [encodeURI](./encodeURI.md) | `encodeURI()` | Encodes a complete Uniform Resource Identifier (URI). | - |
+| [encodeURIComponent](./encodeURIComponent.md) | `encodeURIComponent()` | Encodes a Uniform Resource Identifier (URI) component by replacing certain characters with UTF-8 escape sequences. | - |
 | [forge](./forge.md) | `forge` | A native implementation of TLS (and various other cryptographic tools) in JavaScript. | - |
 | [json_to_xlsx_buffer](./json_to_xlsx_buffer.md) | `json_to_xlsx_buffer([data])` | Builds an XLSX workbook in memory and returns the binary buffer plus download metadata. | If the endpoint should download a file, set $_CUSTOM_HEADERS_ from the returned metadata and assign only result.buffer to $_RETURN_DATA_. |
 | [jwt](./jwt.md) | `jwt` | An implementation of JSON Web Tokens. | - |
@@ -51,6 +67,7 @@ Below is the index of available libraries and functions inside the JS handler VM
 | [request_xlsx_body_to_json](./request_xlsx_body_to_json.md) | `request_xlsx_body_to_json(request)` | Reads uploaded XLSX files from a multipart/form-data request and converts their sheets into JSON rows. | Use this helper only when the endpoint receives an uploaded spreadsheet; do not use it for plain JSON requests. |
 | [sequelize](./sequelize.md) | `sequelize` | Sequelize is a modern TypeScript and Node. | Choose sequelize here only when you need transactions, model logic, or multi-step orchestration in JS instead of a single SQL statement. |
 | [sequentialPromises](./sequentialPromises.md) | `sequentialPromises` | Legacy alias of PromiseSequence kept for backward compatibility. | Deprecated alias. Prefer PromiseSequence in new endpoint code. |
+| [setInterval](./setInterval.md) | `setInterval()` | Schedules execution of a repeating callback after every delay milliseconds. | - |
 | [setTimeout](./setTimeout.md) | `setTimeout()` | Schedules execution of a one-time callback after delay milliseconds. | - |
 | [uFetch](./uFetch.md) | `uFetch([constructor(url?, redirect_in_unauthorized?)], [request(url, method, data, headers, options)], [get|post|put|patch|delete({ url, data, headers, options })], [batch({ url, method, items, headers, options, config })], [batch_old(url, method, items, headers, options, config)])` | Universal HTTP client for Node. | For internal OpenFusionAPI endpoints in the same instance, prefer uFetchAutoEnv instead of hardcoding dev/qa/prd URLs. |
 | [uFetchAutoEnv](./uFetchAutoEnv.md) | `uFetchAutoEnv([create(url, shouldApplyAuto = true)], [auto(url)])` | OpenFusionAPI helper that wraps uFetch for same-instance calls. | Prefer relative internal URLs such as /api/myapp/resource/auto instead of hardcoded localhost URLs. |
