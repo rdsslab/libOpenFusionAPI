@@ -21,20 +21,67 @@ export const createFunctionVM = async (
         const controller = new AbortController();
         const signal = controller.signal;
 
-        // If the code exceeds the allowed timeout (timeoutVM + 1s), abort it.
-        const to = setTimeout(() => {
-          console.log("Timeout reached, aborting VM...");
-          controller.abort();
-        }, ${timeoutVM + 1000});
+        // Track async resources created inside the sandbox so they can be
+        // cleaned up when the execution ends (success or timeout).
+        const __nativeSetTimeout = setTimeout;
+        const __nativeClearTimeout = clearTimeout;
+        const __nativeSetInterval = setInterval;
+        const __nativeClearInterval = clearInterval;
+        const __trackedTimeouts = new Set();
+        const __trackedIntervals = new Set();
+
+        const setTimeout = (fn, ms, ...args) => {
+          const id = __nativeSetTimeout(fn, ms, ...args);
+          __trackedTimeouts.add(id);
+          return id;
+        };
+
+        const clearTimeout = (id) => {
+          __trackedTimeouts.delete(id);
+          return __nativeClearTimeout(id);
+        };
+
+        const setInterval = (fn, ms, ...args) => {
+          const id = __nativeSetInterval(fn, ms, ...args);
+          __trackedIntervals.add(id);
+          return id;
+        };
+
+        const clearInterval = (id) => {
+          __trackedIntervals.delete(id);
+          return __nativeClearInterval(id);
+        };
+
+        const __cleanupAsyncResources = () => {
+          for (const id of __trackedTimeouts) {
+            __nativeClearTimeout(id);
+          }
+          for (const id of __trackedIntervals) {
+            __nativeClearInterval(id);
+          }
+          __trackedTimeouts.clear();
+          __trackedIntervals.clear();
+        };
+
+        let to;
+        const timeoutPromise = new Promise((_, reject) => {
+          to = setTimeout(() => {
+            console.log("Timeout reached, aborting VM...");
+            controller.abort();
+            reject(new Error("JS handler execution timeout"));
+          }, ${timeoutVM});
+        });
 
         const __executeUserCode = async () => {
           ${code}
         };
 
         try {
-          await __executeUserCode();
+          await Promise.race([__executeUserCode(), timeoutPromise]);
         } finally {
           clearTimeout(to);
+          controller.abort();
+          __cleanupAsyncResources();
         }
 
         return {
