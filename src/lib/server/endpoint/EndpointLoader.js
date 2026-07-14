@@ -243,8 +243,7 @@ export class EndpointLoader {
       const vm = await this._vmFactory(
         returnHandler.params.code,
         appvars_obj,
-        returnHandler.params.timeout * 1000,
-        returnHandler.params.custom_data
+        returnHandler.params.timeout * 1000
       );
       returnHandler.params.jsFn = vm;
     } catch (error) {

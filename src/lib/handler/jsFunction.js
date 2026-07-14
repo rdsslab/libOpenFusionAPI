@@ -1,5 +1,4 @@
-import { createFunctionVM } from "../server/createFunctionVM.js";
-import { functionsVars, listFunctionsVars } from "../server/functionVars.js";
+import { functionsVars } from "../server/functionVars.js";
 import {
   getHandlerExecutionContext,
   replyException,
@@ -9,43 +8,23 @@ import {
 export const jsFunction = async (context) => {
   const { request, reply, method } = getHandlerExecutionContext(context);
   try {
-    
+
     // --------------------------------------------------
     // 1) Obtener contexto de ejecución
     // --------------------------------------------------
     let fnVars = functionsVars(request, reply, method.environment);
-    
+
     // --------------------------------------------------
-    // 2) Resolver VM del endpoint
+    // 2) Validar VM compilada del endpoint
     // --------------------------------------------------
-    if (!request.vmFunction && method.jsFn) {
-      request.vmFunction = method.jsFn;
-    }
-
-    // Backward-compatible fallback when cached handler VM is unavailable.
-    if (!request.vmFunction) {
-      const timeout = method.timeout
-        ? Number(method.timeout) * 1000 || 60000
-        : 60000;
-
-      console.log("[DEBUG jsFunction] method.timeout:", method.timeout, "calculated timeout:", timeout);
-
-      request.vmFunction = await createFunctionVM(
-        method.code,
-        method.app_vars || {},
-        timeout
-      );
-    }
-
-    if (!request.vmFunction) {
-      throw new Error("Function 'jsFn' is not defined in the method configuration.");
+    if (!method.jsFn) {
+      throw new Error("Function 'jsFn' is not compiled in cache.");
     }
 
     // --------------------------------------------------
     // 3) Ejecutar código dentro de la VM
     // --------------------------------------------------
-    let fnresult = await request.vmFunction(fnVars);
-    //let fnresult = await method.jsFn(fnVars);
+    let fnresult = await method.jsFn(fnVars);
 
     sendHandlerResponse(reply, {
       statusCode: 200,

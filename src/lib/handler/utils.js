@@ -77,7 +77,7 @@ export const isValidHttpStatusCode = (code) => {
 };
 
 export const replyException = (request, reply, error) => {
-  console.trace(error);
+  //console.trace(error);
   let trace_id = request?.headers?.["ofapi-trace-id"] || "";
 
   if (reply.openfusionapi?.lastResponse) {
