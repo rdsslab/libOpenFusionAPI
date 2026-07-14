@@ -71,12 +71,13 @@ En los schemas y herramientas MCP, el campo `log_level` acepta estos valores (0-
 - For package-level API contracts, the upstream docs are canonical.
 - If they differ, update this local guide immediately with a compatibility note and migration guidance.
 - Dedicated dependency guide for maintainers and agents: [../../dependencies/uFetch.md](../../dependencies/uFetch.md).
-- Last local verification against upstream contract: `2026-06-20`.
+- Last local verification against upstream contract: `2026-07-14`.
 
 `uFetch.batch` quick reference:
-- Signature: `batch({ url, method = 'GET', items, headers, options, config: { concurrency = 5, onProgress, responseParser, includeResponse = false } })`
+- Signature: `batch({ url, method = 'GET', items, headers, options, timeout, config: { concurrency = 5, onProgress, responseParser, includeResponse = false } })`
 - `url` is optional when the `uFetch` instance already has a base URL; use it only to override that base URL for the batch call.
-- If an item includes any of `{ url, method, data, headers, options }`, those fields override the base values for that item.
+- If an item includes any of `{ url, method, data, body, headers, options, timeout }`, those fields override the base values for that item.
+- `timeout` can be defined globally per `batch(...)` call and overridden per item.
 - Positional signature `batch(url, method, items, headers, options, config)` is no longer supported; use `batch_old(url, method, items, headers, options, config)` only for legacy compatibility.
 - Result shape per item (default): `{ isError, httpCode, data?, error? }`
 - If you explicitly set `config.includeResponse = true`, each result can also include `response`.

@@ -62,17 +62,22 @@ export const fetchFunction = async (context) => {
       return;
     }
 
-    let req_body = method.custom_data;
+    const hasEndpointTimeout = method?.timeout !== undefined && method?.timeout !== null;
+    const endpointTimeoutSeconds = hasEndpointTimeout ? Number(method.timeout) : undefined;
 
-    let paramsFetch = {};
-    paramsFetch = {
-      ...method.custom_data, ...{
-        method: method.custom_data?.method || request.method, // Usar el metodo de la configuracion
-        headers: forwardedHeaders,
-        body: request.body, // Usar los body de la peticion
-        query: request.query, // Usar los query de la peticion,
-      }
-    };
+    if (hasEndpointTimeout && Number.isNaN(endpointTimeoutSeconds)) {
+      sendHandlerError(reply, 400, "Invalid endpoint timeout. Expected a numeric value in seconds.", {
+        detail: {
+          timeout: method.timeout,
+          expectedUnit: "seconds",
+        },
+      });
+      return;
+    }
+
+    const endpointTimeoutMs = hasEndpointTimeout
+      ? endpointTimeoutSeconds * 1000
+      : undefined;
 
     let init = {
       headers: forwardedHeaders, // Usar los headers de la peticion
@@ -80,6 +85,10 @@ export const fetchFunction = async (context) => {
       query: request.query, // Usar los query de la peticion,
       url: url,
     };
+
+    if (hasEndpointTimeout) {
+      init.timeout = endpointTimeoutMs;
+    }
 
     const FData = new uFetch();
     //  console.log('method -------> ', paramsFetch.method );
@@ -156,7 +165,27 @@ export const fetchFunction = async (context) => {
       headers: responseHeaders,
     });
   } catch (error) {
-    //  console.log(error);
+    const errorMessage =
+      typeof error === "string"
+        ? error
+        : error?.message || "Unknown error";
+
+    const looksLikeTimeout =
+      error?.name === "AbortError" ||
+      /timed\s*out|timeout/i.test(errorMessage);
+
+    if (looksLikeTimeout) {
+      sendHandlerError(reply, 504, "Gateway Timeout", {
+        detail: {
+          message: errorMessage,
+          name: error?.name,
+          code: error?.code,
+          stack: error?.stack,
+        },
+      });
+      return;
+    }
+
     replyException(request, reply, error);
   }
 };

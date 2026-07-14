@@ -6,6 +6,9 @@ Internally it uses `@rddslab/uFetch` to perform standardized HTTP requests.
 Agent note:
 - `@rddslab/uFetch` may evolve frequently. Before updating FETCH behavior, examples, or helper snippets, confirm the current official documentation or the installed package contract.
 - If you use `uFetch.batch`, the current contract is a single object argument; positional batch calls are legacy and should move to `batch_old(...)`.
+- Endpoint timeout is propagated to `uFetch` on each request.
+- Timeout unit at endpoint level is **seconds**; it is converted to **milliseconds** before calling `uFetch`.
+- If endpoint timeout is invalid (non-numeric), FETCH returns HTTP `400`.
 
 ---
 
@@ -49,6 +52,11 @@ https://jsonplaceholder.typicode.com/posts
     -   If the target URL is invalid, returns HTTP `500`.
     -   If the HTTP method is not supported by the internal client, returns HTTP `405`.
     -   Upstream errors are passed through with their original status codes.
+-   **Timeout Behavior**:
+  -   Endpoint `timeout` is authoritative and always propagated to `uFetch`.
+  -   Endpoint timeout values are configured in **seconds** and converted to milliseconds internally (`timeout_ms = timeout_seconds * 1000`).
+  -   For timeout failures, FETCH responds with HTTP `504` and includes the original timeout error detail in the payload.
+  -   If timeout is `0` or lower, behavior is delegated to `uFetch` semantics.
 
 </details>
 
@@ -94,6 +102,7 @@ curl -X GET https://your-openfusion-server/api/proxy/users
 | Variable Substitution in URL | ❌ |
 | Caching | ✅ (Max 50MB for binary) |
 | Authentication | ❌ (Must be handled via headers) |
+| Handler-level Timeout Setting | ✅ (Endpoint timeout in seconds -> propagated to uFetch in milliseconds) |
 
 </details>
 

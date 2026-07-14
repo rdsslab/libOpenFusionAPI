@@ -50,6 +50,11 @@ async function runAllTests() {
         args: ["integration_test.js"],
       },
       {
+        label: "fetch_timeout_test.js",
+        command: "node",
+        args: ["fetch_timeout_test.js"],
+      },
+      {
         label: "cache_validation.js",
         command: "node",
         args: ["cache_validation.js"],

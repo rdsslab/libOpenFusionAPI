@@ -744,19 +744,19 @@ $_RETURN_DATA_ = {
       web: "https://github.com/rdsslab/uFetch",
       params: [
         {
-          name: "constructor(url?, redirect_in_unauthorized?)",
-          description: "Creates an instance with optional base URL for relative paths. In browser mode, redirect_in_unauthorized can redirect on 401.",
+          name: "constructor(url?, redirect_in_unauthorized?, timeoutOptions?)",
+          description: "Creates an instance with optional base URL for relative paths. In browser mode, redirect_in_unauthorized can redirect on 401. timeoutOptions configures default timeout behavior.",
           required: false,
           type: "function",
         },
         {
-          name: "request(url, method, data, headers, options)",
+          name: "request(url, method, data, headers, options, body, timeout)",
           description: "Low-level request method used by all wrappers.",
           required: false,
           type: "function",
         },
         {
-          name: "get|post|put|patch|delete({ url, data, headers, options })",
+          name: "get|post|put|patch|delete({ url, data, body, headers, options, timeout })",
           description: "Convenience wrappers for common HTTP methods.",
           required: false,
           type: "function",
@@ -781,6 +781,8 @@ $_RETURN_DATA_ = {
           { name: "request", type: "function", description: "Core request primitive." },
           { name: "get|post|put|patch|delete", type: "function", description: "HTTP method wrappers using opts object." },
           { name: "batch", type: "function", description: "Fail-safe batch execution with configurable concurrency." },
+          { name: "setTimeouts", type: "function", description: "Updates global timeout defaults for this instance." },
+          { name: "setAbortTimeout", type: "function", description: "Convenience helper to update only global timeout." },
           { name: "setBasicAuthorization", type: "function", description: "Sets persistent Basic auth header for the instance." },
           { name: "setBearerAuthorization", type: "function", description: "Sets persistent Bearer auth header for the instance." },
           { name: "abort", type: "function", description: "Aborts active in-flight requests for this instance." },
@@ -792,10 +794,13 @@ $_RETURN_DATA_ = {
         "Quick decision: one request => get/post/put/patch/delete.",
         "Quick decision: list/lote of requests with controlled parallel workers => batch({ items, config: { concurrency, ... } }).",
         "For GET or HEAD, data is serialized as query string. For non-GET methods, object data is serialized as JSON automatically.",
+        "Method wrappers accept body to force payload in HTTP body and timeout to override request duration.",
+        "Use setTimeouts({ timeout, headersTimeout, bodyTimeout, socketTimeout }) to configure default timeouts at instance level.",
+        "Use setAbortTimeout(timeout) as a shortcut when only abort timeout must be adjusted.",
         "Use batch() when you must process many calls from a list and split the workload into concurrent workers/blocks.",
         "batch() returns per-item result objects and is designed to continue even if some items fail; always inspect isError per item.",
-        "batch() signature: batch({ url, method, items, headers, options, config: { concurrency, onProgress, responseParser, includeResponse } }).",
-        "If an item includes any of { url, method, data, headers, options }, those fields override base values for that item.",
+        "batch() signature: batch({ url, method, items, headers, options, timeout, config: { concurrency, onProgress, responseParser, includeResponse } }).",
+        "If an item includes any of { url, method, data, body, headers, options, timeout }, those fields override base values for that item.",
         "Positional signature batch(url, method, items, headers, options, config) is not accepted by batch(); use batch_old(...) for legacy compatibility.",
         "Each batch result item has shape by default: { isError, httpCode, data?, error? }.",
         "If config.includeResponse is true, each result may also include response.",
@@ -805,8 +810,8 @@ $_RETURN_DATA_ = {
         "For internal OpenFusionAPI endpoints in the same instance, prefer uFetchAutoEnv instead of hardcoding dev/qa/prd URLs.",
         "Start with get/post/put/patch/delete and switch to batch only when you have a collection of inputs to process concurrently.",
         "If you need per-item fault tolerance and progress in a large workload, prefer batch over Promise.all.",
-        "Prefer method wrappers with opts object for readability: get/post/put/patch/delete({ url, data, headers, options }).",
-        "Use request(url, method, data, headers, options) only when method must be computed dynamically.",
+        "Prefer method wrappers with opts object for readability: get/post/put/patch/delete({ url, data, body, headers, options, timeout }).",
+        "Use request(url, method, data, headers, options, body, timeout) only when method must be computed dynamically.",
         "For bulk operations, prefer batch() over Promise.all to avoid failing the full operation due to a single request error.",
         "Prefer the object signature of batch(); use batch_old() only while migrating legacy positional code.",
       ],
@@ -823,14 +828,18 @@ const usersRes = await api.get({
 const createRes = await api.post({
   url: '/users',
   data: { username: 'johndoe' },
+  timeout: 30000,
 });
+
+api.setAbortTimeout(90000);
 
 const batchResults = await api.batch({
   url: '/users',
   method: 'POST',
+  timeout: 60000,
   items: [
     { username: 'a' },
-    { username: 'b', method: 'PUT' },
+    { username: 'b', method: 'PUT', timeout: 15000 },
     { url: 'https://other-api.example/log', data: { msg: 'audit' } },
   ],
   config: {
