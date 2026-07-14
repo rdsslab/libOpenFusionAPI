@@ -1,10 +1,10 @@
 # uFetch Integration Guide
 
-This page defines how libOpenFusionAPI documents and consumes @rddslab/uFetch.
+This page defines how libOpenFusionAPI documents and consumes @rdsslab/uFetch.
 
 ## Summary
 
-- Dependency: @rddslab/uFetch
+- Dependency: @rdsslab/uFetch
 - Used in: JS handler runtime helpers and FETCH handler integration behavior
 - Primary local guides:
   - docs/handlers/JS/README.md
@@ -54,7 +54,7 @@ This page defines how libOpenFusionAPI documents and consumes @rddslab/uFetch.
 ## Verification Metadata
 
 - Last verified date: 2026-07-14
-- Verified package version in this repository: @rddslab/uFetch 4.0.2 (lock commit 6d54cf6)
+- Verified package version in this repository: @rdsslab/uFetch 4.0.2 (lock commit 6d54cf6)
 - Verified against upstream source: README.md and src/fetch.js in rdsslab/uFetch
 - Verified by: libOpenFusionAPI maintenance workflow
 

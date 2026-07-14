@@ -1,4 +1,4 @@
-import uFetch from "@rddslab/uFetch";
+import uFetch from "@rdsslab/uFetch";
 
 const { PORT } = process.env;
 

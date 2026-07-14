@@ -5,7 +5,7 @@ import { Buffer } from "node:buffer";
 import jwt from "jsonwebtoken";
 import { internal_url_post_hooks } from "./utils_path.js"; //
 import * as uuid from "uuid";
-import uFetch from "@rddslab/uFetch";
+import uFetch from "@rdsslab/uFetch";
 import Zod from "zod";
 import {
   URLAutoEnvironment,

@@ -1,5 +1,5 @@
 // @ts-ignore
-import uFetch from "@rddslab/uFetch";
+import uFetch from "@rdsslab/uFetch";
 import {
   getAppVarContext,
   getHandlerExecutionContext,

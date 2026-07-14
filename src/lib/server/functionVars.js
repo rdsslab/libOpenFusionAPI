@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import { Blob } from "node:buffer";
-import PromiseSequence from "@rddslab/sequential-promises";
+import PromiseSequence from "@rdsslab/sequential-promises";
 import mongoose from "mongoose";
 import * as luxon from "luxon";
 import * as sequelize from "sequelize";
@@ -23,7 +23,7 @@ import {
 import { isValidHttpStatusCode } from "../handler/utils.js";
 import { default_port } from "./utils_path.js";
 import { createLog } from "../db/log.js";
-import uFetch from "@rddslab/uFetch";
+import uFetch from "@rdsslab/uFetch";
 import jwt from "jsonwebtoken";
 import xmlFormatter from "xml-formatter";
 import xml2js from "xml2js";

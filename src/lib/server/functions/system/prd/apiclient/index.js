@@ -1,7 +1,7 @@
 import { getUserPasswordTokenFromRequest } from "../../../../auth.js";
 import { GenToken } from "../../../../functionVars.js";
 import { GetSystemPaths } from "../../../../utils_path.js";
-import uFetch from "@rddslab/uFetch";
+import uFetch from "@rdsslab/uFetch";
 
 import {
   createApiClient,

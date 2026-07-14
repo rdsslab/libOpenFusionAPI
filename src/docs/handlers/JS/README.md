@@ -63,7 +63,7 @@ En los schemas y herramientas MCP, el campo `log_level` acepta estos valores (0-
 -   The dual exposure is intentional. It does not duplicate values in storage; it only creates two access paths to the same runtime data.
 
 `uFetch` / `uFetchAutoEnv` note:
-- `@rddslab/uFetch` changes over time. Before creating or editing endpoint code that depends on it, verify the current official documentation or the installed package version.
+- `@rdsslab/uFetch` changes over time. Before creating or editing endpoint code that depends on it, verify the current official documentation or the installed package version.
 - Do not assume legacy aliases such as `GET()` or `POST()` are still the preferred API.
 
 `uFetch` source-of-truth policy (hybrid):

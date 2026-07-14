@@ -15,7 +15,7 @@ docs/
 ├── templates/
 │   └── EXTERNAL_DEPENDENCY_DOC_TEMPLATE.md# Formatting guide for documenting external libraries
 ├── dependencies/
-│   └── uFetch.md                          # Concrete guide for the @rddslab/uFetch package
+│   └── uFetch.md                          # Concrete guide for the @rdsslab/uFetch package
 └── handlers/
     ├── README.md                          # Table of active handlers and summary of rules
     ├── FETCH/
@@ -107,7 +107,7 @@ Below is a cheat sheet of the 12 active handlers defined in [handler.js](../src/
 |---|---|---|---|
 | **JS** | JavaScript | Sandboxed JS String | Runs Node.js scripts in a VM sandbox. Assigns response to `$_RETURN_DATA_`. |
 | **SQL** | SQL | SQL Query String | Runs raw SQL queries via Sequelize. Safe parameter binding via `$param` (bind) or `:param` (replacements). |
-| **FETCH** | Fetch | Upstream HTTP URL | Acts as an HTTP proxy/forwarder. Integrates `@rddslab/uFetch`. |
+| **FETCH** | Fetch | Upstream HTTP URL | Acts as an HTTP proxy/forwarder. Integrates `@rdsslab/uFetch`. |
 | **TEXT** | Text | Static string value | Delivers static text/files up to 1MB. Set `mimeType` in `custom_data`. |
 | **SOAP** | SOAP | Target SOAP URL | Proxies REST requests to legacy SOAP Web Services using WSDL description. |
 | **SQL_BULK_I** | SQL Bulk Insert | Target Table Name | Performs highly efficient bulk insertions of JSON arrays into DB. |
