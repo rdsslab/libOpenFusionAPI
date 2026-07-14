@@ -50,6 +50,7 @@ En los schemas y herramientas MCP, el campo `log_level` acepta estos valores (0-
 -   `request.headers` — Incoming HTTP headers.
 -   `$_APP_VARS_` — Object containing all resolved Application Variables for the current environment.
 -   App Vars are also injected directly into the sandbox using their exact names, so `$_VAR_EMAIL_TRANSPORT` can be referenced directly when that App Var exists.
+-   `custom_data` is not injected into the JS sandbox. It belongs to handler-specific configuration flows such as SQL, BOT, SOAP, TEXT, or FETCH, while the JS VM uses `code`, `app_vars`, request context, and the built-in helpers listed here.
 -   `$_RETURN_DATA_` — Assign any JSON-serializable value here to send it as the response body.
 -   `$_CUSTOM_HEADERS_` — Optional `Map<string, string>` with custom response headers (e.g., for file downloads).
 -   `uFetchAutoEnv` — Built-in helper for calling other endpoints within the same OpenFusionAPI instance.

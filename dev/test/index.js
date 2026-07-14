@@ -60,6 +60,11 @@ async function runAllTests() {
         args: ["cache_validation.js"],
       },
       {
+        label: "endpoint_loader_vm_contract.js",
+        command: "node",
+        args: ["endpoint_loader_vm_contract.js"],
+      },
+      {
         label: "ws_cache_events.js",
         command: "node",
         args: ["ws_cache_events.js"],

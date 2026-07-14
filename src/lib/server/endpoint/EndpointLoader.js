@@ -240,6 +240,8 @@ export class EndpointLoader {
 
   async _initVmHandler(returnHandler, appvars_obj) {
     try {
+      // custom_data is handler-specific configuration (for example SQL, BOT, SOAP, TEXT).
+      // The generic VM factory only needs code, app vars, and timeout.
       const vm = await this._vmFactory(
         returnHandler.params.code,
         appvars_obj,
