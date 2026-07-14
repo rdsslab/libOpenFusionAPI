@@ -114,11 +114,6 @@ export const createFunctionVM = async (
         $_APP_VARS_: safeAppVars,
       };
 
-      console.log("[DEBUG VM] sandbox keys:", Object.keys(sandbox));
-      console.log("[DEBUG VM] typeof sandbox.URL:", typeof sandbox.URL);
-      console.log("[DEBUG VM] typeof sandbox.Map:", typeof sandbox.Map);
-      console.log("[DEBUG VM] typeof sandbox.setInterval:", typeof sandbox.setInterval);
-
       // Crear contexto aislado
       const context = vm.createContext(sandbox, {
         name: "sandbox",
