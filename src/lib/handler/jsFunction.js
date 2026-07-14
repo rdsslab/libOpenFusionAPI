@@ -9,9 +9,6 @@ import {
 export const jsFunction = async (context) => {
   const { request, reply, method } = getHandlerExecutionContext(context);
   try {
-    if (!method.jsFn) {
-      throw new Error("Function 'jsFn' is not defined in the method configuration.");
-    }
     
     // --------------------------------------------------
     // 1) Obtener contexto de ejecución
@@ -19,20 +16,29 @@ export const jsFunction = async (context) => {
     let fnVars = functionsVars(request, reply, method.environment);
     
     // --------------------------------------------------
-    // 2) Crear VM si no está cacheada
+    // 2) Resolver VM del endpoint
     // --------------------------------------------------
+    if (!request.vmFunction && method.jsFn) {
+      request.vmFunction = method.jsFn;
+    }
+
+    // Backward-compatible fallback when cached handler VM is unavailable.
     if (!request.vmFunction) {
-        const timeout = method.timeout 
-            ? Number(method.timeout) * 1000 || 60000 
-            : 60000;
+      const timeout = method.timeout
+        ? Number(method.timeout) * 1000 || 60000
+        : 60000;
 
-        console.log("[DEBUG jsFunction] method.timeout:", method.timeout, "calculated timeout:", timeout);
+      console.log("[DEBUG jsFunction] method.timeout:", method.timeout, "calculated timeout:", timeout);
 
-        request.vmFunction = await createFunctionVM(
-            method.code,
-            fnVars,
-            timeout
-        );
+      request.vmFunction = await createFunctionVM(
+        method.code,
+        method.app_vars || {},
+        timeout
+      );
+    }
+
+    if (!request.vmFunction) {
+      throw new Error("Function 'jsFn' is not defined in the method configuration.");
     }
 
     // --------------------------------------------------
