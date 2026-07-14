@@ -23,10 +23,10 @@ export const createFunctionVM = async (
 
         // Track async resources created inside the sandbox so they can be
         // cleaned up when the execution ends (success or timeout).
-        const __nativeSetTimeout = setTimeout;
-        const __nativeClearTimeout = clearTimeout;
-        const __nativeSetInterval = setInterval;
-        const __nativeClearInterval = clearInterval;
+        const __nativeSetTimeout = globalThis.setTimeout;
+        const __nativeClearTimeout = globalThis.clearTimeout;
+        const __nativeSetInterval = globalThis.setInterval;
+        const __nativeClearInterval = globalThis.clearInterval;
         const __trackedTimeouts = new Set();
         const __trackedIntervals = new Set();
 
