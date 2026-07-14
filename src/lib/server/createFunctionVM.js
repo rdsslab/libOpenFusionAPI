@@ -95,13 +95,23 @@ export const createFunctionVM = async (
      * Se retorna una función ejecutable
      */
     return async (customVarsAndFunctions = {}) => {
+      let safeAppVars;
+      try {
+        safeAppVars =
+          typeof structuredClone === "function"
+            ? structuredClone(app_vars)
+            : JSON.parse(JSON.stringify(app_vars));
+      } catch (e) {
+        safeAppVars = JSON.parse(JSON.stringify(app_vars));
+      }
+
       const sandbox = {
         ...customVarsAndFunctions,
         // App Vars are intentionally exposed twice:
         // 1. spread directly for ergonomic access like `$_VAR_NAME`
         // 2. grouped under `$_APP_VARS_` for enumeration and collision-safe access
-        ...app_vars,
-        $_APP_VARS_: app_vars,
+        ...safeAppVars,
+        $_APP_VARS_: safeAppVars,
       };
 
       console.log("[DEBUG VM] sandbox keys:", Object.keys(sandbox));
