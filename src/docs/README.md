@@ -11,3 +11,4 @@
 - Cross-engine caution: behavior validated for MSSQL / T-SQL should not be assumed on PostgreSQL, MySQL, MariaDB, SQLite, or HANA without testing on that engine.
 - Seeded app caution: some bundled apps are restored from `src/lib/db/default/` on startup, so persistent changes to seeded endpoints should be synchronized in those default definitions.
 - TELEGRAM_BOT caution: HTTP `200` confirms route handling, not successful bot startup. Check worker logs for real startup validation.
+- Recurring tasks: OpenFusionAPI supports recurrent execution of endpoints through interval tasks. Use system tools `/interval_tasks/byidapp` (read), `/interval_tasks/upsert` (write), and `/interval_tasks/delete` (write) to manage schedules.

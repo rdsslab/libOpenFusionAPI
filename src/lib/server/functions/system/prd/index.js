@@ -122,11 +122,15 @@ export async function fnAgentOnboardingGuide(params) {
     r.code = 200;
     r.data = {
       summary:
-        "1. Always inspect each tool description and input schema first; treat the system catalog as source of truth. 2. For endpoint creation/updates, choose handler first and match payload shape to that handler. 3. Read current endpoint data before updates and patch incrementally. 4. Validate JSON Schema with validate_json_schema_for_mcp before publishing. 5. Use trace_id in logs to follow one execution path end to end.",
+        "1. Always inspect each tool description and input schema first; treat the system catalog as source of truth. 2. For endpoint creation/updates, choose handler first and match payload shape to that handler. 3. Read current endpoint data before updates and patch incrementally. 4. Validate JSON Schema with validate_json_schema_for_mcp before publishing. 5. Use trace_id in logs to follow one execution path end to end. 6. OpenFusionAPI supports recurring interval tasks for endpoint automation; use the interval_tasks tools to inspect tasks (read-only) and, only with explicit user authorization, create/update/delete schedules.",
       links: {
         handler_documentation: "/api/handler/documentation",
+        handler_skill: "/api/handler/skill",
         endpoint_upsert: "/api/endpoint",
         get_system_logs: "/api/system/logs",
+        interval_tasks_byidapp: "/interval_tasks/byidapp",
+        interval_tasks_upsert: "/interval_tasks/upsert",
+        interval_tasks_delete: "/interval_tasks/delete",
       },
       trace_id,
     };

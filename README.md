@@ -48,6 +48,7 @@ OpenFusion API eliminates most of this overhead by providing:
 - **JSON Schema validation** for structured, predictable data exchange.
 - **MCP (Model Control Protocol)** integration for AI-driven tools.
 - **Application-level variables** for consistent environment management.
+- **Recurring interval tasks** to execute endpoints on a schedule for automation workflows.
 - **Low-code / no-boilerplate delivery path** for many integrations and service endpoints.
 
 ## 🤖 Built For Humans And AI Agents
@@ -125,6 +126,8 @@ For AI agents, the intended operating model is:
 4. Create one or more endpoints with the correct handler and access model.
 5. Use JSON Schema where structured contracts are needed.
 6. Validate and publish the result.
+
+OpenFusionAPI also supports recurring task automation. Agents and operators can manage interval-based schedules for existing endpoints using the system tools `/interval_tasks/byidapp`, `/interval_tasks/upsert`, and `/interval_tasks/delete` (writes require explicit authorization).
 
 That workflow lets an agent create usable services with minimal or no handwritten code, which is one of the main reasons OpenFusionAPI can dramatically accelerate service deployment.
  

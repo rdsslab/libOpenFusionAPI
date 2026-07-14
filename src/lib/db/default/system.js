@@ -1234,7 +1234,7 @@ export const system_app = {
         "enabled": true,
         "name": "agent_onboarding",
         "title": "Agent Onboarding Guide",
-        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns best practices, recommended workflows, and key tips for MCP agents (AI or human) to use the OpenFusionAPI toolset efficiently and safely. Agents must not modify endpoints unless the user explicitly requests it or explicitly authorizes it, with stricter caution for endpoints in the system application. All content is provided in English.",
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns best practices, recommended workflows, and key tips for MCP agents (AI or human) to use the OpenFusionAPI toolset efficiently and safely, including guidance on recurring interval task tooling. Agents must not modify endpoints or interval tasks unless the user explicitly requests it or explicitly authorizes it, with stricter caution for endpoints in the system application. All content is provided in English.",
         "operation_mode": "read",
         "requires_explicit_confirmation": false,
         "side_effects": "No persistent write side effects expected.",
@@ -1266,10 +1266,22 @@ export const system_app = {
                   "handler_documentation": {
                     "type": "string"
                   },
+                  "handler_skill": {
+                    "type": "string"
+                  },
                   "endpoint_upsert": {
                     "type": "string"
                   },
                   "get_system_logs": {
+                    "type": "string"
+                  },
+                  "interval_tasks_byidapp": {
+                    "type": "string"
+                  },
+                  "interval_tasks_upsert": {
+                    "type": "string"
+                  },
+                  "interval_tasks_delete": {
                     "type": "string"
                   },
                   "mcp_readme": {
@@ -1300,12 +1312,15 @@ export const system_app = {
           "selection": 0,
           "json": {
             "code": {
-              "summary": "Welcome to OpenFusionAPI. To get handler details, use /api/handler/documentation. To get handler skills and guidelines, use /api/handler/skill.",
+              "summary": "Welcome to OpenFusionAPI. Use /api/handler/documentation for handler details and /api/handler/skill for handler-specific guidance. OpenFusionAPI also supports recurring interval tasks for endpoint automation.",
               "links": {
                 "handler_documentation": "/api/handler/documentation",
                 "handler_skill": "/api/handler/skill",
                 "endpoint_upsert": "/api/endpoint",
-                "get_system_logs": "/api/system/logs"
+                "get_system_logs": "/api/system/logs",
+                "interval_tasks_byidapp": "/interval_tasks/byidapp",
+                "interval_tasks_upsert": "/interval_tasks/upsert",
+                "interval_tasks_delete": "/interval_tasks/delete"
               }
             }
           }
@@ -1322,12 +1337,12 @@ export const system_app = {
       "handler": "JS",
       "access": 0,
       "title": "Agent Onboarding Guide",
-      "description": "Returns best practices, recommended workflows, and key tips for MCP agents (AI or human) to use the OpenFusionAPI toolset efficiently and safely. All content is provided in English.",
+      "description": "Returns best practices, recommended workflows, and key tips for MCP agents (AI or human) to use the OpenFusionAPI toolset efficiently and safely, including recurring interval task tools. All content is provided in English.",
       "price_by_request": 0,
       "price_kb_request": 0,
       "price_kb_response": 0,
       "keywords": "onboarding,guide,agent,AI,best practices",
-      "code": "const trace_id = request?.headers?.['ofapi-trace-id'] || '';\n$_RETURN_DATA_ = {\n  summary: 'Welcome to OpenFusionAPI. To get handler details, use /api/handler/documentation. To get handler skills and guidelines, use /api/handler/skill.',\n  links: {\n    handler_documentation: '/api/handler/documentation',\n    handler_skill: '/api/handler/skill',\n    endpoint_upsert: '/api/endpoint',\n    get_system_logs: '/api/system/logs'\n  },\n  trace_id\n};",
+      "code": "const trace_id = request?.headers?.['ofapi-trace-id'] || '';\n$_RETURN_DATA_ = {\n  summary: '1. Always inspect each tool description and input schema first; treat the system catalog as source of truth. 2. For endpoint creation/updates, choose handler first and match payload shape to that handler. 3. Read current endpoint data before updates and patch incrementally. 4. Validate JSON Schema with validate_json_schema_for_mcp before publishing. 5. Use trace_id in logs to follow one execution path end to end. 6. OpenFusionAPI supports recurring interval tasks for endpoint automation; use the interval_tasks tools to inspect tasks (read-only) and, only with explicit user authorization, create/update/delete schedules.',\n  links: {\n    handler_documentation: '/api/handler/documentation',\n    handler_skill: '/api/handler/skill',\n    endpoint_upsert: '/api/endpoint',\n    get_system_logs: '/api/system/logs',\n    interval_tasks_byidapp: '/interval_tasks/byidapp',\n    interval_tasks_upsert: '/interval_tasks/upsert',\n    interval_tasks_delete: '/interval_tasks/delete'\n  },\n  trace_id\n};",
       "cache_time": 3600,
       "createdAt": "2026-05-19T00:00:00.000Z",
       "updatedAt": "2026-05-19T00:00:00.000Z"
