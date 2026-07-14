@@ -49,9 +49,14 @@ export const customFunction = async (context) => {
 
     const user_data = body && Object.keys(body).length > 0 ? body : query || {};
 
-    // Ejecutar función con timeout seguro
+    // Ejecutar función con timeout seguro. Respect endpoint timeout when provided.
+    const parsedTimeoutSec = Number(method?.timeout);
+    const timeoutMs = Number.isFinite(parsedTimeoutSec) && parsedTimeoutSec > 0
+      ? parsedTimeoutSec * 1000
+      : 1000 * 60 * 5;
+
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 1000 * 60 * 5); // 5 minutos maximo
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
 
     let fnresult;
     try {
@@ -66,7 +71,7 @@ export const customFunction = async (context) => {
       // Verificar abort PRIMERO para que el timeout no quede enmascarado
       // por un error propio de la función que ocurra casi simultáneamente
       if (controller.signal.aborted) {
-        throw new Error("Execution timeout (5 min exceeded)");
+        throw new Error(`Execution timeout (${Math.floor(timeoutMs / 1000)} sec exceeded)`);
       }
       console.error("Function execution error:", err);
       throw err;
