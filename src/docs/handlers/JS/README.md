@@ -143,7 +143,9 @@ $_RETURN_DATA_ = {
 **Response Contract**:
 -   Assign the payload to `$_RETURN_DATA_`.
 -   Optionally assign a `Map` to `$_CUSTOM_HEADERS_`.
--   Do **not** use `return` as the response contract.
+-   **The response that will be sent to the end user must be assigned to `$_RETURN_DATA_`.**
+-   Do **not** use `return`, `reply.send()`, `response.send()`, `res.send()`, or similar derivatives as the response contract.
+
 
 **Simple Example (GET)**:
 ```javascript
@@ -443,7 +445,20 @@ $_RETURN_DATA_ = { accountSummary, teamMembers };
 return { ok: true };
 ```
 
-The code above may execute, but it is not the supported response contract for this handler. Use `$_RETURN_DATA_` instead.
+```javascript
+reply.send({ ok: true });
+```
+
+```javascript
+response.send({ ok: true });
+```
+
+```javascript
+res.send({ ok: true });
+```
+
+The code above may execute in some contexts, but it is not the supported response contract for this handler.
+Always assign the payload to `$_RETURN_DATA_`.
 
 </details>
 
