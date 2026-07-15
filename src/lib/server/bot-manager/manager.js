@@ -26,52 +26,78 @@ export class BotManager extends EventEmitter {
    * @param {Object} app_env_vars - The appvars object to run the bot in (e.g. 'dev', 'prd')
    * @param {string} [idapp] - The UUID of the application
    */
-  startBot(botId, token, code, environment, app_env_vars, idapp) {
-    return new Promise(async (resolve, reject) => {
+  async startBot(botId, token, code, environment, app_env_vars, idapp) {
+    if (!(botId && token && code && token.length > 0 && code.length > 0)) {
+      this.emit("bot_log", {
+        botId,
+        idapp,
+        type: "ERROR",
+        error: { message: "Bot data is invalid", errorType: "INVALID_DATA" }
+      });
+      throw new Error("Bot data is invalid");
+    }
 
-      if (!(botId && token && code && token.length > 0 && code.length > 0)) {
-        reject(new Error("Bot data is invalid"));
-      }
+    // Check for cooldown
+    const history = this.botErrorHistory.get(botId);
+    if (history && history.cooldownUntil > Date.now()) {
+      const remaining = Math.ceil((history.cooldownUntil - Date.now()) / 1000);
+      this.emit("bot_log", {
+        botId,
+        idapp,
+        type: "ERROR",
+        error: {
+          message: `Bot ${botId} is in cooldown. Try again in ${remaining} seconds.`,
+          errorType: "COOLDOWN"
+        }
+      });
+      throw new Error(`Bot ${botId} is in cooldown`);
+    }
 
-      // Check for cooldown
-      const history = this.botErrorHistory.get(botId);
-      if (history && history.cooldownUntil > Date.now()) {
-        const remaining = Math.ceil((history.cooldownUntil - Date.now()) / 1000);
-        console.warn(`[Manager] Bot ${botId} is in cooldown. Try again in ${remaining} seconds.`);
-        reject(new Error(`Bot ${botId} is in cooldown`));
+    const existingEntry = this.activeBots.get(botId);
+
+    // Calculate hash of the new code
+    const codeHash = crypto.createHash('sha256').update(code).digest('hex');
+
+    if (existingEntry) {
+      if (existingEntry.codeHash !== codeHash) {
+        this.emit("bot_log", {
+          botId,
+          idapp,
+          type: "INFO",
+          error: null,
+          botInfo: existingEntry.botInfo,
+          message: { event: "bot_restarting", reason: "code_changed" }
+        });
+        try {
+          await this.stopBot(botId);
+        } catch (err) {
+          this.emit("bot_log", {
+            botId,
+            idapp,
+            type: "BOT_ERROR",
+            error: {
+              message: `Error stopping bot for restart: ${err.message}`,
+              stack: err.stack
+            },
+            botInfo: existingEntry.botInfo
+          });
+        }
+        // Proceed to start the new worker
+      } else {
         return;
       }
+    }
 
-      const existingEntry = this.activeBots.get(botId);
-
-      // Calculate hash of the new code
-      const codeHash = crypto.createHash('sha256').update(code).digest('hex');
-
-      if (existingEntry) {
-        if (existingEntry.codeHash !== codeHash) {
-          console.log(`[Manager] Bot ${botId} code has changed. Restarting...`);
-          try {
-            await this.stopBot(botId);
-          } catch (err) {
-            console.error(`[Manager] Error stopping bot ${botId} for restart:`, err);
-          }
-          // Proceed to start the new worker
-        } else {
-          console.log(`[Manager] Bot ${botId} is already running with the same code.`);
-          resolve();
-          return;
-        }
-      }
-
+    return new Promise((resolve, reject) => {
       const worker = new Worker(path.join(__dirname, "worker.js"));
 
       worker.on("message", (msg) => {
         if (msg.type === "STARTED") {
-          console.log(`[Manager] Bot ${botId} started successfully.`);
           const entry = this.activeBots.get(botId);
           if (entry) {
             entry.botInfo = msg.botInfo;
           }
+          this.botErrorHistory.delete(botId);
           this.emit("bot_log", {
             botId,
             idapp,
@@ -80,14 +106,16 @@ export class BotManager extends EventEmitter {
           });
           resolve();
         } else if (msg.type === "ERROR") {
-          console.error(`[Manager] Bot ${botId} reported error: ${msg.error}`);
           this.emit("bot_log", {
             botId,
             idapp,
             type: "ERROR",
             error: msg.errorInfo || { message: msg.error }
           });
-          this.activeBots.delete(botId);
+          const entry = this.activeBots.get(botId);
+          if (entry && entry.worker === worker) {
+            this.activeBots.delete(botId);
+          }
           // Safe fallback cleanup: terminate only if the worker didn't exit on its own after 1 second
           setTimeout(() => {
             if (worker.threadId !== -1) {
@@ -96,7 +124,6 @@ export class BotManager extends EventEmitter {
           }, 1000);
           reject(new Error(msg.error));
         } else if (msg.type === "BOT_ERROR") {
-          console.error(`[Manager] Bot ${botId} runtime error:`, msg.error);
           const entry = this.activeBots.get(botId);
           this.emit("bot_log", {
             botId,
@@ -111,13 +138,10 @@ export class BotManager extends EventEmitter {
             idapp,
             logData: msg.logData
           });
-        } else if (msg.type === "STOPPED") {
-          console.log(`[Manager] Bot ${botId} stopped.`);
         }
       });
 
       worker.on("error", (err) => {
-        console.error(`[Manager] Worker for bot ${botId} error:`, err);
         const entry = this.activeBots.get(botId);
         this.emit("bot_log", {
           botId,
@@ -129,7 +153,9 @@ export class BotManager extends EventEmitter {
           },
           botInfo: entry ? entry.botInfo : null
         });
-        this.activeBots.delete(botId);
+        if (entry && entry.worker === worker) {
+          this.activeBots.delete(botId);
+        }
         reject(err);
       });
 
@@ -137,10 +163,6 @@ export class BotManager extends EventEmitter {
         const entry = this.activeBots.get(botId);
         if (entry && entry.worker === worker) {
           if (code !== 0) {
-            console.error(
-              `[Manager] Worker for bot ${botId} stopped with exit code ${code}`,
-            );
-
             this.emit("bot_log", {
               botId,
               idapp,
@@ -167,13 +189,19 @@ export class BotManager extends EventEmitter {
             );
 
             if (history.timestamps.length >= BOT_FAILURE_THRESHOLD) {
-              console.error(
-                `[Manager] Bot ${botId} reached ${BOT_FAILURE_THRESHOLD} failures in 5 minutes. Disabling endpoint.`,
-              );
+              this.emit("bot_log", {
+                botId,
+                idapp,
+                type: "BOT_CRASH",
+                error: {
+                  message: `Bot reached ${BOT_FAILURE_THRESHOLD} failures in 5 minutes. Disabling endpoint.`
+                },
+                botInfo: entry.botInfo
+              });
               history.cooldownUntil = now + BOT_FAILURE_WINDOW_MS;
               history.timestamps = [];
               // Notify callers so they can persist enabled=false in the DB
-              this.emit("disable", { botId });
+              this.emit("disable", { botId, idapp });
             }
           }
           this.activeBots.delete(botId);
@@ -196,7 +224,6 @@ export class BotManager extends EventEmitter {
    */
   async stopBot(botId) {
     if (!this.activeBots.has(botId)) {
-      console.log(`[Manager] Bot ${botId} not running.`);
       return;
     }
 
@@ -208,7 +235,6 @@ export class BotManager extends EventEmitter {
     // Force termination after short timeout if it doesn't exit
     return new Promise((resolve) => {
       const timeout = setTimeout(async () => {
-        console.log(`[Manager] Forcing termination of bot ${botId}`);
         await worker.terminate();
         this.activeBots.delete(botId);
         resolve();

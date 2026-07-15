@@ -119,9 +119,11 @@ export class OpenFusionWebsocketClient extends EventEmitter {
       const json = JSON.stringify(message);
       this.ws.send(json);
       //console.log("📤 Mensaje JSON enviado:", message);
-    } else {
+    }
+    /* else {
       console.debug("[ws-client] Skip send while socket is not open", message?.channel);
     }
+    */
   }
 
   subscribe(channel) {

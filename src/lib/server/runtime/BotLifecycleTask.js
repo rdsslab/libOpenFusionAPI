@@ -14,19 +14,34 @@ export class BotLifecycleTask {
     this.isRunning = false;
 
     // Auto-disable an endpoint that keeps crashing so it stops wasting resources
-    this.manager.on("disable", async ({ botId }) => {
+    this.manager.on("disable", async ({ botId, idapp }) => {
       try {
         await disableEndpoint(botId);
-        console.warn(
-          `[BotManager] Endpoint ${botId} auto-disabled after repeated failures.`,
-        );
+        await this.persistLog(this.buildLogData({
+          botId,
+          idapp,
+          status_code: 200,
+          message: {
+            event: "bot_auto_disabled",
+            reason: "Endpoint auto-disabled after repeated failures"
+          }
+        }));
       } catch (err) {
-        console.error(`[BotManager] Failed to disable endpoint ${botId}:`, err);
+        await this.persistLog(this.buildLogData({
+          botId,
+          idapp,
+          status_code: 500,
+          message: {
+            event: "bot_auto_disable_failed",
+            error: err?.message || String(err),
+            stack: err?.stack || null
+          }
+        }));
       }
     });
 
     // Listen to bot log events (startup success/error, runtime errors, crashes)
-    this.manager.on("bot_log", async ({ botId, idapp, type, error, botInfo }) => {
+    this.manager.on("bot_log", async ({ botId, idapp, type, error, botInfo, message: infoMessage }) => {
       try {
         const botUsername = botInfo?.username || null;
         const botName = botInfo?.first_name || null;
@@ -68,38 +83,23 @@ export class BotLifecycleTask {
             stack: error?.stack || null,
             bot_username: botUsername
           };
+        } else if (type === "INFO") {
+          status_code = 200;
+          messageData = infoMessage || { event: "info", type };
         }
 
-        const logData = {
-          trace_id: crypto.randomUUID(),
-          timestamp: new Date(),
-          idapp: idapp || null,
-          idendpoint: botId,
-          url: botUsername ? `telegram://bot/${botUsername}` : `telegram://bot/${botId}`,
-          method: "TELEGRAM_BOT",
+        const logData = this.buildLogData({
+          botId,
+          idapp,
+          botUsername,
           status_code,
-          log_level: 3, // Full level
-          price_by_request: 0,
-          price_kb_request: 0,
-          price_kb_response: 0,
-          cost_total: 0,
-          client: "telegram-api",
           message: messageData,
-          body: bodyData,
-          response_time: 0
-        };
+          body: bodyData
+        });
 
-        if (this.serverAPI && this.serverAPI.TasksInterval) {
-          this.serverAPI.TasksInterval.pushLog(logData);
-        } else {
-          console.warn("[BotLifecycleTask] serverAPI or TasksInterval not available, logging to DB directly");
-          if (typeof createLog === "function") {
-            await createLog(logData);
-          } else {
-            console.error("[URGENTE] [BotLifecycleTask] La función 'createLog' de base de datos no está disponible. No se pudo guardar el log.");
-          }
-        }
+        await this.persistLog(logData);
       } catch (err) {
+        // Last resort: the logging pipeline itself failed
         console.error("[BotLifecycleTask] Failed to save bot log:", err);
       }
     });
@@ -107,20 +107,44 @@ export class BotLifecycleTask {
     // Listen to custom bot logs pushed from worker sandboxes
     this.manager.on("bot_log_push", async ({ botId, idapp, logData }) => {
       try {
-        if (this.serverAPI && this.serverAPI.TasksInterval) {
-          this.serverAPI.TasksInterval.pushLog(logData);
-        } else {
-          console.warn("[BotLifecycleTask] La cola de logs asíncrona no está disponible. Guardando directamente en BD.");
-          if (typeof createLog === "function") {
-            await createLog(logData);
-          } else {
-            console.error("[URGENTE] [BotLifecycleTask] La función 'createLog' de base de datos no está disponible. No se pudo guardar el log de push.");
-          }
-        }
+        await this.persistLog(logData);
       } catch (err) {
+        // Last resort: the logging pipeline itself failed
         console.error("[BotLifecycleTask] Failed to push custom bot log:", err);
       }
     });
+  }
+
+  buildLogData({ botId, idapp, botUsername = null, status_code, message, body = null }) {
+    return {
+      trace_id: crypto.randomUUID(),
+      timestamp: new Date(),
+      idapp: idapp || null,
+      idendpoint: botId,
+      url: botUsername ? `telegram://bot/${botUsername}` : `telegram://bot/${botId}`,
+      method: "TELEGRAM_BOT",
+      status_code,
+      log_level: 3, // Full level
+      price_by_request: 0,
+      price_kb_request: 0,
+      price_kb_response: 0,
+      cost_total: 0,
+      client: "telegram-api",
+      message,
+      body,
+      response_time: 0
+    };
+  }
+
+  async persistLog(logData) {
+    if (this.serverAPI && this.serverAPI.TasksInterval) {
+      this.serverAPI.TasksInterval.pushLog(logData);
+    } else if (typeof createLog === "function") {
+      await createLog(logData);
+    } else {
+      // Last resort: no logging backend available
+      console.error("[URGENTE] [BotLifecycleTask] No hay backend de logs disponible. No se pudo guardar el log.");
+    }
   }
 
   async runOnce() {
@@ -146,7 +170,6 @@ export class BotLifecycleTask {
             const element = app.endpoints[index];
             try {
               if (element.enabled && app.enabled) {
-                console.log("Starting Bot " + element.idendpoint);
                 await this.manager.startBot(
                   element.idendpoint,
                   element.custom_data.token,
@@ -156,24 +179,46 @@ export class BotLifecycleTask {
                   element.idapp,
                 );
               } else {
-                console.log("Stopping Bot " + element.idendpoint);
                 await this.manager.stopBot(element.idendpoint);
               }
             } catch (error) {
-              console.error("Error managing bot " + element.idendpoint, error);
+              await this.persistLog(this.buildLogData({
+                botId: element.idendpoint,
+                idapp: element.idapp,
+                status_code: 500,
+                message: {
+                  event: "bot_manage_error",
+                  error: error?.message || String(error),
+                  stack: error?.stack || null
+                }
+              })).catch((err) => {
+                // Last resort: the logging pipeline itself failed
+                console.error("Error managing bot " + element.idendpoint, error, err);
+              });
             }
           }
         }
       }
     } catch (error) {
-      console.error("Error in bot management loop:", error);
+      await this.persistLog(this.buildLogData({
+        botId: null,
+        idapp: null,
+        status_code: 500,
+        message: {
+          event: "bot_management_loop_error",
+          error: error?.message || String(error),
+          stack: error?.stack || null
+        }
+      })).catch((logErr) => {
+        // Last resort: logging pipeline failed
+        console.error("[BotLifecycleTask] Error in bot management loop (logging also failed):", error, logErr);
+      });
     } finally {
       this.isRunning = false;
     }
   }
 
   start() {
-    console.log("--- Starting System (grammY edition) ---");
     this.timerId = setInterval(async () => {
       await this.runOnce();
     }, this.intervalMs);
