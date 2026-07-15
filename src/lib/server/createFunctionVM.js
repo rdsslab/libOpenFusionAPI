@@ -91,8 +91,21 @@ export const createFunctionVM = async (
       })()
     `;
 
+    // Compilar una sola vez al cargar el endpoint
+    let compiledScript;
+    try {
+      compiledScript = new vm.Script(wrappedCode, { filename: "sandbox.vm.js" });
+    } catch (compileError) {
+      const codePreview = (code || "").split("\n").slice(0, 25).join("\n");
+      const enhancedError = new Error(
+        `Invalid endpoint JS code. ${compileError?.message || "Unknown compile error"}\n--- code preview ---\n${codePreview}`
+      );
+      enhancedError.cause = compileError;
+      throw enhancedError;
+    }
+
     /**
-     * Se retorna una función ejecutable
+     * Se retorna una función ejecutable — compiledScript se reutiliza en cada request
      */
     return async (customVarsAndFunctions = {}) => {
       let safeAppVars;
@@ -114,35 +127,14 @@ export const createFunctionVM = async (
         $_APP_VARS_: safeAppVars,
       };
 
-      // Crear contexto aislado
       const context = vm.createContext(sandbox, {
         name: "sandbox",
         codeGeneration: { strings: false, wasm: false },
       });
 
-      // Compilar script
-      let script;
-      try {
-        script = new vm.Script(wrappedCode, {
-          filename: "sandbox.vm.js",
-          //        timeout: 60 * 60 * 1000, // evita loops infinitos // Maximo 1 hora // Revisar
-        });
-      } catch (compileError) {
-        const codePreview = (code || "")
-          .split("\n")
-          .slice(0, 25)
-          .join("\n");
-        const enhancedError = new Error(
-          `Invalid endpoint JS code. ${compileError?.message || "Unknown compile error"}\n--- code preview ---\n${codePreview}`
-        );
-        enhancedError.cause = compileError;
-        throw enhancedError;
-      }
-
-      // Ejecutar
-      return await script.runInContext(context, {
+      return await compiledScript.runInContext(context, {
         timeout: timeoutVM + 5000,
-        breakOnSigint: true, // opcional
+        breakOnSigint: true,
       });
     };
   } catch (error) {
