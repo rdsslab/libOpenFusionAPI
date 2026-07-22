@@ -14,6 +14,7 @@ import Zod from "zod";
 import * as XLSX from "xlsx";
 //import * as xlsx_style from "xlsx-js-style";
 import xlsx_style from "xlsx-js-style";
+import QRCodeStyling from "qr-code-styling";
 import { askAIWithTools, askIAWithMCP, askIAWithProviderMCP, createAIProviderMCPClient, listMcpTools } from "./ia.js";
 
 import {
@@ -1089,6 +1090,26 @@ $_RETURN_DATA_ = {
   pages: doc.numPages,
   firstPageTextItems: content.items.length,
 };
+      `
+    },
+
+    QRCodeStyling: {
+      fn: request && reply ? QRCodeStyling : undefined,
+      description: "Library to generate styled QR codes.",
+      web: "https://qr-code-styling.com/",
+      agentGuidance: [
+        "Use this for generating customized and styled QR codes.",
+      ],
+      example: `
+const qrCode = new QRCodeStyling({
+  width: 300,
+  height: 300,
+  data: "https://www.example.com",
+  dotsOptions: { color: "#4267b2", type: "rounded" },
+  backgroundOptions: { color: "#e9ebee" }
+});
+const buffer = await qrCode.getRawData("png");
+$_RETURN_DATA_ = buffer;
       `
     },
 

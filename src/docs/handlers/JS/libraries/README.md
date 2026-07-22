@@ -24,6 +24,7 @@ Below is the index of available libraries and functions inside the JS handler VM
 | [OpenAI](./OpenAI.md) | `OpenAI` | Official OpenAI SDK for calling language, reasoning, and multimodal models from JS handlers. | Use this when the endpoint must call an external OpenAI model directly instead of delegating to another internal endpoint. |
 | [Promise](./Promise.md) | `Promise()` | Global Promise constructor. | - |
 | [PromiseSequence](./PromiseSequence.md) | `PromiseSequence` | Utility for processing async tasks sequentially or in controlled batches. | Use this when order matters or when downstream systems require throttled execution. |
+| [QRCodeStyling](./QRCodeStyling.md) | `QRCodeStyling` | Library to generate styled QR codes. | Use this for generating customized and styled QR codes. |
 | [RegExp](./RegExp.md) | `RegExp()` | Global RegExp constructor. | - |
 | [Set](./Set.md) | `Set()` | Standard JavaScript Set constructor for collections of unique values. | - |
 | [String](./String.md) | `String()` | Global String constructor. | - |
