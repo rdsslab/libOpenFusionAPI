@@ -53,7 +53,7 @@ export async function fnLogin(params) {
         httpOnly: true,
         secure: isHttpsRequest,
         sameSite: "Lax",
-        maxAge: 60 * 60,
+        maxAge: user.exp_seconds || 3600,
       });
 
       r.data = user;

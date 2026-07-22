@@ -90,10 +90,18 @@ export async function loginApiClient(username, password) {
 
   if (client) {
     let u = client.toJSON();
-    const validity = 60 * 60; // Una hora
+    // TODO: el modelo ApiClient no define el campo exp_time, por lo que siempre
+    // cae en el fallback de 1 hora. Para respetar una vigencia configurable por
+    // cliente se debe: (1) agregar exp_time al modelo en src/lib/db/models.js,
+    // (2) ejecutar la migración correspondiente en la base de datos, y (3) exponer
+    // el campo en las funciones de creación/actualización de ApiClient.
+    const tokenSeconds =
+      Number.isFinite(Number(u.exp_time)) && Number(u.exp_time) > 0
+        ? Number(u.exp_time)
+        : 60 * 60; // Una hora por defecto
     // Aqui se asigan los endpoints a los que el cliente tiene acceso (Son definidos desde el sistema y son fijos)
     u.Authorized = AuthorizedEnpointsClient;
-    let token = GenToken({ apiclient: u }, validity); // Valido por una hora
+    let token = GenToken({ apiclient: u }, tokenSeconds);
     let refresh_token = GenToken(
       {
         api: {
@@ -103,8 +111,8 @@ export async function loginApiClient(username, password) {
           now: Date.now(),
         },
       },
-      validity
-    ); // Valido por una hora
+      tokenSeconds
+    ); // Misma vigencia que el token principal
 
     await client.update({ last_login: new Date() });
 
@@ -113,6 +121,7 @@ export async function loginApiClient(username, password) {
       user: u,
       token: token,
       refresh_token: refresh_token,
+      exp_seconds: tokenSeconds,
     };
   }
 

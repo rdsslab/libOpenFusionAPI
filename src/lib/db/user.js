@@ -6,6 +6,9 @@ import { User } from "./models.js";
 import dbsequelize from "./sequelize.js";
 import { Op } from "sequelize";
 
+const DEFAULT_TOKEN_SECONDS = 3600; // 1 hora
+const REFRESH_TOKEN_SECONDS = 3600; // 1 hora
+
 export const upsertUser = async (
   /** @type {import("sequelize").Optional<any, string>} */ userData
 ) => {
@@ -209,15 +212,34 @@ export const defaultUser = async () => {
  */
 export async function login(username, password) {
   try {
-    let user = await getUserByCredentials(
-      username || "",
-      EncryptPwd(password || "")
-    );
+    let user = await User.findOne({
+      where: {
+        username: username || "",
+        password: EncryptPwd(password || ""),
+        enabled: true,
+        start_date: { [Op.lte]: new Date() },
+        end_date: { [Op.gte]: new Date() },
+      },
+      attributes: [
+        "iduser",
+        "enabled",
+        "username",
+        "first_name",
+        "last_name",
+        "email",
+        "ctrl",
+        "exp_time",
+      ],
+    });
 
     if (user) {
       let u = user.toJSON();
-      const validity = 60 * 60; // 1 Hora
-      let token = GenToken({ admin: u }, u.exp_time);
+      const tokenSeconds =
+        Number.isFinite(Number(u.exp_time)) && Number(u.exp_time) > 0
+          ? Number(u.exp_time)
+          : DEFAULT_TOKEN_SECONDS;
+
+      let token = GenToken({ admin: u }, tokenSeconds);
       let refresh_token = GenToken(
         {
           api: {
@@ -227,17 +249,17 @@ export async function login(username, password) {
             now: Date.now(),
           },
         },
-        validity
-      ); // Valido por una hora
+        REFRESH_TOKEN_SECONDS
+      ); // Válido por una hora
 
       await user.update({ last_login: new Date() });
-      await user.save();
 
       return {
         login: true,
         user: u,
         token: token,
-        refresh_token: refresh_token
+        refresh_token: refresh_token,
+        exp_seconds: tokenSeconds,
       };
     } else {
       return customError(2);

@@ -110,7 +110,10 @@ const nodemailerSafe = {
  * @param {any} data
  */
 export function GenToken(data, exp_seconds = 3600 * 2 /* 2 horas */, key = JWTKEY) {
-  let exp = Math.floor(Date.now() / 1000) + Number(exp_seconds);
+  const seconds = Number.isFinite(Number(exp_seconds)) && Number(exp_seconds) > 0
+    ? Number(exp_seconds)
+    : 3600 * 2;
+  let exp = Math.floor(Date.now() / 1000) + seconds;
   return jwt.sign({ data: { ...data, _rnd_: Math.random() }, exp: exp }, key);
 }
 

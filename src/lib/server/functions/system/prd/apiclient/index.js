@@ -114,7 +114,7 @@ export async function fnLoginApiClient(params) {
         httpOnly: true,
         secure: isHttpsRequest,
         sameSite: "Lax",
-        maxAge: 60 * 60,
+        maxAge: data.exp_seconds || 3600,
       });
 
       r.data = data;
