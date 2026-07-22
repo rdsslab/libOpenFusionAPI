@@ -18,6 +18,7 @@ export const createFunctionVM = async (
     const wrappedCode = `
       (async () => {
         // The timeout now controls the AbortController, not the VM itself.
+        const AbortController = globalThis.AbortController;
         const controller = new AbortController();
         const signal = controller.signal;
 
@@ -63,13 +64,17 @@ export const createFunctionVM = async (
           __trackedIntervals.clear();
         };
 
+        const __vmTimeoutMs = ${timeoutVM};
         let to;
         const timeoutPromise = new Promise((_, reject) => {
-          to = setTimeout(() => {
-            console.log("Timeout reached, aborting VM...");
+          to = __nativeSetTimeout(() => {
+            const diedAt = new Date().toISOString();
+            console.log(
+              "[createFunctionVM] VM timeout reached after " + __vmTimeoutMs + "ms at " + diedAt + ". Aborting..."
+            );
             controller.abort();
             reject(new Error("JS handler execution timeout"));
-          }, ${timeoutVM});
+          }, __vmTimeoutMs);
         });
 
         const __executeUserCode = async () => {
@@ -92,6 +97,9 @@ export const createFunctionVM = async (
     `;
 
     // Compilar una sola vez al cargar el endpoint
+    console.log(
+      `[createFunctionVM] Compiling VM (timeoutVM=${timeoutVM}ms, default=${TIMEOUT_VM_MS}ms)`
+    );
     let compiledScript;
     try {
       compiledScript = new vm.Script(wrappedCode, { filename: "sandbox.vm.js" });
@@ -125,6 +133,13 @@ export const createFunctionVM = async (
         // 2. grouped under `$_APP_VARS_` for enumeration and collision-safe access
         ...safeAppVars,
         $_APP_VARS_: safeAppVars,
+        // Expose Node globals that the VM sandbox does not inherit automatically.
+        // Required for timer-based VM timeout handling and AbortController support.
+        setTimeout,
+        clearTimeout,
+        setInterval,
+        clearInterval,
+        AbortController,
       };
 
       const context = vm.createContext(sandbox, {

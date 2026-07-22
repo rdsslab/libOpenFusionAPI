@@ -105,6 +105,7 @@ export class EndpointCache {
             size: sizeKB > 0 ? Math.round(sizeKB * 10000) / 10000 : 0,
             idendpoint: ep?.handler?.params?.idendpoint,
             idapp: ep?.handler?.params?.idapp,
+            headers: reply?.openfusionapi?.lastResponse?.headers,
           };
 
           this._cache.add({

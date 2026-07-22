@@ -13,8 +13,31 @@ import * as uuid from "uuid";
 import Zod from "zod";
 import * as XLSX from "xlsx";
 //import * as xlsx_style from "xlsx-js-style";
+import { JSDOM } from "jsdom";
+const dom = new JSDOM();
+global.window = dom.window;
+global.document = dom.window.document;
+global.self = global;
+
 import xlsx_style from "xlsx-js-style";
-import QRCodeStyling from "qr-code-styling";
+import { QRCodeStyling as QRCodeStylingBase } from "qr-code-styling/lib/qr-code-styling.common.js";
+import canvas from "canvas";
+
+/**
+ * Wrapper de QRCodeStyling para Node.js.
+ * La build browser de qr-code-styling se cuelga en Node porque no encuentra
+ * canvas/DOM. La build common permite inyectar nodeCanvas y JSDOM.
+ */
+class QRCodeStylingNode {
+  constructor(options = {}) {
+    return new QRCodeStylingBase({
+      nodeCanvas: canvas,
+      jsdom: JSDOM,
+      ...options,
+    });
+  }
+}
+
 import { askAIWithTools, askIAWithMCP, askIAWithProviderMCP, createAIProviderMCPClient, listMcpTools } from "./ia.js";
 
 import {
@@ -661,6 +684,12 @@ $_RETURN_DATA_ = {
 };
       `
     },
+    canvas: {
+      fn: request && reply ? canvas : undefined,
+      description: "Node canvas library required for qr-code-styling.",
+      web: "https://github.com/Automattic/node-canvas",
+      return: "Canvas module",
+    },
     crypto: {
       fn: request && reply ? crypto : undefined,
       description: "Node.js crypto module",
@@ -1094,11 +1123,15 @@ $_RETURN_DATA_ = {
     },
 
     QRCodeStyling: {
-      fn: request && reply ? QRCodeStyling : undefined,
-      description: "Library to generate styled QR codes.",
+      fn: request && reply ? QRCodeStylingNode : undefined,
+      description: "Library to generate styled QR codes (Node-compatible).",
       web: "https://qr-code-styling.com/",
       agentGuidance: [
         "Use this for generating customized and styled QR codes.",
+      ],
+      notes: [
+        "This wrapper uses qr-code-styling/lib/qr-code-styling.common.js with node-canvas and JSDOM injected automatically.",
+        "getRawData returns a Buffer in Node.js."
       ],
       example: `
 const qrCode = new QRCodeStyling({
@@ -1109,6 +1142,7 @@ const qrCode = new QRCodeStyling({
   backgroundOptions: { color: "#e9ebee" }
 });
 const buffer = await qrCode.getRawData("png");
+$_CUSTOM_HEADERS_.set("Content-Type", "image/png");
 $_RETURN_DATA_ = buffer;
       `
     },

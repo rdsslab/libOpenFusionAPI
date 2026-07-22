@@ -133,6 +133,27 @@ export class EndpointRequestFlowService {
         if (data_cache && data_cache.data) {
           reply.header("X-Cache", "HIT");
           reply.openfusionapi.lastResponse[hash_request] = data_cache.data;
+          if (data_cache.headers) {
+            const isMapLike = data_cache.headers instanceof Map;
+            const isObjectLike = typeof data_cache.headers === "object" && data_cache.headers !== null;
+            if (isMapLike) {
+              for (const [key, value] of data_cache.headers) {
+                if (key.toLowerCase() === "content-type") {
+                  reply.type(value);
+                } else {
+                  reply.header(key, value);
+                }
+              }
+            } else if (isObjectLike) {
+              for (const [key, value] of Object.entries(data_cache.headers)) {
+                if (key.toLowerCase() === "content-type") {
+                  reply.type(value);
+                } else {
+                  reply.header(key, value);
+                }
+              }
+            }
+          }
           reply.code(200).send(data_cache.data);
         } else {
           reply.header("X-Cache", "MISS");

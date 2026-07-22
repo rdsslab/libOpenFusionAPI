@@ -1,4 +1,4 @@
-export const setCacheReply = (reply, data) => {
+export const setCacheReply = (reply, data, headers) => {
   if (reply) {
     if (!reply.openfusionapi) {
       reply.openfusionapi = { lastResponse: { data: data } };
@@ -6,8 +6,14 @@ export const setCacheReply = (reply, data) => {
 
     if (reply.openfusionapi.lastResponse) {
       reply.openfusionapi.lastResponse.data = data;
+      if (headers !== undefined) {
+        reply.openfusionapi.lastResponse.headers = headers;
+      }
     } else {
       reply.openfusionapi.lastResponse = { data: data };
+      if (headers !== undefined) {
+        reply.openfusionapi.lastResponse.headers = headers;
+      }
     }
   }
   return reply;
@@ -27,18 +33,38 @@ export const sendHandlerResponse = (
   reply,
   { statusCode = 200, data = null, cache = true, headers, contentType } = {},
 ) => {
+  let inferredContentType = contentType;
+
   if (headers) {
+    const isMapLike = headers instanceof Map;
     const isObjectLike = typeof headers === "object" && headers !== null;
     const isIterable =
       isObjectLike && typeof headers[Symbol.iterator] === "function";
 
-    if (isIterable) {
+    if (isMapLike) {
       for (const [key, value] of headers) {
-        reply.header(key, value);
+        if (!inferredContentType && key.toLowerCase() === "content-type") {
+          inferredContentType = value;
+        } else {
+          reply.header(key, value);
+        }
+      }
+    } else if (isIterable && !isObjectLike) {
+      // Generic iterables (e.g. Headers) that are not plain objects.
+      for (const [key, value] of headers) {
+        if (!inferredContentType && key.toLowerCase() === "content-type") {
+          inferredContentType = value;
+        } else {
+          reply.header(key, value);
+        }
       }
     } else if (isObjectLike) {
       for (const [key, value] of Object.entries(headers)) {
-        reply.header(key, value);
+        if (!inferredContentType && key.toLowerCase() === "content-type") {
+          inferredContentType = value;
+        } else {
+          reply.header(key, value);
+        }
       }
     } else {
       console.warn(
@@ -47,12 +73,12 @@ export const sendHandlerResponse = (
     }
   }
 
-  if (contentType) {
-    reply.type(contentType);
+  if (inferredContentType) {
+    reply.type(inferredContentType);
   }
 
   if (cache) {
-    setCacheReply(reply, data);
+    setCacheReply(reply, data, headers);
   }
 
   reply.code(statusCode).send(data);
