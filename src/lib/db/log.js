@@ -820,6 +820,18 @@ async function getCountsByMinute(
 export async function getLogSummaryByAppStatusCode(data) {
   if (data && data.idapp) {
     try {
+      const last_days =
+        data.last_days !== undefined && data.last_days !== null
+          ? Number(data.last_days)
+          : 7;
+      if (!Number.isInteger(last_days) || last_days <= 0) {
+        throw new Error(
+          `El parámetro 'last_days' debe ser un entero positivo. Recibido: ${data.last_days}`,
+        );
+      }
+
+      const pastDate = DateTime.now().minus({ days: last_days }).toJSDate();
+
       const summary = await LogEntry.findAll({
         attributes: [
           "idendpoint", // El campo por el que agrupamos
@@ -828,6 +840,7 @@ export async function getLogSummaryByAppStatusCode(data) {
         ],
         where: {
           idapp: data.idapp, // Filtra por el idapp proporcionado
+          timestamp: { [Op.gte]: pastDate }, // Solo logs desde `last_days` días atrás
         },
         group: ["idendpoint", "status_code"], // Agrupa los resultados por idendpoint
         raw: true, // Importante para obtener objetos JSON planos en lugar de instancias del modelo Sequelize
