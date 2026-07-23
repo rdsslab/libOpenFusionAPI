@@ -106,6 +106,28 @@ Important operational note:
 3. Configure your endpoints using the available handlers.
 4. Deploy with a single click.
 
+## ⚙️ Environment Variables
+
+Copy [.env.example](.env.example) to `.env` and adjust the values for your setup. Below is what each variable controls:
+
+| Variable | Description | Default | Required |
+|---|---|---|---|
+| `PORT` | HTTP server listen port | `3000` | No |
+| `HOST` | Bind host for the server | `localhost` | No |
+| `NODE_ENV` | Standard Node environment flag; gates the `JWT_KEY` fatal-exit check below | — | No |
+| `JWT_KEY` | Secret key used to sign/verify JWTs | insecure fallback key (dev only) | **Yes in production** — the process exits on boot if unset and `NODE_ENV=production` |
+| `PATH_APP_FUNCTIONS` | Filesystem path where custom app function files live | — | Yes, for function loading |
+| `MAX_FILE_SIZE_UPLOAD` | Max multipart upload size, in MB | `100` | No |
+| `DATABASE_URL` | Primary Sequelize database connection string | falls back to `DATABASE_URI_API`, then a local sqlite file | No |
+| `DATABASE_URI_API` | Secondary/alternate database connection string | same fallback chain | No |
+| `USE_HEROKU_POSTGRESQL` | Enables Heroku-style Postgres SSL options | disabled | No |
+| `TABLE_NAME_PREFIX_API` | Prefix applied to all database table names | none | No |
+| `BUILD_DB` | Rebuild/seed the database on boot | disabled | No |
+| `OFAPI_SQL_POOL_VALIDATE_IDLE_MS` | Idle-time threshold (ms) before validating a pooled SQL connection | `30000` | No |
+| `OFAPI_SQL_POOL_FORCE_VALIDATE_ALWAYS` | Force SQL pool connection validation on every use | disabled | No |
+| `OFAPI_APPVARS_LIVE_READ` | Enable live (non-cached) reads of App Vars in the SQL handler | disabled | No |
+| `TIME_SYNC_ENABLED` | Enable external clock-drift correction for JWT `iat`/`exp`/`nbf`, for hosts whose system clock cannot be trusted | `false` | No |
+
 ## 🔄 Recommended Creation Flow
 
 Use this order when creating a new integration:

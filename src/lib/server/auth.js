@@ -2,6 +2,7 @@ import { createHmac, createHash, randomUUID } from "crypto";
 import jwt from "jsonwebtoken";
 import { Buffer } from "node:buffer";
 import { GenToken, JWTKEY } from "./functionVars.js";
+import { getCorrectedNowSeconds } from "./timeSync.js";
 
 export function checkToken(token, key = JWTKEY) {
   if (token) {
@@ -31,7 +32,7 @@ export function EncryptPwd(pwd) {
 }
 
 export function tokenVerify(token, key = JWTKEY) {
-  return jwt.verify(token, key);
+  return jwt.verify(token, key, { clockTimestamp: getCorrectedNowSeconds() });
 }
 
 export function getUserPasswordTokenFromRequest(req) {

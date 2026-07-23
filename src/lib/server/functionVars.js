@@ -49,6 +49,7 @@ import { default_port } from "./utils_path.js";
 import { createLog } from "../db/log.js";
 import uFetch from "@rdsslab/uFetch";
 import jwt from "jsonwebtoken";
+import { getCorrectedNowSeconds } from "./timeSync.js";
 import xmlFormatter from "xml-formatter";
 import xml2js from "xml2js";
 import dnsPromises from "dns/promises";
@@ -113,8 +114,12 @@ export function GenToken(data, exp_seconds = 3600 * 2 /* 2 horas */, key = JWTKE
   const seconds = Number.isFinite(Number(exp_seconds)) && Number(exp_seconds) > 0
     ? Number(exp_seconds)
     : 3600 * 2;
-  let exp = Math.floor(Date.now() / 1000) + seconds;
-  return jwt.sign({ data: { ...data, _rnd_: Math.random() }, exp: exp }, key);
+  const iat = getCorrectedNowSeconds();
+  let exp = iat + seconds;
+  return jwt.sign(
+    { data: { ...data, _rnd_: Math.random() }, iat, exp: exp },
+    key,
+  );
 }
 
 /**
@@ -126,7 +131,7 @@ export function GenToken(data, exp_seconds = 3600 * 2 /* 2 horas */, key = JWTKE
  * @returns {string} JWT firmado.
  */
 export function GenTokenJWT(data, startAt, endAt, key = JWTKEY) {
-  const now = new Date();
+  const now = new Date(getCorrectedNowSeconds() * 1000);
 
   const start = startAt ? new Date(startAt) : now;
   const end = endAt ? new Date(endAt) : new Date(start.getTime() + 3600 * 1000);
@@ -151,11 +156,11 @@ export function GenTokenJWT(data, startAt, endAt, key = JWTKEY) {
   return jwt.sign(
     {
       data: { ...data },
-      //iat,
+      iat,
       exp,
       nbf
     },
-    key
+    key,
   );
 }
 
