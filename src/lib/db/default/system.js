@@ -1149,10 +1149,47 @@ export const system_app = {
       "mcp": {},
       "json_schema": {
         "in": {
-          "enabled": false,
-          "schema": {}
+          "enabled": true,
+          "schema": {
+            "type": "object",
+            "properties": {
+              "idapp": {
+                "type": "string",
+                "description": "Application ID to filter logs by. Required."
+              },
+              "last_days": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Number of days to look back from now. Defaults to 7 if not provided."
+              }
+            },
+            "required": ["idapp"],
+            "additionalProperties": false
+          }
         },
-        "out": {}
+        "out": {
+          "enabled": true,
+          "schema": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "idendpoint": {
+                  "type": "string",
+                  "description": "Endpoint ID the log records belong to."
+                },
+                "status_code": {
+                  "type": "integer",
+                  "description": "HTTP status code of the log records."
+                },
+                "recordCount": {
+                  "type": "integer",
+                  "description": "Number of log records matching this endpoint/status_code combination."
+                }
+              }
+            }
+          }
+        }
       },
       "custom_data": {},
       "headers_test": {},
@@ -1207,7 +1244,7 @@ export const system_app = {
       "handler": "FUNCTION",
       "access": 2,
       "title": "",
-      "description": "Get summary by idapp from logs",
+      "description": "Returns a summary of log records for an application (idapp), grouped by endpoint and status code, with the count of records per group. Only includes logs from the last N days (last_days), which defaults to 7 if not provided.",
       "price_by_request": 1,
       "price_kb_request": 1,
       "price_kb_response": 1,
@@ -4024,6 +4061,228 @@ export const system_app = {
       "cache_time": 0,
       "createdAt": "2026-07-02T00:00:00.000Z",
       "updatedAt": "2026-07-02T00:00:00.000Z"
+    },
+    {
+      "ctrl": {
+        "admin": true,
+        "users": [],
+        "log": {
+          "status_info": 1,
+          "status_success": 1,
+          "status_redirect": 1,
+          "status_client_error": 2,
+          "status_server_error": 3,
+          "level": 0
+        }
+      },
+      "cors": {},
+      "mcp": {
+        "enabled": true,
+        "name": "app_endpoint_usage_summary",
+        "title": "App Endpoint Usage Summary",
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns a usage summary for an application's endpoints over a time window: general totals, the top N most-used endpoints, and up to N endpoints not used at all in that window. Use 'status' to restrict analysis to only enabled or only disabled endpoints; omit it to consider all endpoints.",
+        "operation_mode": "read",
+        "requires_explicit_confirmation": false,
+        "side_effects": "No persistent write side effects expected.",
+        "safe_alternative": "N/A",
+        "exampleRequest": {
+          "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+          "last_days": 7,
+          "top": 5
+        }
+      },
+      "json_schema": {
+        "in": {
+          "enabled": true,
+          "schema": {
+            "type": "object",
+            "properties": {
+              "idapp": {
+                "type": "string",
+                "description": "Application ID to analyze. Required."
+              },
+              "last_days": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Number of days to look back from now. Defaults to 7 if not provided."
+              },
+              "top": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Max number of endpoints returned in both the most-used and unused lists. Defaults to 5 if not provided."
+              },
+              "status": {
+                "type": "string",
+                "enum": ["enabled", "disabled"],
+                "description": "Restrict analysis to only enabled or only disabled endpoints. If omitted, all endpoints are considered."
+              }
+            },
+            "required": ["idapp"],
+            "additionalProperties": false
+          }
+        },
+        "out": {
+          "enabled": true,
+          "schema": {
+            "type": "object",
+            "properties": {
+              "idapp": {
+                "type": "string"
+              },
+              "window": {
+                "type": "object",
+                "properties": {
+                  "last_days": {
+                    "type": "integer"
+                  },
+                  "from": {
+                    "type": "string",
+                    "description": "ISO timestamp marking the start of the analyzed window."
+                  },
+                  "to": {
+                    "type": "string",
+                    "description": "ISO timestamp marking the end of the analyzed window (now)."
+                  }
+                }
+              },
+              "totals": {
+                "type": "object",
+                "properties": {
+                  "total_endpoints": {
+                    "type": "integer",
+                    "description": "Total endpoints in the app, regardless of the 'status' filter."
+                  },
+                  "enabled_endpoints": {
+                    "type": "integer",
+                    "description": "Enabled endpoints in the app, regardless of the 'status' filter."
+                  },
+                  "total_requests_in_window": {
+                    "type": "integer",
+                    "description": "Total log records for the app in the window, regardless of the 'status' filter."
+                  }
+                }
+              },
+              "most_used": {
+                "type": "array",
+                "description": "Top endpoints by request count in the window, descending.",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "idendpoint": {
+                      "type": "string"
+                    },
+                    "resource": {
+                      "type": "string"
+                    },
+                    "method": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "enabled": {
+                      "type": "boolean"
+                    },
+                    "requestCount": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              },
+              "unused": {
+                "type": "array",
+                "description": "Endpoints with zero requests in the window (up to 'top'), sorted alphabetically by resource.",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "idendpoint": {
+                      "type": "string"
+                    },
+                    "resource": {
+                      "type": "string"
+                    },
+                    "method": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "enabled": {
+                      "type": "boolean"
+                    },
+                    "requestCount": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "custom_data": {},
+      "headers_test": {},
+      "data_test": {
+        "query": [
+          {
+            "enabled": true,
+            "key": "idapp",
+            "value": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+            "internal_hash_row": "",
+            "type": 1,
+            "_id": "aeus001"
+          }
+        ],
+        "body": {
+          "selection": 0,
+          "json": {
+            "code": {}
+          },
+          "xml": {
+            "code": ""
+          },
+          "text": {
+            "value": ""
+          },
+          "form": [],
+          "urlencoded": []
+        },
+        "headers": [],
+        "auth": {
+          "selection": 0,
+          "basic": {
+            "username": "",
+            "password": ""
+          },
+          "bearer": {
+            "token": ""
+          }
+        },
+        "last_response": {
+          "data": "",
+          "sizeKBResponse": -1
+        }
+      },
+      "idendpoint": "e6cc85b6-d639-4d26-9e94-b5aff5996ac4",
+      "rowkey": 991,
+      "enabled": true,
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "environment": "prd",
+      "timeout": 30,
+      "resource": "/system/log/app/endpoints/usage",
+      "method": "GET",
+      "handler": "FUNCTION",
+      "access": 2,
+      "title": "App Endpoint Usage Summary",
+      "description": "Returns a usage summary for an application's endpoints: general totals (endpoint count, enabled count, total requests in the window), the top N most-used endpoints in the last N days, and up to N endpoints not used at all in that window. An optional 'status' filter ('enabled' or 'disabled') restricts which endpoints are considered for the most-used/unused lists; when omitted, all endpoints are considered.",
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "keywords": "endpoints,usage,summary,most used,unused,idapp",
+      "code": "fnGetAppEndpointUsageSummary",
+      "cache_time": 0,
+      "createdAt": "2026-07-22T00:00:00.000Z",
+      "updatedAt": "2026-07-22T00:00:00.000Z"
     },
     {
       "ctrl": {

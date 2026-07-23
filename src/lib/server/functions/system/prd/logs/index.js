@@ -4,6 +4,7 @@ import {
 } from "../../../../systeminformation.js";
 import {
   createLog,
+  getAppEndpointUsageSummary,
   getLogs,
   getLogsRecordsPerMinute,
   getLogSummaryByAppStatusCode,
@@ -55,6 +56,29 @@ export async function fnGetLogs(params) {
       ...(error?.details ? { details: error.details } : {}),
     };
     r.code = isClientValidationError ? statusCode : 500;
+  }
+  return r;
+}
+
+export async function fnGetAppEndpointUsageSummary(params) {
+  let r = { data: undefined, code: 204 };
+
+  try {
+    const queryParams = params?.request?.query || {};
+    const bodyParams = params?.request?.body || {};
+    const merged = { ...queryParams, ...bodyParams };
+
+    const data = await getAppEndpointUsageSummary(merged);
+
+    r.data = data;
+    r.code = 200;
+  } catch (error) {
+    r.data = {
+      error:
+        error?.message ||
+        "Unexpected error while retrieving app endpoint usage summary.",
+    };
+    r.code = 500;
   }
   return r;
 }

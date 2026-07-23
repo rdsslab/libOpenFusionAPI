@@ -856,6 +856,109 @@ export async function getLogSummaryByAppStatusCode(data) {
   }
 }
 
+export async function getAppEndpointUsageSummary(data) {
+  if (!data || !data.idapp) {
+    throw new Error("El parámetro idapp es obligatorio");
+  }
+
+  const last_days =
+    data.last_days !== undefined && data.last_days !== null
+      ? Number(data.last_days)
+      : 7;
+  if (!Number.isInteger(last_days) || last_days <= 0) {
+    throw new Error(
+      `El parámetro 'last_days' debe ser un entero positivo. Recibido: ${data.last_days}`,
+    );
+  }
+
+  const top = data.top !== undefined && data.top !== null ? Number(data.top) : 5;
+  if (!Number.isInteger(top) || top <= 0) {
+    throw new Error(
+      `El parámetro 'top' debe ser un entero positivo. Recibido: ${data.top}`,
+    );
+  }
+
+  if (
+    data.status !== undefined &&
+    data.status !== "enabled" &&
+    data.status !== "disabled"
+  ) {
+    throw new Error(
+      `El parámetro 'status' debe ser 'enabled' o 'disabled'. Recibido: ${data.status}`,
+    );
+  }
+
+  // Full endpoint list for the app (used for the "totals" block, unfiltered by `status`)
+  const allEndpoints = (
+    await getEndpointByIdApp(data.idapp, [
+      "idendpoint",
+      "resource",
+      "method",
+      "title",
+      "enabled",
+    ])
+  ).map((e) => (e.toJSON ? e.toJSON() : e));
+
+  // Endpoints considered for most_used/unused, per `status` filter
+  const consideredEndpoints =
+    data.status === undefined
+      ? allEndpoints
+      : allEndpoints.filter((e) => e.enabled === (data.status === "enabled"));
+
+  const pastDate = DateTime.now().minus({ days: last_days }).toJSDate();
+
+  const counts = await LogEntry.findAll({
+    attributes: [
+      "idendpoint",
+      [dbsequelize.fn("COUNT", dbsequelize.col("id")), "recordCount"],
+    ],
+    where: {
+      idapp: data.idapp,
+      timestamp: { [Op.gte]: pastDate },
+    },
+    group: ["idendpoint"],
+    raw: true,
+  });
+  const countMap = new Map(counts.map((c) => [c.idendpoint, Number(c.recordCount)]));
+
+  const enriched = consideredEndpoints.map((e) => ({
+    idendpoint: e.idendpoint,
+    resource: e.resource,
+    method: e.method,
+    title: e.title,
+    enabled: e.enabled,
+    requestCount: countMap.get(e.idendpoint) || 0,
+  }));
+
+  const most_used = [...enriched]
+    .sort((a, b) => b.requestCount - a.requestCount)
+    .slice(0, top);
+
+  const unused = enriched
+    .filter((e) => e.requestCount === 0)
+    .sort((a, b) => a.resource.localeCompare(b.resource))
+    .slice(0, top);
+
+  return {
+    idapp: data.idapp,
+    window: {
+      last_days,
+      from: pastDate.toISOString(),
+      to: DateTime.now().toISOString(),
+    },
+    totals: {
+      total_endpoints: allEndpoints.length,
+      enabled_endpoints: allEndpoints.filter((e) => e.enabled).length,
+      total_requests_in_window: counts.reduce(
+        (sum, c) => sum + Number(c.recordCount),
+        0,
+      ),
+    },
+    most_used,
+    unused,
+  };
+}
+
 function normalizeTraceId(trace_id) {
   const normalized = typeof trace_id === "string" ? trace_id.trim() : "";
   if (!normalized) {
