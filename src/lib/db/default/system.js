@@ -3304,7 +3304,7 @@ export const system_app = {
         "enabled": true,
         "name": "app_endpoints_catalog",
         "title": "List endpoint catalog of an app",
-        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns a lightweight catalog of endpoints for one application. Endpoint source code is excluded by default (set 'include_code: true' to include it). Supports filters: environment, method, handler, enabled. Use this for initial discovery or to list endpoints before calling 'read_endpoint_data' or 'endpoint_get_code'. Prefer this over 'app_endpoints' when you do not need the full endpoint payload.",
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns a lightweight catalog of endpoints for one application. Endpoint source code is excluded by default (set 'include_code: true' to include it). MCP metadata is excluded by default (set 'include_mcp: true' to include it). Supports filters: environment, method, handler, enabled. Use this for initial discovery or to list endpoints before calling 'read_endpoint_data' or 'endpoint_get_code'. Prefer this over 'app_endpoints' when you do not need the full endpoint payload.",
         "operation_mode": "read",
         "requires_explicit_confirmation": false,
         "side_effects": "No persistent write side effects expected.",
@@ -3312,11 +3312,13 @@ export const system_app = {
         "exampleRequest": {
           "idapp": "00000000-0000-0000-0000-000000000001",
           "environment": "prd",
-          "include_code": false
+          "include_code": false,
+          "include_mcp": false
         },
         "notes": [
           "Prefer this over `app_endpoints` for discovery workflows because it avoids large `code` payloads unless explicitly requested.",
-          "Escalate to `app_endpoints` or `read_endpoint_data` only after you already know which endpoint needs detailed inspection."
+          "Escalate to `app_endpoints` or `read_endpoint_data` only after you already know which endpoint needs detailed inspection.",
+          "The `mcp` metadata field (description, exampleRequest, exampleResponse, notes) is excluded by default to avoid large responses. Set `include_mcp: true` only when you need MCP-specific metadata for a specific set of endpoints."
         ]
       },
       "json_schema": {
@@ -3341,7 +3343,12 @@ export const system_app = {
                 "type": "boolean"
               },
               "include_code": {
-                "type": "boolean"
+                "type": "boolean",
+                "description": "When true, includes the endpoint source code in the response. Defaults to false."
+              },
+              "include_mcp": {
+                "type": "boolean",
+                "description": "When true, includes the full MCP metadata object (description, exampleRequest, exampleResponse, notes) in the response. Omit or set to false for lightweight discovery to avoid large responses."
               },
               "limit": {
                 "type": "integer",

@@ -314,6 +314,7 @@ export const getEndpointCatalogByIdApp = async (filters = {}) => {
     handler,
     enabled,
     include_code,
+    include_mcp,
     limit,
     offset,
   } = filters;
@@ -341,6 +342,10 @@ export const getEndpointCatalogByIdApp = async (filters = {}) => {
       where.enabled = enabled;
     }
 
+    // The "mcp" column can contain large payloads (description, exampleRequest,
+    // exampleResponse, notes). Excluding it by default prevents MCP tool responses
+    // from exceeding agent token limits when an app has many endpoints.
+    // Pass include_mcp: true to retrieve the full mcp metadata.
     const attributes = [
       "idendpoint",
       "idapp",
@@ -354,10 +359,13 @@ export const getEndpointCatalogByIdApp = async (filters = {}) => {
       "description",
       "keywords",
       "cache_time",
-      "mcp",
       "createdAt",
       "updatedAt",
     ];
+
+    if (include_mcp === true) {
+      attributes.push("mcp");
+    }
 
     if (include_code === true) {
       attributes.push("code");
