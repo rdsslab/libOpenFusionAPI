@@ -8,6 +8,7 @@ import {
   parseJsonConfig,
   replyException,
   resolveAppVarPlaceholder,
+  sendHandlerError,
 } from "./utils.js";
 //process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
@@ -168,6 +169,16 @@ const getSoapClient = async (wsdl, options) => {
   return client;
 };
 
+/**
+ * Evicta un cliente SOAP cacheado (best-effort). Se usa cuando una llamada excede su
+ * timeout, para que la siguiente petición no reutilice un cliente cuya conexión
+ * subyacente pueda haber quedado colgada.
+ */
+const invalidateSoapClient = (wsdl, options) => {
+  const cacheKey = JSON.stringify({ wsdl, options });
+  soapClients.delete(cacheKey);
+};
+
 // Limpieza periódica de entradas expiradas para no acumular WSDLs distintos sin uso
 setInterval(() => {
   const now = Date.now();
@@ -232,7 +243,45 @@ export const soapFunction = async (context) => {
 
     //console.log('dataRequest>>>>>', dataRequest);
 
-    let soap_response = await SOAPGenericClient(dataRequest);
+    // Endpoint-configured timeout (seconds). Without it, a stalled SOAP call (WSDL fetch
+    // or the actual request) leaves the request hanging forever, ignoring the timeout set
+    // for this endpoint.
+    const hasEndpointTimeout = endpoint?.timeout !== undefined && endpoint?.timeout !== null;
+    const endpointTimeoutSeconds = hasEndpointTimeout ? Number(endpoint.timeout) : undefined;
+    const endpointTimeoutMs =
+      hasEndpointTimeout && Number.isFinite(endpointTimeoutSeconds) && endpointTimeoutSeconds > 0
+        ? endpointTimeoutSeconds * 1000
+        : undefined;
+
+    let soap_response;
+
+    if (endpointTimeoutMs) {
+      let timeoutHandle;
+      const timeoutPromise = new Promise((_, reject) => {
+        timeoutHandle = setTimeout(() => {
+          const timeoutError = new Error(
+            `SOAP handler execution timed out after ${endpointTimeoutMs}ms`,
+          );
+          timeoutError.name = "TimeoutError";
+          reject(timeoutError);
+        }, endpointTimeoutMs);
+      });
+
+      try {
+        soap_response = await Promise.race([SOAPGenericClient(dataRequest), timeoutPromise]);
+      } catch (raceErr) {
+        if (raceErr?.name === "TimeoutError") {
+          invalidateSoapClient(dataRequest.wsdl, buildSoapClientOptions(dataRequest));
+          sendHandlerError(reply, 504, raceErr.message);
+          return;
+        }
+        throw raceErr;
+      } finally {
+        clearTimeout(timeoutHandle);
+      }
+    } else {
+      soap_response = await SOAPGenericClient(dataRequest);
+    }
 
     if (soap_response.error && Array.isArray(soap_response.error)) {
       reply.code(400).send(soap_response);

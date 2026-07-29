@@ -90,6 +90,26 @@ const getConnection = async (configHash, paramsSQL) => {
   return pool;
 };
 
+/**
+ * Evicta un pool cacheado sin esperar a que cierre (best-effort). Se usa cuando
+ * una query excede su timeout, para que la siguiente petición no reutilice un
+ * pool cuyas conexiones puedan haber quedado colgadas contra HANA.
+ */
+const invalidatePool = (configHash) => {
+  const entry = connections.get(configHash);
+  if (!entry) {
+    return;
+  }
+
+  connections.delete(configHash);
+
+  try {
+    entry.pool.clear();
+  } catch (err) {
+    console.error(`Error invalidating HANA pool ${configHash}:`, err.message);
+  }
+};
+
 export const sqlHana = async (context) => {
   const { request, reply, method, endpoint } = getHandlerExecutionContext(context);
   try {
@@ -230,12 +250,51 @@ export const sqlHana = async (context) => {
           }
         }
 
-        let result = await executeQuery(
+        // Endpoint-configured timeout (seconds). Without it, a stalled HANA connection
+        // leaves the request hanging forever, ignoring the timeout set for this endpoint.
+        const hasEndpointTimeout = method?.timeout !== undefined && method?.timeout !== null;
+        const endpointTimeoutSeconds = hasEndpointTimeout ? Number(method.timeout) : undefined;
+        const endpointTimeoutMs =
+          hasEndpointTimeout && Number.isFinite(endpointTimeoutSeconds) && endpointTimeoutSeconds > 0
+            ? endpointTimeoutSeconds * 1000
+            : undefined;
+
+        const runQuery = () => executeQuery(
           pool,
           paramsSQL.query,
           clean_params,
           paramsSQL.options
         );
+
+        let result;
+
+        if (endpointTimeoutMs) {
+          let timeoutHandle;
+          const timeoutPromise = new Promise((_, reject) => {
+            timeoutHandle = setTimeout(() => {
+              const timeoutError = new Error(
+                `HANA handler execution timed out after ${endpointTimeoutMs}ms`,
+              );
+              timeoutError.name = "TimeoutError";
+              reject(timeoutError);
+            }, endpointTimeoutMs);
+          });
+
+          try {
+            result = await Promise.race([runQuery(), timeoutPromise]);
+          } catch (raceErr) {
+            if (raceErr?.name === "TimeoutError") {
+              invalidatePool(configHash);
+              sendHandlerError(reply, 504, raceErr.message);
+              return;
+            }
+            throw raceErr;
+          } finally {
+            clearTimeout(timeoutHandle);
+          }
+        } else {
+          result = await runQuery();
+        }
 
         sendHandlerResponse(reply, {
           statusCode: 200,

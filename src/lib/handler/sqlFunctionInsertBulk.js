@@ -95,13 +95,54 @@ export const sqlFunctionInsertBulk = async (context) => {
 
     const sequelize = await Pool.getConnection(configHash, paramsSQL);
 
-    let result_query = await bulkInsertWithTransaction(
+    // Endpoint-configured timeout (seconds). Without it, a stalled connection leaves the
+    // request hanging forever, ignoring the timeout set for this endpoint. Note that if the
+    // timeout fires mid-transaction, the transaction may still be in flight on the DB side;
+    // evicting the cached connection at least prevents the next request from reusing it.
+    const hasEndpointTimeout = method?.timeout !== undefined && method?.timeout !== null;
+    const endpointTimeoutSeconds = hasEndpointTimeout ? Number(method.timeout) : undefined;
+    const endpointTimeoutMs =
+      hasEndpointTimeout && Number.isFinite(endpointTimeoutSeconds) && endpointTimeoutSeconds > 0
+        ? endpointTimeoutSeconds * 1000
+        : undefined;
+
+    const runBulkInsert = () => bulkInsertWithTransaction(
       sequelize,
       paramsSQL.config.schema,
       paramsSQL.table_name,
       data_request.data,
       paramsSQL.ignoreDuplicates
     );
+
+    let result_query;
+
+    if (endpointTimeoutMs) {
+      let timeoutHandle;
+      const timeoutPromise = new Promise((_, reject) => {
+        timeoutHandle = setTimeout(() => {
+          const timeoutError = new Error(
+            `SQL bulk insert handler execution timed out after ${endpointTimeoutMs}ms`,
+          );
+          timeoutError.name = "TimeoutError";
+          reject(timeoutError);
+        }, endpointTimeoutMs);
+      });
+
+      try {
+        result_query = await Promise.race([runBulkInsert(), timeoutPromise]);
+      } catch (raceErr) {
+        if (raceErr?.name === "TimeoutError") {
+          Pool.invalidate(configHash);
+          sendHandlerError(reply, 504, raceErr.message);
+          return;
+        }
+        throw raceErr;
+      } finally {
+        clearTimeout(timeoutHandle);
+      }
+    } else {
+      result_query = await runBulkInsert();
+    }
 
     sendHandlerResponse(reply, {
       statusCode: 200,

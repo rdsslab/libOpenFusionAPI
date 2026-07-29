@@ -9,6 +9,27 @@ import {
   resolveAppVarPlaceholder,
 } from "./utils.js";
 
+// Best-effort eviction of a connection stuck in "connecting" state. Without this, a
+// timed-out connect attempt stays cached and every subsequent request for the same
+// config would keep returning the same never-ready connection.
+const invalidateConnection = (paramsMongo) => {
+  const key = getConnectionKey(paramsMongo);
+  const conn = connectionCache.get(key);
+  if (!conn) {
+    return;
+  }
+
+  connectionCache.delete(key);
+
+  try {
+    conn.close().catch((err) => {
+      console.error(`Error closing invalidated MongoDB connection ${key}:`, err.message);
+    });
+  } catch (err) {
+    console.error(`Error invalidating MongoDB connection ${key}:`, err.message);
+  }
+};
+
 // TODO: No probado completamente, revisar antes de producción
 
 export const getMongoDBParams = (custom_data) => {
@@ -158,7 +179,45 @@ export const mongodbFunction = async (context) => {
       return;
     }
 
-    const conn = await getOrCreateConnection(paramsMongo);
+    // Endpoint-configured timeout (seconds). The VM already enforces this for the user's
+    // JS code (method.jsFn), but connection establishment happens before that and was
+    // previously unbounded — a Mongo host that never responds would hang here forever.
+    const hasEndpointTimeout = method?.timeout !== undefined && method?.timeout !== null;
+    const endpointTimeoutSeconds = hasEndpointTimeout ? Number(method.timeout) : undefined;
+    const endpointTimeoutMs =
+      hasEndpointTimeout && Number.isFinite(endpointTimeoutSeconds) && endpointTimeoutSeconds > 0
+        ? endpointTimeoutSeconds * 1000
+        : undefined;
+
+    let conn;
+
+    if (endpointTimeoutMs) {
+      let timeoutHandle;
+      const timeoutPromise = new Promise((_, reject) => {
+        timeoutHandle = setTimeout(() => {
+          const timeoutError = new Error(
+            `MongoDB connection timed out after ${endpointTimeoutMs}ms`,
+          );
+          timeoutError.name = "TimeoutError";
+          reject(timeoutError);
+        }, endpointTimeoutMs);
+      });
+
+      try {
+        conn = await Promise.race([getOrCreateConnection(paramsMongo), timeoutPromise]);
+      } catch (raceErr) {
+        if (raceErr?.name === "TimeoutError") {
+          invalidateConnection(paramsMongo);
+          sendHandlerError(reply, 504, raceErr.message);
+          return;
+        }
+        throw raceErr;
+      } finally {
+        clearTimeout(timeoutHandle);
+      }
+    } else {
+      conn = await getOrCreateConnection(paramsMongo);
+    }
 
     let fnVars = functionsVars(request, reply, method.environment);
     fnVars.mongooseInstance = conn; // Conexión específica para esta config
