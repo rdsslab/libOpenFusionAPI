@@ -44,6 +44,7 @@ When writing code for JavaScript handlers in OpenFusionAPI, you must strictly ad
    - Use `uFetchAutoEnv` for calling other endpoints within the same application.
    - Use `uFetchAutoEnv.auto('/api/endpoint/path/auto', true)` to auto-forward authorization headers and isolate environments. Clarification: `uFetchAutoEnv` receives a relative path, and you must replace the environment suffix (`dev`, `qa`, or `prd`) at the end of the route path with `auto`. This allows `uFetchAutoEnv` to internally detect and substitute the appropriate environment prefix of the calling endpoint at runtime.
    - For concurrent, batch, or fan-out requests, use `uFetchAutoEnv.batch({ url, method, items, config: { concurrency } })`. Positional parameters are deprecated; always pass a single config object.
+   - **CRITICAL — Method casing**: uFetch method wrappers are **lowercase only**: `get`, `post`, `put`, `patch`, `delete`. The uppercase variants `GET`, `POST`, `PUT`, `PATCH`, `DELETE` existed in older versions and are **removed**. Generating them causes a runtime `TypeError`. Never emit `api.GET(...)`, `api.POST(...)`, etc.
 
 5. **Response Headers Customization**:
    - To send custom response headers, use the map `$_CUSTOM_HEADERS_` (e.g. `$_CUSTOM_HEADERS_.set('Content-Type', 'text/csv')`).

@@ -20,7 +20,8 @@ This page defines how libOpenFusionAPI documents and consumes @rdsslab/uFetch.
 
 ## Current Contract Snapshot (High Impact)
 
-- Preferred request methods: get, post, put, patch, delete with object options.
+- Preferred request methods: get, post, put, patch, delete with object options. **All method names are lowercase.**
+- Uppercase method wrappers (GET, POST, PUT, PATCH, DELETE) are removed since v4.x and must not be used.
 - Constructor supports timeout defaults via timeoutOptions as third argument.
 - request(...) and method wrappers accept explicit body and timeout controls.
 - Global timeout helpers are available: setTimeouts(...) and setAbortTimeout(...).
@@ -45,6 +46,7 @@ This page defines how libOpenFusionAPI documents and consumes @rdsslab/uFetch.
 
 | Topic | Current Recommendation | Legacy Compatibility | Risk if Ignored |
 |---|---|---|---|
+| Method casing | `api.get(...)`, `api.post(...)` etc. (lowercase) | `api.GET(...)`, `api.POST(...)` etc. (uppercase, removed since v4.x) | Runtime `TypeError` — uppercase wrappers no longer exist |
 | Batch invocation | batch({ ...opts }) | batch_old(url, method, items, headers, options, config) | Runtime exceptions in JS endpoints |
 | Timeout configuration | Prefer setTimeouts()/setAbortTimeout() globally plus timeout per request when needed | Hardcoded timeout only in external wrappers | Hanging requests or inconsistent timeout behavior |
 | Batch result consumption | Prefer result.data; use includeResponse only when raw Response is needed | Legacy code reading result.response | Runtime errors when reading response.json() from undefined |

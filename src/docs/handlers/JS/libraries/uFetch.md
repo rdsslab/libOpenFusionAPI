@@ -4,6 +4,13 @@
 
 Universal HTTP client for Node.js and browsers. Primary use is standard fetch-style requests (get/post/put/patch/delete); batch adds controlled parallel processing for large input sets.
 
+> [!CAUTION]
+> **Deprecated API — Do NOT use uppercase method names.**
+> Previous versions of uFetch exposed method wrappers as `GET`, `POST`, `PUT`, `PATCH`, `DELETE` (uppercase).
+> **These no longer exist in the current version and will throw a runtime error.**
+> Always use the lowercase equivalents: `get`, `post`, `put`, `patch`, `delete`.
+> This applies both to direct calls (`api.get(...)`) and to the `method` field inside `batch()` items (use `'POST'` as a string value there, not a method call).
+
 **Notes**
 
 - Use uFetch when the target URL is absolute or belongs to another system.
@@ -26,6 +33,7 @@ Universal HTTP client for Node.js and browsers. Primary use is standard fetch-st
 **Agent Guidance**
 
 - For internal OpenFusionAPI endpoints in the same instance, prefer uFetchAutoEnv instead of hardcoding dev/qa/prd URLs.
+- **NEVER use uppercase method wrappers**: `GET`, `POST`, `PUT`, `PATCH`, `DELETE` are deprecated and removed. Always use `get`, `post`, `put`, `patch`, `delete` (lowercase).
 - Start with get/post/put/patch/delete and switch to batch only when you have a collection of inputs to process concurrently.
 - If you need per-item fault tolerance and progress in a large workload, prefer batch over Promise.all.
 - Prefer method wrappers with opts object for readability: get/post/put/patch/delete({ url, data, body, headers, options, timeout }).
