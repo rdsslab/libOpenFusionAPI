@@ -13,6 +13,13 @@ const tediousDialectModule = {
   ISOLATION_LEVEL,
 };
 
+// Defaults applied only when the endpoint's AppVar config doesn't already set them.
+// Without these, a stalled TCP socket to SQL Server (network blip, server hang) never
+// errors on its own and sequelize.query() waits forever.
+const DEFAULT_MSSQL_CONNECT_TIMEOUT_MS = 15_000;
+const DEFAULT_MSSQL_REQUEST_TIMEOUT_MS = 30_000;
+const DEFAULT_POOL_ACQUIRE_MS = 30_000;
+
 class ConnectionPool {
   constructor(maxConnections = 50) {
     this.connections = new Map();
@@ -108,6 +115,18 @@ class ConnectionPool {
       ...paramsSQL.config.options,
     };
 
+    if (sequelizeOptions.dialect === "mssql") {
+      sequelizeOptions.dialectOptions = {
+        connectTimeout: DEFAULT_MSSQL_CONNECT_TIMEOUT_MS,
+        requestTimeout: DEFAULT_MSSQL_REQUEST_TIMEOUT_MS,
+        ...sequelizeOptions.dialectOptions,
+      };
+      sequelizeOptions.pool = {
+        acquire: DEFAULT_POOL_ACQUIRE_MS,
+        ...sequelizeOptions.pool,
+      };
+    }
+
     const buildSequelize = (options) => new Sequelize(
       paramsSQL.config.database,
       paramsSQL.config.username,
@@ -167,6 +186,29 @@ class ConnectionPool {
     });
 
     return sequelize;
+  }
+
+  /**
+   * Evicta una conexión cacheada sin esperar a que cierre (best-effort).
+   * Se usa cuando una query excede su timeout: el socket puede seguir colgado,
+   * así que no se espera a `close()` para no bloquear la respuesta del handler,
+   * pero se retira del mapa para que la siguiente petición cree una conexión nueva.
+   */
+  invalidate(configHash) {
+    const connData = this.connections.get(configHash);
+    if (!connData) {
+      return;
+    }
+
+    this.connections.delete(configHash);
+
+    try {
+      connData.sequelize.close().catch((err) => {
+        console.error(`[ConnectionPool] Error closing invalidated connection ${configHash}:`, err.message);
+      });
+    } catch (err) {
+      console.error(`[ConnectionPool] Error invalidating connection ${configHash}:`, err.message);
+    }
   }
 }
 

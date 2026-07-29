@@ -295,30 +295,72 @@ export const sqlFunction = async (context) => {
           queryOptions.bind = data_bind;
         }
 
-        try {
-          result_query = await sequelize.query(paramsSQL.query, queryOptions);
-        } catch (queryErr) {
-          const mssqlNumber = extractMssqlErrorNumber(queryErr);
+        const runQuery = async () => {
+          try {
+            return await sequelize.query(paramsSQL.query, queryOptions);
+          } catch (queryErr) {
+            const mssqlNumber = extractMssqlErrorNumber(queryErr);
 
-          // Retry único para errores de apertura de base en MSSQL.
-          if (mssqlNumber === 945) {
-            console.warn(`[sqlFunction] MSSQL error 945 detected for ${configHash}. Rebuilding connection and retrying once.`);
+            // Retry único para errores de apertura de base en MSSQL.
+            if (mssqlNumber === 945) {
+              console.warn(`[sqlFunction] MSSQL error 945 detected for ${configHash}. Rebuilding connection and retrying once.`);
 
-            const currentConn = Pool.connections.get(configHash);
-            if (currentConn?.sequelize) {
-              try {
-                await currentConn.sequelize.close();
-              } catch (closeErr) {
-                console.error("Error closing failed pool connection:", closeErr);
+              const currentConn = Pool.connections.get(configHash);
+              if (currentConn?.sequelize) {
+                try {
+                  await currentConn.sequelize.close();
+                } catch (closeErr) {
+                  console.error("Error closing failed pool connection:", closeErr);
+                }
               }
+
+              Pool.connections.delete(configHash);
+              sequelize = await Pool.getConnection(configHash, paramsSQL);
+              return await sequelize.query(paramsSQL.query, queryOptions);
             }
 
-            Pool.connections.delete(configHash);
-            sequelize = await Pool.getConnection(configHash, paramsSQL);
-            result_query = await sequelize.query(paramsSQL.query, queryOptions);
-          } else {
             throw queryErr;
           }
+        };
+
+        // Endpoint-configured timeout (seconds) is otherwise only honored by the JS/VM
+        // handler. Without this, a stalled connection leaves the request hanging forever,
+        // ignoring the timeout the user set for this endpoint.
+        const hasEndpointTimeout = endpoint?.timeout !== undefined && endpoint?.timeout !== null;
+        const endpointTimeoutSeconds = hasEndpointTimeout ? Number(endpoint.timeout) : undefined;
+        const endpointTimeoutMs =
+          hasEndpointTimeout && Number.isFinite(endpointTimeoutSeconds) && endpointTimeoutSeconds > 0
+            ? endpointTimeoutSeconds * 1000
+            : undefined;
+
+        if (endpointTimeoutMs) {
+          let timeoutHandle;
+          const timeoutPromise = new Promise((_, reject) => {
+            timeoutHandle = setTimeout(() => {
+              const timeoutError = new Error(
+                `SQL handler execution timed out after ${endpointTimeoutMs}ms`,
+              );
+              timeoutError.name = "TimeoutError";
+              reject(timeoutError);
+            }, endpointTimeoutMs);
+          });
+
+          try {
+            result_query = await Promise.race([runQuery(), timeoutPromise]);
+          } catch (raceErr) {
+            if (raceErr?.name === "TimeoutError") {
+              // The query may still be running against a stuck connection; evict it so the
+              // next request doesn't inherit the same hung socket.
+              Pool.invalidate(configHash);
+              sendHandlerError(reply, 504, raceErr.message);
+              return;
+            }
+            throw raceErr;
+          } finally {
+            clearTimeout(timeoutHandle);
+          }
+        } else {
+          result_query = await runQuery();
         }
 
         //  console.log('-------------> ', result_query.toSQL())
