@@ -61,6 +61,7 @@ export class EndpointRequestFlowService {
         this.endpoints.setCache(handler_param?.url_key, request, reply);
       }
       handler_param.statusCode = reply.statusCode;
+      handler_param.responseTime = reply.openfusionapi.lastResponse.responseTime;
       this.emitEndpointEvent("request_completed", handler_param);
     }
   }
