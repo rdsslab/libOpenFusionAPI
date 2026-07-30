@@ -4092,13 +4092,14 @@ export const system_app = {
         "enabled": true,
         "name": "app_endpoint_usage_summary",
         "title": "App Endpoint Usage Summary",
-        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns a usage summary for an application's endpoints over a time window: general totals, the top N most-used endpoints, and up to N endpoints not used at all in that window. Use 'status' to restrict analysis to only enabled or only disabled endpoints; omit it to consider all endpoints.",
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns a usage summary for an application's endpoints over a time window: general totals, the top N most-used endpoints, and up to N endpoints not used at all in that window. Use 'status' to restrict analysis to only enabled or only disabled endpoints; omit it to consider all endpoints. Use 'environment' to restrict analysis to a single environment (dev, qa, prd); omit it to consider all environments.",
         "operation_mode": "read",
         "requires_explicit_confirmation": false,
         "side_effects": "No persistent write side effects expected.",
         "safe_alternative": "N/A",
         "exampleRequest": {
           "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+          "environment": "prd",
           "last_days": 7,
           "top": 5
         }
@@ -4127,6 +4128,11 @@ export const system_app = {
                 "type": "string",
                 "enum": ["enabled", "disabled"],
                 "description": "Restrict analysis to only enabled or only disabled endpoints. If omitted, all endpoints are considered."
+              },
+              "environment": {
+                "type": "string",
+                "enum": ["dev", "qa", "prd"],
+                "description": "Restrict analysis to a single environment (dev, qa, prd). If omitted, all environments are considered."
               }
             },
             "required": ["idapp"],

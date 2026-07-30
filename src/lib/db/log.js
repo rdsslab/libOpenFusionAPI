@@ -999,13 +999,11 @@ export async function getAppEndpointUsageSummary(data) {
 
   // Full endpoint list for the app (used for the "totals" block, unfiltered by `status`)
   const allEndpoints = (
-    await getEndpointByIdApp(data.idapp, [
-      "idendpoint",
-      "resource",
-      "method",
-      "title",
-      "enabled",
-    ])
+    await getEndpointByIdApp(
+      data.idapp,
+      ["idendpoint", "resource", "method", "title", "enabled"],
+      data.environment
+    )
   ).map((e) => (e.toJSON ? e.toJSON() : e));
 
   // Endpoints considered for most_used/unused, per `status` filter
@@ -1056,7 +1054,7 @@ export async function getAppEndpointUsageSummary(data) {
     window: {
       last_days,
       from: pastDate.toISOString(),
-      to: DateTime.now().toISOString(),
+      to: DateTime.now().toJSDate().toISOString(),
     },
     totals: {
       total_endpoints: allEndpoints.length,

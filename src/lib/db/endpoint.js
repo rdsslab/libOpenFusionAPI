@@ -260,10 +260,15 @@ export const deleteEndpoint = async (
 // READ
 export const getEndpointByIdApp = async (
   /** @type {import("sequelize").Identifier | undefined} */ idapp,
-  attributes = null
+  attributes = null,
+  environment = null
 ) => {
   try {
-    const options = { where: { idapp: idapp } };
+    const where = { idapp: idapp };
+    if (environment) {
+      where.environment = environment;
+    }
+    const options = { where };
     if (attributes && Array.isArray(attributes) && attributes.length > 0) {
       options.attributes = attributes;
     }
