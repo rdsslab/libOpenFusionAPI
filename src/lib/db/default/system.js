@@ -1161,6 +1161,11 @@ export const system_app = {
                 "type": "integer",
                 "minimum": 1,
                 "description": "Number of days to look back from now. Defaults to 7 if not provided."
+              },
+              "environment": {
+                "type": "string",
+                "enum": ["dev", "qa", "prd"],
+                "description": "Environment to filter logs by (dev, qa, prd). Optional; if omitted, all environments are included."
               }
             },
             "required": ["idapp"],
@@ -1244,7 +1249,7 @@ export const system_app = {
       "handler": "FUNCTION",
       "access": 2,
       "title": "",
-      "description": "Returns a summary of log records for an application (idapp), grouped by endpoint and status code, with the count of records per group. Only includes logs from the last N days (last_days), which defaults to 7 if not provided.",
+      "description": "Returns a summary of log records for an application (idapp), grouped by endpoint and status code, with the count of records per group. Only includes logs from the last N days (last_days), which defaults to 7 if not provided. Optionally filtered by environment (dev, qa, prd).",
       "price_by_request": 1,
       "price_kb_request": 1,
       "price_kb_response": 1,

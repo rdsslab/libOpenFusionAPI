@@ -919,7 +919,7 @@ export const getLogsStatusClassPerMinute = async (options) => {
 /**
  * Obtiene un resumen de logs agrupados por idendpoint para una aplicación específica.
  *
- * @param {string} idapp El UUID de la aplicación a consultar.
+ * @param {{idapp: string, last_days?: number, environment?: string}} data
  * @returns {Promise<Array<{ idendpoint: string, totalStatusCode: number, recordCount: number }>>}
  *          Un array de objetos, cada uno representando un endpoint con el total de status_code y la cantidad de registros.
  */
@@ -945,8 +945,11 @@ export async function getLogSummaryByAppStatusCode(data) {
           [dbsequelize.fn("COUNT", dbsequelize.col("id")), "recordCount"], // Cantidad de registros
         ],
         where: {
-          idapp: data.idapp, // Filtra por el idapp proporcionado
-          timestamp: { [Op.gte]: pastDate }, // Solo logs desde `last_days` días atrás
+          [Op.and]: [
+            { idapp: data.idapp }, // Filtra por el idapp proporcionado
+            { timestamp: { [Op.gte]: pastDate } }, // Solo logs desde `last_days` días atrás
+            getEnvironmentFilter(data.environment),
+          ],
         },
         group: ["idendpoint", "status_code"], // Agrupa los resultados por idendpoint
         raw: true, // Importante para obtener objetos JSON planos en lugar de instancias del modelo Sequelize
@@ -1019,8 +1022,11 @@ export async function getAppEndpointUsageSummary(data) {
       [dbsequelize.fn("COUNT", dbsequelize.col("id")), "recordCount"],
     ],
     where: {
-      idapp: data.idapp,
-      timestamp: { [Op.gte]: pastDate },
+      [Op.and]: [
+        { idapp: data.idapp },
+        { timestamp: { [Op.gte]: pastDate } },
+        getEnvironmentFilter(data.environment),
+      ],
     },
     group: ["idendpoint"],
     raw: true,
