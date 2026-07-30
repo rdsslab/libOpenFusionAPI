@@ -816,6 +816,12 @@ export const LogEntry = dbsequelize.define(
       defaultValue: 0,
       comment: "Response Status Code",
     },
+    environment: {
+      type: DataTypes.STRING(10),
+      allowNull: true,
+      defaultValue: "prd",
+      comment: "Target endpoint environment (dev/qa/prd)",
+    },
     // Niveles de log: 1 (Basic), 2 (Normal), 3 (Full)
     log_level: {
       type: DataTypes.SMALLINT,

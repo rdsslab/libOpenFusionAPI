@@ -674,12 +674,60 @@ export const getLogs = async ({
  * @param {number} [last_hours=24] - Número de horas a considerar (desde ahora hacia atrás)
  * @returns {Promise<Array>} - Array con { timestamp, idendpoint, count }
  */
+// Función para generar el truncado de fecha según el tipo de BD (reutilizable)
+function getTruncatedMinuteColumn(sequelize) {
+  const dialect = sequelize.getDialect(); // Accedemos al dialecto desde el modelo
+
+  switch (dialect) {
+    case "postgres":
+      return sequelize.fn("DATE_TRUNC", "minute", sequelize.col("timestamp"));
+    case "mysql":
+      return sequelize.fn(
+        "DATE_FORMAT",
+        sequelize.col("timestamp"),
+        "%Y-%m-%d %H:%i:00"
+      );
+    case "mssql":
+      return sequelize.fn(
+        "DATEADD",
+        "minute",
+        sequelize.fn(
+          "DATEDIFF",
+          "minute",
+          sequelize.literal("0"),
+          sequelize.col("timestamp")
+        ),
+        sequelize.literal("0")
+      );
+    case "sqlite":
+      return sequelize.fn(
+        "STRFTIME",
+        "%Y-%m-%d %H:%M:00",
+        sequelize.col("timestamp")
+      );
+    default:
+      // Fallback para otros dialectos o error
+      throw new Error(`Dialecto no soportado: ${dialect}`);
+  }
+}
+
+// Los logs históricos anteriores a la columna `environment` quedan en NULL;
+// se tratan como 'prd' al filtrar por ese ambiente (era el único usado hasta ahora).
+function getEnvironmentFilter(environment) {
+  if (!environment) return {};
+  if (environment === "prd") {
+    return { [Op.or]: [{ environment: "prd" }, { environment: null }] };
+  }
+  return { environment };
+}
+
 export const getLogsRecordsPerMinute = async (options) => {
   // Parámetros con valores por defecto
   const {
     idapp,
     last_hours = 24,
     idendpoint,
+    environment,
     raw = true, // Si quieres objetos planos en lugar de instancias de Sequelize
   } = options;
 
@@ -727,7 +775,8 @@ export const getLogsRecordsPerMinute = async (options) => {
       startDate,
       endDate,
       idapp ? null : endpointFilter, // Si hay idapp, endpointFilter es null por ahora (lo manejaremos adentro)
-      idapp
+      idapp,
+      environment
     );
 
     return rawResults;
@@ -747,46 +796,10 @@ async function getCountsByMinute(
   startDate,
   endDate,
   endpointFilter,
-  idapp // Nuevo parametro opcional
+  idapp, // Nuevo parametro opcional
+  environment
 ) {
-  // Función para generar el truncado de fecha según el tipo de BD
-  const getTruncatedMinuteColumn = () => {
-    const dialect = sequelize.getDialect(); // Accedemos al dialecto desde el modelo
-
-    switch (dialect) {
-      case "postgres":
-        return sequelize.fn("DATE_TRUNC", "minute", sequelize.col("timestamp"));
-      case "mysql":
-        return sequelize.fn(
-          "DATE_FORMAT",
-          sequelize.col("timestamp"),
-          "%Y-%m-%d %H:%i:00"
-        );
-      case "mssql":
-        return sequelize.fn(
-          "DATEADD",
-          "minute",
-          sequelize.fn(
-            "DATEDIFF",
-            "minute",
-            sequelize.literal("0"),
-            sequelize.col("timestamp")
-          ),
-          sequelize.literal("0")
-        );
-      case "sqlite":
-        return sequelize.fn(
-          "STRFTIME",
-          "%Y-%m-%d %H:%M:00",
-          sequelize.col("timestamp")
-        );
-      default:
-        // Fallback para otros dialectos o error
-        throw new Error(`Dialecto no soportado: ${dialect}`);
-    }
-  };
-
-  const truncatedColumn = getTruncatedMinuteColumn();
+  const truncatedColumn = getTruncatedMinuteColumn(sequelize);
 
   const rawResults = await LogEntry.findAll({
     where: {
@@ -794,6 +807,7 @@ async function getCountsByMinute(
         { timestamp: { [Op.between]: [startDate, endDate] } },
         endpointFilter ? { idendpoint: endpointFilter } : {},
         idapp ? { idapp: idapp } : {},
+        getEnvironmentFilter(environment),
       ],
     },
     attributes: [
@@ -809,6 +823,98 @@ async function getCountsByMinute(
 
   return rawResults;
 }
+
+// === CONSULTA PARA OBTENER CONTEOS POR MINUTO + STATUS CODE ===
+async function getStatusCountsByMinute(
+  sequelize,
+  startDate,
+  endDate,
+  idapp,
+  environment
+) {
+  const truncatedColumn = getTruncatedMinuteColumn(sequelize);
+
+  const rawResults = await LogEntry.findAll({
+    where: {
+      [Op.and]: [
+        { timestamp: { [Op.between]: [startDate, endDate] } },
+        idapp ? { idapp } : {},
+        getEnvironmentFilter(environment),
+      ],
+    },
+    attributes: [
+      [truncatedColumn, "minute"],
+      "status_code",
+      [sequelize.fn("COUNT", "*"), "count"],
+    ],
+    group: ["minute", "status_code"],
+    order: [["minute", "ASC"]],
+    raw: true,
+  });
+
+  return rawResults;
+}
+
+function statusClassFor(status_code) {
+  const code = Number(status_code);
+  if (code < 200) return "info";
+  if (code < 300) return "success";
+  if (code < 400) return "redirect";
+  if (code < 500) return "client_error";
+  return "server_error";
+}
+
+/**
+ * Obtiene la cantidad de requests por minuto, agrupados por clase de status HTTP
+ * (info/success/redirect/client_error/server_error), para una app en las últimas N horas.
+ *
+ * @param {{idapp: string, last_hours?: number, environment?: string}} options
+ * @returns {Promise<Array<{minute: string, status_class: string, count: number}>>}
+ */
+export const getLogsStatusClassPerMinute = async (options) => {
+  const { idapp, last_hours = 24, environment } = options;
+
+  try {
+    if (last_hours <= 0)
+      throw new Error("Las horas deben ser un número positivo");
+
+    const sequelize = LogEntry.sequelize;
+    const endDate = new Date();
+    const startDate = DateTime.now()
+      .minus({ hours: last_hours || 1 })
+      .toJSDate();
+
+    const rawResults = await getStatusCountsByMinute(
+      sequelize,
+      startDate,
+      endDate,
+      idapp,
+      environment
+    );
+
+    const bucketed = new Map();
+    for (const row of rawResults) {
+      const status_class = statusClassFor(row.status_code);
+      const key = `${row.minute}|${status_class}`;
+      bucketed.set(key, (bucketed.get(key) || 0) + Number(row.count));
+    }
+
+    return Array.from(bucketed, ([key, count]) => {
+      const [minute, status_class] = key.split("|");
+      return { minute, status_class, count };
+    });
+  } catch (error) {
+    console.error(
+      "❌ Error obteniendo registros por minuto y clase de status:",
+      error
+    );
+    return {
+      success: false,
+      error: error.message,
+      data: [],
+    };
+  }
+};
 
 /**
  * Obtiene un resumen de logs agrupados por idendpoint para una aplicación específica.

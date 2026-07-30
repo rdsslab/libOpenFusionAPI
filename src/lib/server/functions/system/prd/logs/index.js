@@ -7,6 +7,7 @@ import {
   getAppEndpointUsageSummary,
   getLogs,
   getLogsRecordsPerMinute,
+  getLogsStatusClassPerMinute,
   getLogSummaryByAppStatusCode,
   getTraceErrorsOnly,
   getTraceSlowestHops,
@@ -183,6 +184,21 @@ export async function fnGetLogsRecordsPerMinute(params) {
     r.data = error;
     r.code = 500;
     //res.code(500).json({ error: error.message });
+  }
+  return r;
+}
+
+export async function fnGetLogsStatusClassPerMinute(params) {
+  let r = { data: undefined, code: 204 };
+
+  try {
+    let data = await getLogsStatusClassPerMinute(params?.request?.query);
+
+    r.data = data;
+    r.code = 200;
+  } catch (error) {
+    r.data = error;
+    r.code = 500;
   }
   return r;
 }

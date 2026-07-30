@@ -7706,6 +7706,99 @@ export const system_app = {
     },
     {
       "ctrl": {
+        "users": [],
+        "log": {
+          "status_info": 1,
+          "status_success": 1,
+          "status_redirect": 1,
+          "status_client_error": 2,
+          "status_server_error": 3
+        }
+      },
+      "cors": {},
+      "mcp": {
+        "enabled": false,
+        "name": "",
+        "title": "",
+        "description": ""
+      },
+      "json_schema": {
+        "in": {
+          "enabled": false,
+          "schema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": true
+          }
+        },
+        "out": {}
+      },
+      "custom_data": {},
+      "headers_test": {},
+      "data_test": {
+        "query": [
+          {
+            "enabled": false,
+            "key": "",
+            "value": "",
+            "internal_hash_row": "c5c647b00670bea65a11ab75bf3c77407cc89d1e12a5a013b5fa8146d30f9368"
+          }
+        ],
+        "body": {
+          "selection": 0,
+          "json": {
+            "code": {}
+          },
+          "xml": {
+            "code": ""
+          },
+          "text": {
+            "value": ""
+          },
+          "form": {}
+        },
+        "headers": [
+          {
+            "enabled": false,
+            "key": "",
+            "value": "",
+            "internal_hash_row": "c5c647b00670bea65a11ab75bf3c77407cc89d1e12a5a013b5fa8146d30f9368"
+          }
+        ],
+        "auth": {
+          "basic": {
+            "username": "",
+            "password": ""
+          },
+          "bearer": {
+            "token": ""
+          },
+          "selection": 0
+        }
+      },
+      "idendpoint": "9f2b6e1a-3c4d-4b7e-8a1f-5d6e7c8b9a0f",
+      "rowkey": 623,
+      "enabled": true,
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "environment": "prd",
+      "timeout": 30,
+      "resource": "/system/log/statusclassperminute",
+      "method": "GET",
+      "handler": "FUNCTION",
+      "access": 2,
+      "title": "",
+      "description": "",
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "keywords": "",
+      "code": "fnGetLogsStatusClassPerMinute",
+      "cache_time": 0,
+      "createdAt": "2025-11-21T22:04:52.724Z",
+      "updatedAt": "2025-11-22T00:11:42.107Z"
+    },
+    {
+      "ctrl": {
         "admin": true,
         "users": [],
         "log": {

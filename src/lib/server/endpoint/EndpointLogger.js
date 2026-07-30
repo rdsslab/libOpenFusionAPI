@@ -42,6 +42,7 @@ export class EndpointLogger {
       timestamp: new Date(),
       idapp: handler_param?.idapp ?? DEFAULT_ID_APP,
       idendpoint: handler_param?.idendpoint ?? DEFAULT_ID_APP,
+      environment: handler_param?.environment ?? "prd",
       method: request.method,
       price_by_request: handler_param?.price_by_request ?? 0,
       price_kb_request: handler_param?.price_kb_request ?? 0,
