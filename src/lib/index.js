@@ -184,6 +184,8 @@ export default class ServerAPI extends EventEmitter {
       bodyLimit: this.maxBodyBytes,
     });
 
+    this.fastify.addHttpMethod("QUERY", { hasBody: true });
+
     this._build();
   }
 
@@ -223,7 +225,7 @@ export default class ServerAPI extends EventEmitter {
         },
         credentials: true,
         allowedHeaders: ["Content-Type", "Authorization"],
-        methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "QUERY"],
       },
       corsPolicy: defaultCorsPolicy,
     });

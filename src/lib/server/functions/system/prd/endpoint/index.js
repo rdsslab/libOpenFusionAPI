@@ -915,7 +915,7 @@ export async function fnEndpointTest(params) {
       obj != null && Object.prototype.hasOwnProperty.call(obj, key);
 
     const methodSupportsBody = (httpMethod) =>
-      ["POST", "PUT", "PATCH", "DELETE"].includes(String(httpMethod || "").toUpperCase());
+      ["POST", "PUT", "PATCH", "DELETE", "QUERY"].includes(String(httpMethod || "").toUpperCase());
 
     const isStructuredPayloadValue = (value) =>
       value !== null &&

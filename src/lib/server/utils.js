@@ -45,6 +45,7 @@ export const getRequestData = (request) => {
     case "POST":
     case "PUT":
     case "PATCH":
+    case "QUERY":
       return request.body;
     case "OPTIONS":
       return {}; // Normalmente no lleva datos

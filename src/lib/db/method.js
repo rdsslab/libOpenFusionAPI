@@ -24,6 +24,7 @@ export const defaultMethods = () => {
 			{ id: 'PATCH', text: `PATCH` },
 			{ id: 'POST', text: `POST` },
 			{ id: 'PUT', text: `PUT` },
+			{ id: 'QUERY', text: `QUERY` },
 			{ id: 'WS', text: `WS` },
 			{ id: 'OPTIONS', text: `OPTIONS` }
 		];

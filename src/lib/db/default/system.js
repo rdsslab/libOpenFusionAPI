@@ -317,7 +317,8 @@ export const system_app = {
                   "PATCH",
                   "DELETE",
                   "OPTIONS",
-                  "HEAD"
+                  "HEAD",
+                  "QUERY"
                 ],
                 "description": "HTTP method for the endpoint."
               },
@@ -1492,7 +1493,8 @@ export const system_app = {
                   "PATCH",
                   "DELETE",
                   "OPTIONS",
-                  "HEAD"
+                  "HEAD",
+                  "QUERY"
                 ],
                 "description": "HTTP method for the endpoint."
               },
@@ -2662,7 +2664,8 @@ export const system_app = {
                   "PATCH",
                   "DELETE",
                   "OPTIONS",
-                  "HEAD"
+                  "HEAD",
+                  "QUERY"
                 ],
                 "description": "HTTP method for the endpoint."
               },
@@ -3532,7 +3535,8 @@ export const system_app = {
                       "POST",
                       "PUT",
                       "DELETE",
-                      "PATCH"
+                      "PATCH",
+                      "QUERY"
                     ],
                     "description": "Endpoint HTTP method filter. Values are normalized to uppercase."
                   },
@@ -3718,7 +3722,8 @@ export const system_app = {
                   "PATCH",
                   "DELETE",
                   "OPTIONS",
-                  "HEAD"
+                  "HEAD",
+                  "QUERY"
                 ],
                 "description": "HTTP method for the endpoint."
               },
@@ -4519,7 +4524,8 @@ export const system_app = {
                   "PATCH",
                   "DELETE",
                   "OPTIONS",
-                  "HEAD"
+                  "HEAD",
+                  "QUERY"
                 ],
                 "description": "HTTP method exposed by the endpoint."
               },
@@ -5504,7 +5510,8 @@ export const system_app = {
                   "PATCH",
                   "DELETE",
                   "OPTIONS",
-                  "HEAD"
+                  "HEAD",
+                  "QUERY"
                 ],
                 "default": "POST"
               },
@@ -6269,7 +6276,8 @@ export const system_app = {
                   "PATCH",
                   "DELETE",
                   "OPTIONS",
-                  "HEAD"
+                  "HEAD",
+                  "QUERY"
                 ],
                 "description": "HTTP method for the endpoint."
               },
@@ -8556,7 +8564,8 @@ export const system_app = {
                   "PATCH",
                   "DELETE",
                   "OPTIONS",
-                  "HEAD"
+                  "HEAD",
+                  "QUERY"
                 ],
                 "description": "HTTP method for the endpoint."
               },
@@ -9974,7 +9983,8 @@ export const system_app = {
                   "POST",
                   "PUT",
                   "PATCH",
-                  "DELETE"
+                  "DELETE",
+                  "QUERY"
                 ],
                 "default": "GET",
                 "description": "HTTP method (auto-resolved from idendpoint if omitted). When using explicit 'app' + 'resource' together with 'payload', send this field explicitly."
@@ -11123,7 +11133,8 @@ export const system_app = {
                   "PATCH",
                   "DELETE",
                   "OPTIONS",
-                  "HEAD"
+                  "HEAD",
+                  "QUERY"
                 ],
                 "description": "HTTP method for the endpoint."
               },
