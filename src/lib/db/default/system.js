@@ -2303,7 +2303,7 @@ export const system_app = {
       },
       "cors": {},
       "mcp": {
-        "enabled": true,
+        "enabled": false,
         "name": "get_handler_skill",
         "title": "Get Handler Skill",
         "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns the AI agent skill instructions, role definition, templates, and constraints for a specific endpoint handler.",

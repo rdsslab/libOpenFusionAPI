@@ -29,65 +29,39 @@ export const CreateMCPHandler = async (app_name, environment) => {
     },
   });
 
-  // Fix 6: Las tools y los recursos se registran en variables locales y se añaden a un
-  // nuevo McpServer en la función factory devuelta. De esta forma, cada request HTTP tiene
-  // su propia instancia desconectada de transport permitiendo concurrencia, sin usar
-  // cierres que sobrescriban variables globales como en requestContext.headers.
+  // Fix 6: Las tools se registran en variables locales y se añaden a un nuevo McpServer en
+  // la función factory devuelta. De esta forma, cada request HTTP tiene su propia instancia
+  // desconectada de transport permitiendo concurrencia, sin usar cierres que sobrescriban
+  // variables globales como en requestContext.headers.
   const _mcpConfig = {
-    tools: [],
-    resources: []
+    tools: []
   };
 
-  for (const handlerKey of Object.keys(Handlers)) {
-    const handlerKeyLower = handlerKey.toLowerCase();
-    const toolName = `get_handler_skill_${handlerKeyLower}`;
-    const resourceURI = `mcp://handlers/skills/${handlerKeyLower}`;
+  const handlerKeys = Object.keys(Handlers);
 
-    // Register Resource
-    _mcpConfig.resources.push({
-      name: `handler-skill-${handlerKeyLower}`,
-      uri: resourceURI,
-      info: {
-        description: `AI agent skill guide and persona instructions for endpoint handler ${handlerKey}`,
-        mimeType: "text/markdown",
+  _mcpConfig.tools.push({
+    name: "get_handler_skill",
+    info: {
+      title: "AI Agent Skill Instructions for Endpoint Handler",
+      description: "Returns the expert persona, guidelines, constraints, and templates for creating or modifying endpoints of the given handler type.",
+      inputSchema: {
+        handler: z.enum(handlerKeys).describe("Endpoint handler type to get the skill guide for."),
       },
-      handler: async (_uri, _extra) => {
-        const skill = await readHandlerSkill(handlerKey);
-        return {
-          contents: [
-            {
-              uri: resourceURI,
-              mimeType: "text/markdown",
-              text: skill.markdown
-            }
-          ]
-        };
-      }
-    });
-
-    // Register Tool
-    _mcpConfig.tools.push({
-      name: toolName,
-      info: {
-        title: `AI Agent Skill Instructions for ${handlerKey}`,
-        description: `Returns the expert persona, guidelines, constraints, and templates for creating or modifying endpoints of type ${handlerKey}.`,
-        inputSchema: {},
-        annotations: { readOnlyHint: true }
-      },
-      handler: async () => {
-        const skill = await readHandlerSkill(handlerKey);
-        return {
-          content: [
-            {
-              type: "text",
-              mimeType: "text/markdown",
-              text: skill.markdown
-            }
-          ]
-        };
-      }
-    });
-  }
+      annotations: { readOnlyHint: true }
+    },
+    handler: async ({ handler }) => {
+      const skill = await readHandlerSkill(handler);
+      return {
+        content: [
+          {
+            type: "text",
+            mimeType: "text/markdown",
+            text: skill.markdown
+          }
+        ]
+      };
+    }
+  });
 
   const getAccessLevelLabel = (access) => {
     switch (access) {
@@ -1166,10 +1140,6 @@ ${endpointUpsertHandlerGuide}
 
   }
 
-  // URI con path explícito: new URL("api://docs/demo").toString() === "api://docs/demo"
-  // Si el URI no tiene path (ej: "api://docs-demo"), new URL() añade "/" final → no coincide con la clave registrada
-  const resourceURI = "api://docs/" + app_name;
-  const catalogResourceURI = "api://docs/catalog/" + app_name;
   const md_resource = `
 # API Documentation for ${app_name} on ${environment} environment
 
@@ -1190,48 +1160,6 @@ ${markdown_api_catalog_rows
 Use \`list_api_endpoints_${app_name}\` only when you need the full endpoint-by-endpoint documentation dump.
 
     `;
-
-  _mcpConfig.resources.push({
-    name: "api-docs-" + app_name,
-    uri: resourceURI,
-    info: {
-      description: "API Documentation for " + app_name + " on " + environment + " environment",
-      mimeType: "text/markdown",
-    },
-    handler: async (_uri, _extra) => {
-
-      return {
-        contents: [
-          {
-            uri: resourceURI,
-            mimeType: "text/markdown",
-            text: md_resource
-          }
-        ]
-      }
-    }
-  });
-
-  _mcpConfig.resources.push({
-    name: "api-docs-catalog-" + app_name,
-    uri: catalogResourceURI,
-    info: {
-      description: "Lightweight API endpoint catalog for " + app_name + " on " + environment + " environment",
-      mimeType: "text/markdown",
-    },
-    handler: async (_uri, _extra) => {
-
-      return {
-        contents: [
-          {
-            uri: catalogResourceURI,
-            mimeType: "text/markdown",
-            text: md_catalog_resource
-          }
-        ]
-      }
-    }
-  });
 
 _mcpConfig.tools.push({
   name: "validate_json_schema_for_mcp",
@@ -1321,12 +1249,6 @@ _mcpConfig.tools.push({
   return (headers) => {
     const server = getServer();
     const currentHeaders = headers ?? {};
-
-    for (const res of _mcpConfig.resources) {
-      server.registerResource(res.name, res.uri, res.info, async (uri, extra) => {
-        return await res.handler(uri, extra, currentHeaders);
-      });
-    }
 
     for (const t of _mcpConfig.tools) {
       server.registerTool(t.name, t.info, async (data, context) => {

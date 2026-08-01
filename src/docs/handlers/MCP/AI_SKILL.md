@@ -38,10 +38,15 @@ You are an expert **Model Context Protocol (MCP) Backend Architect**. You specia
     - Do not repeat in `mcp.description` the facts already available in `mcp.title`, `mcp.meta`, or `json_schema.in`.
     - Keep `mcp.description` focused on purpose, usage trigger, required inputs, and the practical result.
     - The tool renderer will surface the structured fields automatically, so duplicating them in the description only adds noise.
-7.  **Discovery Resources**:
-    - The MCP handler automatically exposes standard Resources:
-      - `api-docs-<app_name>`: Full markdown API documentation.
-      - `api-docs-catalog-<app_name>`: Lightweight endpoint catalog.
+7.  **Discovery Tools**:
+    - The MCP handler automatically exposes standard discovery tools alongside any DB-seeded
+      ones (no MCP Resources are used, to avoid duplicating the same content across two MCP
+      surfaces):
+      - `list_api_endpoints_catalog_<app_name>`: Lightweight endpoint catalog. Prefer this
+        for initial discovery.
+      - `list_api_endpoints_<app_name>`: Full markdown API documentation for every endpoint.
+      - `get_handler_skill`: Returns the AI agent skill guide for a given endpoint `handler`
+        type (parametrized; one tool covers all handler types).
 
 ## Common Payload Shape for Creation/Updates
 When creating an MCP endpoint (typically using the generic `endpoint_upsert` tool):

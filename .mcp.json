@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "openfusion_system_remote_prd": {
+      "type": "http",
+      "url": "http://localhost:3000/api/system/mcp/server/prd",
+      "headers": {
+        "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJkYXRhIjp7ImFwaWtleSI6eyJpZGFwcCI6ImNmY2QyMDg0LTk1ZDUtNjVlZi02NmU3LWRmZjlmOTg3NjRkYSIsImlkY2xpZW50IjoiZWEwMDE2MWEtZTc0ZC00MTNkLWJiODMtYzdkZjNhYjNjZDZkIn19LCJleHAiOjE3OTc4MTEyMDAsIm5iZiI6MTc3Nzc2NjQwMCwiaWF0IjoxNzc3ODAyMTkzfQ.F-gZKP-Zm_DBbotwK6c-CyOoSqA99Dk0RyhGmAOFvOs"
+      }
+    }
+  }
+}

@@ -1,7 +1,4 @@
-import {
-  McpServer,
-  ResourceTemplate,
-} from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { jsonSchemaToZod } from "./utils.js";
@@ -12,10 +9,6 @@ function getServer() {
   const server = new McpServer({
     name: "OpenFusionAPI MCP Server",
     version: version,
-  }, {
-    capabilities: {
-      resources: {}
-    }
   });
 
   /*
@@ -42,7 +35,6 @@ function getServer() {
 export {
   getServer,
   StdioServerTransport,
-  ResourceTemplate,
   StreamableHTTPServerTransport,
   jsonSchemaToZod,
 };
