@@ -54,7 +54,7 @@ export class LogBuffer {
     // si alcanzas un tamaño grande, fuerza flush inmediato.
     if (this._buffer.length >= this._maxBufferSize) {
       // fire-and-forget (pero controlado internamente)
-      void this.flush();
+      void this.flush().catch((err) => this._logFlushError(err));
       return;
     }
 
@@ -74,7 +74,7 @@ export class LogBuffer {
     for (let i = 0; i < logs.length; i++) this._buffer.push(logs[i]);
 
     if (this._buffer.length >= this._maxBufferSize) {
-      void this.flush();
+      void this.flush().catch((err) => this._logFlushError(err));
       return;
     }
 
@@ -154,7 +154,10 @@ export class LogBuffer {
     if (this._timer) return; // ya está programado
     this._timer = setTimeout(() => {
       this._timer = null;
-      void this.flush(); // fire-and-forget controlado
+      // fire-and-forget controlado: nunca dejar la promesa sin manejar,
+      // pues un rechazo aquí escala a un crash fatal del proceso (unhandled rejection
+      // dentro del callback nativo de sqlite3).
+      void this.flush().catch((err) => this._logFlushError(err));
     }, ms);
 
     // No mantener vivo el proceso Node solo por el timer (ahorro recursos)
@@ -165,6 +168,26 @@ export class LogBuffer {
     if (!this._timer) return;
     clearTimeout(this._timer);
     this._timer = null;
+  }
+
+  /**
+   * Registra en consola el error de un flush fallido, con evidencia suficiente
+   * para diagnosticar (mensaje original de la BD, cantidad de logs re-encolados, etc.)
+   * sin volver a lanzar la excepción.
+   * @param {any} err
+   */
+  _logFlushError(err) {
+    console.error(
+      "[LogBuffer] Fallo al hacer flush de logs. Se re-encolaron en memoria para reintentar.",
+      {
+        timestamp: new Date().toISOString(),
+        bufferedForRetry: this._buffer.length,
+        message: err?.message,
+        original: err?.original?.message ?? err?.parent?.message,
+        name: err?.name,
+        stack: err?.stack,
+      }
+    );
   }
 }
 
