@@ -40,6 +40,55 @@ function toLocation(node) {
   return { line: node.loc.start.line, column: node.loc.start.column };
 }
 
+const UFETCH_FACTORY_METHODS = ["auto", "create"];
+
+/**
+ * Sigue asignaciones simples (`let x = new uFetch(...)` / `x = uFetchAutoEnv.auto(...)`)
+ * para reconocer variables que contienen instancias de uFetch, ya que el patrón real de
+ * uso casi siempre pasa por una variable intermedia en vez de llamar al identificador
+ * `uFetch`/`uFetchAutoEnv` directamente.
+ */
+function collectUfetchAliases(ast) {
+  const aliases = new Map();
+
+  const canonicalNameFor = (init) => {
+    if (!init) return null;
+
+    if (init.type === "NewExpression" && init.callee?.type === "Identifier" && init.callee.name === "uFetch") {
+      return "uFetch";
+    }
+
+    if (
+      init.type === "CallExpression" &&
+      init.callee?.type === "MemberExpression" &&
+      !init.callee.computed &&
+      init.callee.object?.type === "Identifier" &&
+      init.callee.object.name === "uFetchAutoEnv" &&
+      init.callee.property?.type === "Identifier" &&
+      UFETCH_FACTORY_METHODS.includes(init.callee.property.name)
+    ) {
+      return "uFetch";
+    }
+
+    return null;
+  };
+
+  walkAst(ast, (node) => {
+    if (node.type === "VariableDeclarator" && node.id?.type === "Identifier") {
+      const canonical = canonicalNameFor(node.init);
+      if (canonical) aliases.set(node.id.name, canonical);
+      return;
+    }
+
+    if (node.type === "AssignmentExpression" && node.operator === "=" && node.left?.type === "Identifier") {
+      const canonical = canonicalNameFor(node.right);
+      if (canonical) aliases.set(node.left.name, canonical);
+    }
+  });
+
+  return aliases;
+}
+
 function applyTextFixes(code, fixes) {
   // Se aplican de mayor a menor offset para no invalidar los índices ya calculados.
   const sorted = [...fixes].sort((a, b) => b.start - a.start);
@@ -97,6 +146,7 @@ export async function validateEndpointCode({
       ecmaVersion: "latest",
       sourceType: "script",
       allowReturnOutsideFunction: true,
+      allowAwaitOutsideFunction: true,
       locations: true,
     });
   } catch (error) {
@@ -121,6 +171,7 @@ export async function validateEndpointCode({
 
   const findings = [];
   const textFixes = [];
+  const ufetchAliases = collectUfetchAliases(ast);
 
   walkAst(ast, (node) => {
     if (node.type !== "CallExpression") return;
@@ -129,7 +180,7 @@ export async function validateEndpointCode({
       const matcher = MATCHERS[rule.matcherType];
       if (!matcher) continue;
 
-      const match = matcher(node, rule);
+      const match = matcher(node, rule, ufetchAliases);
       if (!match) continue;
 
       findings.push({

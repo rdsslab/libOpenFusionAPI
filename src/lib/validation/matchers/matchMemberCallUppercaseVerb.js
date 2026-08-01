@@ -2,13 +2,15 @@
  * Detecta llamadas tipo `objeto.METODO(...)` donde METODO es una variante legacy
  * en mayúscula de un método que ahora existe en minúscula (ej. uFetch.GET -> uFetch.get).
  */
-export function matchMemberCallUppercaseVerb(node, rule) {
+export function matchMemberCallUppercaseVerb(node, rule, aliases) {
   if (node.type !== "CallExpression") return null;
 
   const callee = node.callee;
   if (!callee || callee.type !== "MemberExpression" || callee.computed) return null;
   if (callee.object.type !== "Identifier") return null;
-  if (!rule.match.object.includes(callee.object.name)) return null;
+
+  const objectName = aliases?.get(callee.object.name) ?? callee.object.name;
+  if (!rule.match.object.includes(objectName)) return null;
   if (callee.property.type !== "Identifier") return null;
   if (!rule.match.properties.includes(callee.property.name)) return null;
 

@@ -274,6 +274,38 @@ export const saveAppWithEndpoints = async (app) => {
 export const restoreAppFromBackup = async (app) => {
   try {
     if (app.idapp) {
+      // Si ya existe una app con el mismo nombre pero con un idapp distinto
+      // (p.ej. restaurando un backup exportado de otro ambiente/instancia),
+      // se reutiliza el idapp existente para actualizar esa misma app en
+      // lugar de intentar insertar una fila nueva que violaría la restricción
+      // de unicidad del campo "app".
+      if (app.app) {
+        const existing_app = await Application.findOne({
+          where: { app: String(app.app).toLowerCase() },
+        });
+
+        if (existing_app && existing_app.idapp !== app.idapp) {
+          const old_idapp = app.idapp;
+          app.idapp = existing_app.idapp;
+
+          if (Array.isArray(app.endpoints)) {
+            app.endpoints.forEach((ep) => {
+              if (ep.idapp === old_idapp) {
+                ep.idapp = existing_app.idapp;
+              }
+            });
+          }
+
+          if (Array.isArray(app.vrs)) {
+            app.vrs.forEach((v) => {
+              if (v.idapp === old_idapp) {
+                v.idapp = existing_app.idapp;
+              }
+            });
+          }
+        }
+      }
+
       // Upsert a la tabla de aplicaciones
       let restore_app = await upsertApp(app);
 
