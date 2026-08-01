@@ -4511,6 +4511,236 @@ export const system_app = {
           "status_success": 1,
           "status_redirect": 1,
           "status_client_error": 2,
+          "status_server_error": 3,
+          "level": 0
+        }
+      },
+      "cors": {},
+      "mcp": {
+        "enabled": true,
+        "name": "top_error_endpoints_by_time",
+        "title": "Top Error Endpoints By Time",
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns the top N endpoints ranked by error count (status_code >= 400) within a recent time window, same ranking as 'top_error_endpoints', plus a per-endpoint time series ('series') bucketed by hour or minute so callers can see when the errors happened. Use 'idapp' to restrict to a single application; omit it to rank across all applications. Use 'environment' to restrict to a single environment (dev, qa, prd); omit it to consider all environments. Use 'granularity' to choose the bucket size ('hour', the default, or 'minute').",
+        "operation_mode": "read",
+        "requires_explicit_confirmation": false,
+        "side_effects": "No persistent write side effects expected.",
+        "safe_alternative": "N/A",
+        "exampleRequest": {
+          "last_hours": 24,
+          "top": 10,
+          "granularity": "hour"
+        }
+      },
+      "json_schema": {
+        "in": {
+          "enabled": true,
+          "schema": {
+            "type": "object",
+            "properties": {
+              "last_hours": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Number of hours to look back from now. Defaults to 24 if not provided."
+              },
+              "top": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Max number of endpoints returned in the ranking. Defaults to 10 if not provided."
+              },
+              "idapp": {
+                "type": "string",
+                "description": "Restrict the ranking to a single application. If omitted, the ranking is global across all applications."
+              },
+              "environment": {
+                "type": "string",
+                "enum": ["dev", "qa", "prd"],
+                "description": "Restrict the ranking to a single environment (dev, qa, prd). If omitted, all environments are considered."
+              },
+              "granularity": {
+                "type": "string",
+                "enum": ["hour", "minute"],
+                "description": "Time bucket size for the 'series' breakdown of each ranked endpoint. Defaults to 'hour' if not provided."
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "out": {
+          "enabled": true,
+          "schema": {
+            "type": "object",
+            "properties": {
+              "window": {
+                "type": "object",
+                "properties": {
+                  "last_hours": {
+                    "type": "integer"
+                  },
+                  "from": {
+                    "type": "string",
+                    "description": "ISO timestamp marking the start of the analyzed window."
+                  },
+                  "to": {
+                    "type": "string",
+                    "description": "ISO timestamp marking the end of the analyzed window (now)."
+                  }
+                }
+              },
+              "filters": {
+                "type": "object",
+                "properties": {
+                  "idapp": {
+                    "type": ["string", "null"]
+                  },
+                  "environment": {
+                    "type": ["string", "null"]
+                  }
+                }
+              },
+              "granularity": {
+                "type": "string",
+                "enum": ["hour", "minute"],
+                "description": "Bucket size used for each endpoint's 'series'."
+              },
+              "top_error_endpoints": {
+                "type": "array",
+                "description": "Endpoints ranked by error count in the window, descending, each with its time-bucketed error series.",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "idendpoint": {
+                      "type": "string"
+                    },
+                    "errorCount": {
+                      "type": "integer"
+                    },
+                    "resource": {
+                      "type": "string"
+                    },
+                    "method": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "idapp": {
+                      "type": "string"
+                    },
+                    "app": {
+                      "type": "string"
+                    },
+                    "series": {
+                      "type": "array",
+                      "description": "Error counts bucketed by time (hour or minute, per 'granularity'), ascending.",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "bucket": {
+                            "type": "string",
+                            "description": "Start timestamp of the bucket."
+                          },
+                          "count": {
+                            "type": "integer"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "custom_data": {},
+      "headers_test": {},
+      "data_test": {
+        "query": [
+          {
+            "enabled": true,
+            "key": "last_hours",
+            "value": "24",
+            "internal_hash_row": "",
+            "type": 1,
+            "_id": "teept001"
+          },
+          {
+            "enabled": true,
+            "key": "top",
+            "value": "10",
+            "internal_hash_row": "",
+            "type": 1,
+            "_id": "teept002"
+          },
+          {
+            "enabled": true,
+            "key": "granularity",
+            "value": "hour",
+            "internal_hash_row": "",
+            "type": 1,
+            "_id": "teept003"
+          }
+        ],
+        "body": {
+          "selection": 0,
+          "json": {
+            "code": {}
+          },
+          "xml": {
+            "code": ""
+          },
+          "text": {
+            "value": ""
+          },
+          "form": [],
+          "urlencoded": []
+        },
+        "headers": [],
+        "auth": {
+          "selection": 0,
+          "basic": {
+            "username": "",
+            "password": ""
+          },
+          "bearer": {
+            "token": ""
+          }
+        },
+        "last_response": {
+          "data": "",
+          "sizeKBResponse": -1
+        }
+      },
+      "idendpoint": "a1f4e8b2-9c3d-4b7e-8f2a-6d5c9e3b7a10",
+      "rowkey": 613,
+      "enabled": true,
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "environment": "prd",
+      "timeout": 30,
+      "resource": "/system/log/errors/top/bytime",
+      "method": "GET",
+      "handler": "FUNCTION",
+      "access": 2,
+      "title": "Top Error Endpoints By Time",
+      "description": "Returns the top N endpoints ranked by error count (status_code >= 400) within a recent time window (default: last 24 hours), same ranking as '/system/log/errors/top', plus a per-endpoint time series bucketed by hour or minute (default: hour) so callers can see when the errors happened. Optional 'idapp' and 'environment' filters restrict the ranking; when omitted, the ranking is global across all applications and environments.",
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "keywords": "endpoints,errors,top,ranking,status_code,last_hours,timeseries,hourly,minute",
+      "code": "fnGetTopErrorEndpointsByTime",
+      "cache_time": 0,
+      "createdAt": "2026-08-01T00:00:00.000Z",
+      "updatedAt": "2026-08-01T00:00:00.000Z"
+    },
+    {
+      "ctrl": {
+        "admin": true,
+        "users": [],
+        "log": {
+          "status_info": 1,
+          "status_success": 1,
+          "status_redirect": 1,
+          "status_client_error": 2,
           "status_server_error": 3
         }
       },

@@ -674,26 +674,32 @@ export const getLogs = async ({
  * @param {number} [last_hours=24] - Número de horas a considerar (desde ahora hacia atrás)
  * @returns {Promise<Array>} - Array con { timestamp, idendpoint, count }
  */
-// Función para generar el truncado de fecha según el tipo de BD (reutilizable)
-function getTruncatedMinuteColumn(sequelize) {
+// Función para generar el truncado de fecha según el tipo de BD y la granularidad
+// (reutilizable). granularity: 'minute' | 'hour'.
+function getTruncatedColumnByGranularity(sequelize, granularity = "minute") {
   const dialect = sequelize.getDialect(); // Accedemos al dialecto desde el modelo
+
+  const mysqlFormat = granularity === "hour" ? "%Y-%m-%d %H:00:00" : "%Y-%m-%d %H:%i:00";
+  const sqliteFormat = granularity === "hour" ? "%Y-%m-%d %H:00:00" : "%Y-%m-%d %H:%M:00";
 
   switch (dialect) {
     case "postgres":
-      return sequelize.fn("DATE_TRUNC", "minute", sequelize.col("timestamp"));
+      return sequelize.fn("DATE_TRUNC", granularity, sequelize.col("timestamp"));
     case "mysql":
+    case "mariadb":
+      // MariaDB es compatible con la sintaxis de fecha de MySQL.
       return sequelize.fn(
         "DATE_FORMAT",
         sequelize.col("timestamp"),
-        "%Y-%m-%d %H:%i:00"
+        mysqlFormat
       );
     case "mssql":
       return sequelize.fn(
         "DATEADD",
-        "minute",
+        granularity,
         sequelize.fn(
           "DATEDIFF",
-          "minute",
+          granularity,
           sequelize.literal("0"),
           sequelize.col("timestamp")
         ),
@@ -702,13 +708,24 @@ function getTruncatedMinuteColumn(sequelize) {
     case "sqlite":
       return sequelize.fn(
         "STRFTIME",
-        "%Y-%m-%d %H:%M:00",
+        sqliteFormat,
         sequelize.col("timestamp")
+      );
+    case "oracle":
+      // TRUNC(timestamp, 'HH24') trunca a la hora; TRUNC(timestamp, 'MI') trunca al minuto.
+      return sequelize.fn(
+        "TRUNC",
+        sequelize.col("timestamp"),
+        sequelize.literal(granularity === "hour" ? "'HH24'" : "'MI'")
       );
     default:
       // Fallback para otros dialectos o error
       throw new Error(`Dialecto no soportado: ${dialect}`);
   }
+}
+
+function getTruncatedMinuteColumn(sequelize) {
+  return getTruncatedColumnByGranularity(sequelize, "minute");
 }
 
 // Los logs históricos anteriores a la columna `environment` quedan en NULL;
@@ -1152,6 +1169,65 @@ export async function getTopErrorEndpoints(data = {}) {
       environment: data.environment || null,
     },
     top_error_endpoints,
+  };
+}
+
+/**
+ * Igual que getTopErrorEndpoints, pero además desglosa el conteo de errores de
+ * cada endpoint del ranking en buckets de tiempo (hora o minuto), para poder
+ * graficar en qué momentos se concentraron los errores.
+ *
+ * @param {{idapp?: string, environment?: string, last_hours?: number, top?: number, granularity?: 'hour'|'minute'}} data
+ */
+export async function getTopErrorEndpointsByTime(data = {}) {
+  const granularity = data.granularity === "minute" ? "minute" : "hour";
+
+  const ranking = await getTopErrorEndpoints(data);
+  const idendpoints = ranking.top_error_endpoints.map((e) => e.idendpoint);
+
+  if (idendpoints.length === 0) {
+    return { ...ranking, granularity, top_error_endpoints: [] };
+  }
+
+  const sequelize = LogEntry.sequelize;
+  const truncatedColumn = getTruncatedColumnByGranularity(sequelize, granularity);
+  const pastDate = new Date(ranking.window.from);
+
+  const rows = await LogEntry.findAll({
+    attributes: [
+      [truncatedColumn, "bucket"],
+      "idendpoint",
+      [dbsequelize.fn("COUNT", dbsequelize.col("id")), "count"],
+    ],
+    where: {
+      [Op.and]: [
+        { idendpoint: idendpoints },
+        { status_code: { [Op.gte]: 400 } },
+        { timestamp: { [Op.gte]: pastDate } },
+      ],
+    },
+    group: ["bucket", "idendpoint"],
+    order: [["bucket", "ASC"]],
+    raw: true,
+  });
+
+  const seriesByEndpoint = new Map();
+  for (const row of rows) {
+    if (!seriesByEndpoint.has(row.idendpoint)) {
+      seriesByEndpoint.set(row.idendpoint, []);
+    }
+    seriesByEndpoint
+      .get(row.idendpoint)
+      .push({ bucket: row.bucket, count: Number(row.count) });
+  }
+
+  return {
+    ...ranking,
+    granularity,
+    top_error_endpoints: ranking.top_error_endpoints.map((e) => ({
+      ...e,
+      series: seriesByEndpoint.get(e.idendpoint) || [],
+    })),
   };
 }
 

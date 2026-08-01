@@ -10,6 +10,7 @@ import {
   getLogsStatusClassPerMinute,
   getLogSummaryByAppStatusCode,
   getTopErrorEndpoints,
+  getTopErrorEndpointsByTime,
   getTraceErrorsOnly,
   getTraceSlowestHops,
   getTraceSummary,
@@ -102,6 +103,29 @@ export async function fnGetTopErrorEndpoints(params) {
       error:
         error?.message ||
         "Unexpected error while retrieving top error endpoints.",
+    };
+    r.code = 500;
+  }
+  return r;
+}
+
+export async function fnGetTopErrorEndpointsByTime(params) {
+  let r = { data: undefined, code: 204 };
+
+  try {
+    const queryParams = params?.request?.query || {};
+    const bodyParams = params?.request?.body || {};
+    const merged = { ...queryParams, ...bodyParams };
+
+    const data = await getTopErrorEndpointsByTime(merged);
+
+    r.data = data;
+    r.code = 200;
+  } catch (error) {
+    r.data = {
+      error:
+        error?.message ||
+        "Unexpected error while retrieving top error endpoints by time.",
     };
     r.code = 500;
   }
