@@ -28,7 +28,7 @@ This page defines how libOpenFusionAPI documents and consumes @rdsslab/uFetch.
 - Current batch signature: batch({ url, method, items, headers, options, config }).
 - Batch positional signature is unsupported in batch() and should not be generated in new code.
 - Legacy compatibility path: batch_old(url, method, items, headers, options, config).
-- Batch supports top-level timeout and per-item timeout overrides.
+- Batch has no per-item override since v5.x: url/method/headers/options/timeout apply uniformly to every item. items must be a plain array (sent verbatim as data) or an object wrapper { data: [...] } / { body: [...] }. Use Promise.all with individual calls when different payloads need a different url/method/timeout.
 - Batch supports config.responseParser and config.includeResponse (default false).
 - Batch result item shape by default: { isError, httpCode, data?, error? }.
 - If config.includeResponse=true, response is also included: { ..., response }.
@@ -55,8 +55,8 @@ This page defines how libOpenFusionAPI documents and consumes @rdsslab/uFetch.
 
 ## Verification Metadata
 
-- Last verified date: 2026-07-14
-- Verified package version in this repository: @rdsslab/uFetch 4.0.2 (lock commit 6d54cf6)
+- Last verified date: 2026-08-01
+- Verified package version in this repository: @rdsslab/uFetch 5.1.0 (lock commit 78c1f66)
 - Verified against upstream source: README.md and src/fetch.js in rdsslab/uFetch
 - Verified by: libOpenFusionAPI maintenance workflow
 

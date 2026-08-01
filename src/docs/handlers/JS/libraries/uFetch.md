@@ -24,7 +24,8 @@ Universal HTTP client for Node.js and browsers. Primary use is standard fetch-st
 - Use batch() when you must process many calls from a list and split the workload into concurrent workers/blocks.
 - batch() returns per-item result objects and is designed to continue even if some items fail; always inspect isError per item.
 - batch() signature: batch({ url, method, items, headers, options, timeout, config: { concurrency, onProgress, responseParser, includeResponse } }).
-- If an item includes any of { url, method, data, body, headers, options, timeout }, those fields override base values for that item.
+- Every item in items shares the exact same url/method/headers/options/timeout — there is no per-item override. items must be either a plain array (each element sent verbatim as data for every request) or an object wrapper { data: [...] } / { body: [...] } to choose how the whole batch is sent. An item object containing keys like url/method/timeout is NOT inspected or extracted — it is sent as-is as the payload.
+- If different payloads need a different url/method/timeout, do not use batch(); use Promise.all with individual get/post/put/patch/delete calls instead.
 - Positional signature batch(url, method, items, headers, options, config) is not accepted by batch(); use batch_old(...) for legacy compatibility.
 - Each batch result item has shape by default: { isError, httpCode, data?, error? }.
 - If config.includeResponse is true, each result may also include response.
@@ -89,8 +90,8 @@ const batchResults = await api.batch({
   timeout: 60000,
   items: [
     { username: 'a' },
-    { username: 'b', method: 'PUT', timeout: 15000 },
-    { url: 'https://other-api.example/log', data: { msg: 'audit' } },
+    { username: 'b' },
+    { username: 'c' },
   ],
   config: {
     concurrency: 5,
