@@ -9947,6 +9947,161 @@ export const system_app = {
       "cors": {},
       "mcp": {
         "enabled": true,
+        "name": "validate_endpoint_code",
+        "title": "Validate Endpoint Code",
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics and pre-flight checks before saving endpoint code.\nAnalyzes the JS source of a handler (JS, MONGODB, TELEGRAM_BOT) for calls to outdated/renamed library APIs (e.g. uFetch.GET -> uFetch.get). Returns findings marked as autofixable or requiring manual review, plus the auto-fixed code when applicable. Set dry_run=true to also execute the code in the real sandbox and capture runtime deprecation warnings (skipped automatically for TELEGRAM_BOT to avoid real side effects).",
+        "operation_mode": "read",
+        "requires_explicit_confirmation": false,
+        "side_effects": "No persistent write side effects expected. When dry_run=true, the code is actually executed and may perform real network/DB calls just like execute_endpoint_test.",
+        "safe_alternative": "N/A"
+      },
+      "json_schema": {
+        "in": {
+          "enabled": true,
+          "schema": {
+            "title": "ValidateEndpointCodeRequest",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "handler",
+              "code"
+            ],
+            "properties": {
+              "handler": {
+                "type": "string",
+                "enum": [
+                  "JS",
+                  "MONGODB",
+                  "TELEGRAM_BOT"
+                ],
+                "description": "Handler type of the endpoint whose code is being validated."
+              },
+              "code": {
+                "type": "string",
+                "description": "JS source code to analyze."
+              },
+              "custom_data": {
+                "type": "object",
+                "description": "Optional custom_data associated with the endpoint."
+              },
+              "dry_run": {
+                "type": "boolean",
+                "description": "If true, executes the code in the real sandbox to capture runtime deprecation warnings. Skipped for TELEGRAM_BOT."
+              },
+              "app_vars": {
+                "type": "object",
+                "description": "Optional app variables to expose to the sandbox during dry_run."
+              }
+            }
+          }
+        },
+        "out": {
+          "enabled": true,
+          "schema": {
+            "type": "object",
+            "properties": {
+              "applicable": {
+                "type": "boolean"
+              },
+              "handler": {
+                "type": "string"
+              },
+              "findings": {
+                "type": "array"
+              },
+              "autofixed": {
+                "type": "boolean"
+              },
+              "fixed_code": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "requires_manual_review": {
+                "type": "array"
+              },
+              "dry_run": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      },
+      "custom_data": {},
+      "headers_test": {},
+      "data_test": {
+        "query": [],
+        "body": {
+          "selection": 0,
+          "json": {
+            "code": {
+              "handler": "JS",
+              "code": "uFetch.GET({url:\"https://example.com\"});",
+              "dry_run": false
+            }
+          },
+          "xml": {
+            "code": ""
+          },
+          "text": {
+            "value": ""
+          },
+          "form": [],
+          "urlencoded": []
+        },
+        "headers": [],
+        "auth": {
+          "selection": 0,
+          "basic": {
+            "username": "",
+            "password": ""
+          },
+          "bearer": {
+            "token": ""
+          }
+        },
+        "last_response": {
+          "data": "",
+          "sizeKBResponse": -1
+        }
+      },
+      "idendpoint": "b1c2d3e4-f5a6-7890-abcd-ef1234567897",
+      "rowkey": 601,
+      "enabled": true,
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "environment": "prd",
+      "timeout": 30,
+      "resource": "/api/validation/endpoint-code",
+      "method": "POST",
+      "handler": "FUNCTION",
+      "access": 2,
+      "title": "Validate Endpoint Code",
+      "description": "Analiza el código JS de un endpoint en busca de APIs de librerías desactualizadas y reporta autofixes disponibles.",
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "keywords": "validation,code,ufetch,deprecated,migration",
+      "code": "fnValidateEndpointCode",
+      "cache_time": 0,
+      "createdAt": "2026-08-01T12:00:00.000Z",
+      "updatedAt": "2026-08-01T12:00:00.000Z"
+    },
+    {
+      "ctrl": {
+        "admin": true,
+        "users": [],
+        "log": {
+          "status_info": 1,
+          "status_success": 1,
+          "status_redirect": 1,
+          "status_client_error": 2,
+          "status_server_error": 3
+        }
+      },
+      "cors": {},
+      "mcp": {
+        "enabled": true,
         "name": "execute_endpoint_test",
         "title": "Execute Endpoint Test",
         "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nExecutes an endpoint via an internal HTTP call and returns the result (status_code, response_time_ms, response body). Ideal for agents to verify that an endpoint they just created or modified works correctly. Simplest usage: provide only 'idendpoint' — the tool auto-resolves app name, resource and method from the DB. Optionally override 'environment' (default: prd), provide 'payload' for request bodies, 'query_params' for GET, 'headers' for custom request headers, and 'bearer_token' for authenticated endpoints. Saved test metadata (`data_test` / `headers_test`) is used only when `use_data_test_fallback=true`. When testing by explicit 'app' + 'resource', always send 'method' if you also send 'payload'. The result also includes the resolved query params, payload, headers, payload source, warnings, and serialized request body actually sent, so agents can debug request forwarding without writing local scripts. Endpoints that require auth and have no public access will need a valid bearer_token.",

@@ -8,6 +8,7 @@ import { getAppVarsByIdApp, upsertAppVar } from "./appvars.js";
 import { default_apps } from "./default/index.js";
 import { v4 as uuidv4 } from "uuid";
 import { system_app } from "./default/system.js";
+import { validateEndpointCode } from "../validation/codeValidator.js";
 
 
 function replaceUFETCH(str) {
@@ -276,6 +277,8 @@ export const restoreAppFromBackup = async (app) => {
       // Upsert a la tabla de aplicaciones
       let restore_app = await upsertApp(app);
 
+      let migration_report = {};
+
       if (restore_app.idapp == app.idapp) {
         // Restaurado, se procede a cargar el resto de tablas relacionadas
 
@@ -316,14 +319,35 @@ export const restoreAppFromBackup = async (app) => {
 
         if (Array.isArray(app.endpoints) && app.endpoints.length > 0) {
 
-          let promises_endpoints = app.endpoints.map((ep) => {
+          let promises_endpoints = app.endpoints.map(async (ep) => {
             if (!ep.idapp) {
               ep.idapp = app.idapp;
             }
 
-            if (ep.handler == "JS" || ep.handler == "MONGODB") {
+            if (ep.handler == "JS" || ep.handler == "MONGODB" || ep.handler == "TELEGRAM_BOT") {
               // Este bloque es para compatibilidad con versiones antiguas del backup
               ep.code = replace_Old_FUNCTIONS_NAMES(ep.code);
+
+              // Detecta y autocorrige llamadas a APIs de librerías desactualizadas
+              // (ej. uFetch.GET -> uFetch.get). No bloquea el restore: lo que no se
+              // puede autocorregir queda documentado en el reporte para revisión manual.
+              try {
+                const validation = await validateEndpointCode({
+                  handler: ep.handler,
+                  code: ep.code,
+                  custom_data: ep.custom_data,
+                  dryRun: false,
+                });
+
+                if (validation.applicable && validation.findings.length > 0) {
+                  if (validation.autofixed) {
+                    ep.code = validation.fixed_code;
+                  }
+                  migration_report[ep.idendpoint || ep.resource] = validation;
+                }
+              } catch (validationError) {
+                console.error("Error validating endpoint code during restore:", validationError);
+              }
             } else if (ep.handler == "SOAP") {
               try {
                 // Este bloque permite subir un backup de un endpoint SOAP de una version anterior
@@ -386,7 +410,9 @@ export const restoreAppFromBackup = async (app) => {
       }
 
       let new_backup = await getAppBackupById(app.idapp);
-      return new_backup;
+      return Object.keys(migration_report).length > 0
+        ? { ...new_backup, migration_report }
+        : new_backup;
     }
   } catch (error) {
     console.error("Error restoring backup app:", error);
