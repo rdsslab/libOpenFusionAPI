@@ -1,4 +1,4 @@
-import { LogEntry } from "./models.js";
+import { LogEntry, Application } from "./models.js";
 import { getEndpointByIdApp, getAllEndpoints } from "./endpoint.js";
 import { Op, Sequelize } from "sequelize";
 import dbsequelize from "./sequelize.js";
@@ -1066,6 +1066,92 @@ export async function getAppEndpointUsageSummary(data) {
     },
     most_used,
     unused,
+  };
+}
+
+/**
+ * Devuelve el top N de endpoints con más errores (status_code >= 400) en una ventana de
+ * tiempo reciente. Filtros idapp/environment opcionales; si se omiten el ranking es global.
+ *
+ * @param {{last_hours?: number, top?: number, idapp?: string, environment?: string}} data
+ */
+export async function getTopErrorEndpoints(data = {}) {
+  const last_hours =
+    data.last_hours !== undefined && data.last_hours !== null
+      ? Number(data.last_hours)
+      : 24;
+  if (!Number.isInteger(last_hours) || last_hours <= 0) {
+    throw new Error(
+      `El parámetro 'last_hours' debe ser un entero positivo. Recibido: ${data.last_hours}`,
+    );
+  }
+
+  const top = data.top !== undefined && data.top !== null ? Number(data.top) : 10;
+  if (!Number.isInteger(top) || top <= 0) {
+    throw new Error(
+      `El parámetro 'top' debe ser un entero positivo. Recibido: ${data.top}`,
+    );
+  }
+
+  const pastDate = DateTime.now().minus({ hours: last_hours }).toJSDate();
+
+  const counts = await LogEntry.findAll({
+    attributes: [
+      "idendpoint",
+      [dbsequelize.fn("COUNT", dbsequelize.col("id")), "errorCount"],
+    ],
+    where: {
+      [Op.and]: [
+        { status_code: { [Op.gte]: 400 } },
+        { timestamp: { [Op.gte]: pastDate } },
+        ...(data.idapp ? [{ idapp: data.idapp }] : []),
+        getEnvironmentFilter(data.environment),
+      ],
+    },
+    group: ["idendpoint"],
+    raw: true,
+  });
+
+  const ranked = counts
+    .map((c) => ({ idendpoint: c.idendpoint, errorCount: Number(c.errorCount) }))
+    .sort((a, b) => b.errorCount - a.errorCount)
+    .slice(0, top);
+
+  const allEndpoints = (await getAllEndpoints()).map((e) =>
+    e.toJSON ? e.toJSON() : e,
+  );
+  const endpointMap = new Map(allEndpoints.map((e) => [e.idendpoint, e]));
+
+  const apps = await Application.findAll({
+    attributes: ["idapp", "app"],
+    raw: true,
+  });
+  const appMap = new Map(apps.map((a) => [a.idapp, a.app]));
+
+  const top_error_endpoints = ranked.map((r) => {
+    const endpoint = endpointMap.get(r.idendpoint);
+    return {
+      idendpoint: r.idendpoint,
+      errorCount: r.errorCount,
+      resource: endpoint?.resource,
+      method: endpoint?.method,
+      title: endpoint?.title,
+      idapp: endpoint?.idapp,
+      app: appMap.get(endpoint?.idapp),
+    };
+  });
+
+  return {
+    window: {
+      last_hours,
+      from: pastDate.toISOString(),
+      to: DateTime.now().toJSDate().toISOString(),
+    },
+    filters: {
+      idapp: data.idapp || null,
+      environment: data.environment || null,
+    },
+    top_error_endpoints,
   };
 }
 

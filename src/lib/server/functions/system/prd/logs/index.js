@@ -9,6 +9,7 @@ import {
   getLogsRecordsPerMinute,
   getLogsStatusClassPerMinute,
   getLogSummaryByAppStatusCode,
+  getTopErrorEndpoints,
   getTraceErrorsOnly,
   getTraceSlowestHops,
   getTraceSummary,
@@ -78,6 +79,29 @@ export async function fnGetAppEndpointUsageSummary(params) {
       error:
         error?.message ||
         "Unexpected error while retrieving app endpoint usage summary.",
+    };
+    r.code = 500;
+  }
+  return r;
+}
+
+export async function fnGetTopErrorEndpoints(params) {
+  let r = { data: undefined, code: 204 };
+
+  try {
+    const queryParams = params?.request?.query || {};
+    const bodyParams = params?.request?.body || {};
+    const merged = { ...queryParams, ...bodyParams };
+
+    const data = await getTopErrorEndpoints(merged);
+
+    r.data = data;
+    r.code = 200;
+  } catch (error) {
+    r.data = {
+      error:
+        error?.message ||
+        "Unexpected error while retrieving top error endpoints.",
     };
     r.code = 500;
   }

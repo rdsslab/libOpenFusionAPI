@@ -4316,6 +4316,201 @@ export const system_app = {
           "status_success": 1,
           "status_redirect": 1,
           "status_client_error": 2,
+          "status_server_error": 3,
+          "level": 0
+        }
+      },
+      "cors": {},
+      "mcp": {
+        "enabled": true,
+        "name": "top_error_endpoints",
+        "title": "Top Error Endpoints",
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns the top N endpoints ranked by error count (status_code >= 400) within a recent time window. Use 'idapp' to restrict to a single application; omit it to rank across all applications. Use 'environment' to restrict to a single environment (dev, qa, prd); omit it to consider all environments.",
+        "operation_mode": "read",
+        "requires_explicit_confirmation": false,
+        "side_effects": "No persistent write side effects expected.",
+        "safe_alternative": "N/A",
+        "exampleRequest": {
+          "last_hours": 24,
+          "top": 10
+        }
+      },
+      "json_schema": {
+        "in": {
+          "enabled": true,
+          "schema": {
+            "type": "object",
+            "properties": {
+              "last_hours": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Number of hours to look back from now. Defaults to 24 if not provided."
+              },
+              "top": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Max number of endpoints returned in the ranking. Defaults to 10 if not provided."
+              },
+              "idapp": {
+                "type": "string",
+                "description": "Restrict the ranking to a single application. If omitted, the ranking is global across all applications."
+              },
+              "environment": {
+                "type": "string",
+                "enum": ["dev", "qa", "prd"],
+                "description": "Restrict the ranking to a single environment (dev, qa, prd). If omitted, all environments are considered."
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "out": {
+          "enabled": true,
+          "schema": {
+            "type": "object",
+            "properties": {
+              "window": {
+                "type": "object",
+                "properties": {
+                  "last_hours": {
+                    "type": "integer"
+                  },
+                  "from": {
+                    "type": "string",
+                    "description": "ISO timestamp marking the start of the analyzed window."
+                  },
+                  "to": {
+                    "type": "string",
+                    "description": "ISO timestamp marking the end of the analyzed window (now)."
+                  }
+                }
+              },
+              "filters": {
+                "type": "object",
+                "properties": {
+                  "idapp": {
+                    "type": ["string", "null"]
+                  },
+                  "environment": {
+                    "type": ["string", "null"]
+                  }
+                }
+              },
+              "top_error_endpoints": {
+                "type": "array",
+                "description": "Endpoints ranked by error count in the window, descending.",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "idendpoint": {
+                      "type": "string"
+                    },
+                    "errorCount": {
+                      "type": "integer"
+                    },
+                    "resource": {
+                      "type": "string"
+                    },
+                    "method": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "idapp": {
+                      "type": "string"
+                    },
+                    "app": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "custom_data": {},
+      "headers_test": {},
+      "data_test": {
+        "query": [
+          {
+            "enabled": true,
+            "key": "last_hours",
+            "value": "24",
+            "internal_hash_row": "",
+            "type": 1,
+            "_id": "teep001"
+          },
+          {
+            "enabled": true,
+            "key": "top",
+            "value": "10",
+            "internal_hash_row": "",
+            "type": 1,
+            "_id": "teep002"
+          }
+        ],
+        "body": {
+          "selection": 0,
+          "json": {
+            "code": {}
+          },
+          "xml": {
+            "code": ""
+          },
+          "text": {
+            "value": ""
+          },
+          "form": [],
+          "urlencoded": []
+        },
+        "headers": [],
+        "auth": {
+          "selection": 0,
+          "basic": {
+            "username": "",
+            "password": ""
+          },
+          "bearer": {
+            "token": ""
+          }
+        },
+        "last_response": {
+          "data": "",
+          "sizeKBResponse": -1
+        }
+      },
+      "idendpoint": "f856c127-0b6f-41d0-85d7-674639eb9def",
+      "rowkey": 612,
+      "enabled": true,
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "environment": "prd",
+      "timeout": 30,
+      "resource": "/system/log/errors/top",
+      "method": "GET",
+      "handler": "FUNCTION",
+      "access": 2,
+      "title": "Top Error Endpoints",
+      "description": "Returns the top N endpoints ranked by error count (status_code >= 400) within a recent time window (default: last 24 hours). Optional 'idapp' and 'environment' filters restrict the ranking; when omitted, the ranking is global across all applications and environments.",
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "keywords": "endpoints,errors,top,ranking,status_code,last_hours",
+      "code": "fnGetTopErrorEndpoints",
+      "cache_time": 0,
+      "createdAt": "2026-08-01T00:00:00.000Z",
+      "updatedAt": "2026-08-01T00:00:00.000Z"
+    },
+    {
+      "ctrl": {
+        "admin": true,
+        "users": [],
+        "log": {
+          "status_info": 1,
+          "status_success": 1,
+          "status_redirect": 1,
+          "status_client_error": 2,
           "status_server_error": 3
         }
       },
