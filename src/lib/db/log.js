@@ -94,6 +94,7 @@ export const createLogEntriesBulk = async (logDataArray) => {
  * @param {Date|string} options.start_date - Fecha de inicio (inclusive)
  * @param {Date|string} options.end_date - Fecha de fin (inclusive)
  * @param {string} options.idendpoint - UUID del endpoint
+ * @param {string} [options.environment] - Ambiente del endpoint (dev/qa/prd) para filtrar los logs
  * @param {number} options.level - Nivel del log (SMALLINT)
  * @param {string} options.method - Método HTTP (GET, POST, etc.)
  * @param {number} options.status_code - Código de estado HTTP
@@ -115,6 +116,7 @@ export const getLogs = async (options = {}) => {
       start_date,
       end_date,
       idendpoint,
+      environment,
       log_level,
       method,
       status_code,
@@ -455,6 +457,9 @@ export const getLogs = async (options = {}) => {
       }
       whereConditions.idendpoint = idendpoint;
     }
+
+    // Filtro por environment
+    Object.assign(whereConditions, getEnvironmentFilter(environment));
 
     // === CONFIGURACIÓN DE LA CONSULTA ===
 
@@ -872,6 +877,36 @@ async function getStatusCountsByMinute(
   return rawResults;
 }
 
+// === CONSULTA PARA OBTENER PROMEDIO DE RESPONSE_TIME POR MINUTO ===
+async function getAvgResponseTimeByMinute(
+  sequelize,
+  startDate,
+  endDate,
+  idapp,
+  environment
+) {
+  const truncatedColumn = getTruncatedMinuteColumn(sequelize);
+
+  const rawResults = await LogEntry.findAll({
+    where: {
+      [Op.and]: [
+        { timestamp: { [Op.between]: [startDate, endDate] } },
+        idapp ? { idapp } : {},
+        getEnvironmentFilter(environment),
+      ],
+    },
+    attributes: [
+      [truncatedColumn, "minute"],
+      [sequelize.fn("AVG", sequelize.col("response_time")), "avg_response_time"],
+    ],
+    group: ["minute"],
+    order: [["minute", "ASC"]],
+    raw: true,
+  });
+
+  return rawResults;
+}
+
 function statusClassFor(status_code) {
   const code = Number(status_code);
   if (code < 200) return "info";
@@ -925,6 +960,47 @@ export const getLogsStatusClassPerMinute = async (options) => {
       "❌ Error obteniendo registros por minuto y clase de status:",
       error
     );
+    return {
+      success: false,
+      error: error.message,
+      data: [],
+    };
+  }
+};
+
+/**
+ * Obtiene el response_time promedio por minuto para una app en las últimas N horas.
+ *
+ * @param {{idapp: string, last_hours?: number, environment?: string}} options
+ * @returns {Promise<Array<{minute: string, avg_response_time: number}>>}
+ */
+export const getResponseTimePerMinute = async (options) => {
+  const { idapp, last_hours = 24, environment } = options;
+
+  try {
+    if (last_hours <= 0)
+      throw new Error("Las horas deben ser un número positivo");
+
+    const sequelize = LogEntry.sequelize;
+    const endDate = new Date();
+    const startDate = DateTime.now()
+      .minus({ hours: last_hours || 1 })
+      .toJSDate();
+
+    const rawResults = await getAvgResponseTimeByMinute(
+      sequelize,
+      startDate,
+      endDate,
+      idapp,
+      environment
+    );
+
+    return rawResults.map((row) => ({
+      minute: row.minute,
+      avg_response_time: Number(row.avg_response_time || 0),
+    }));
+  } catch (error) {
+    console.error("❌ Error obteniendo response_time promedio por minuto:", error);
     return {
       success: false,
       error: error.message,

@@ -968,10 +968,10 @@ export const ClientTransactions = dbsequelize.define(
       allowNull: false,
       comment: "Cliente al que pertenece la transacción (api)",
     },
+    // 'credit' = recarga, 'debit' = consumo
     type: {
       type: DataTypes.ENUM("credit", "debit"),
       allowNull: false,
-      comment: "'credit' = recarga, 'debit' = consumo",
     },
     amount: {
       type: DataTypes.INTEGER,

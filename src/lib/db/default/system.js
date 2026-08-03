@@ -8243,6 +8243,99 @@ export const system_app = {
     },
     {
       "ctrl": {
+        "users": [],
+        "log": {
+          "status_info": 1,
+          "status_success": 1,
+          "status_redirect": 1,
+          "status_client_error": 2,
+          "status_server_error": 3
+        }
+      },
+      "cors": {},
+      "mcp": {
+        "enabled": false,
+        "name": "",
+        "title": "",
+        "description": ""
+      },
+      "json_schema": {
+        "in": {
+          "enabled": false,
+          "schema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": true
+          }
+        },
+        "out": {}
+      },
+      "custom_data": {},
+      "headers_test": {},
+      "data_test": {
+        "query": [
+          {
+            "enabled": false,
+            "key": "",
+            "value": "",
+            "internal_hash_row": "c5c647b00670bea65a11ab75bf3c77407cc89d1e12a5a013b5fa8146d30f9368"
+          }
+        ],
+        "body": {
+          "selection": 0,
+          "json": {
+            "code": {}
+          },
+          "xml": {
+            "code": ""
+          },
+          "text": {
+            "value": ""
+          },
+          "form": {}
+        },
+        "headers": [
+          {
+            "enabled": false,
+            "key": "",
+            "value": "",
+            "internal_hash_row": "c5c647b00670bea65a11ab75bf3c77407cc89d1e12a5a013b5fa8146d30f9368"
+          }
+        ],
+        "auth": {
+          "basic": {
+            "username": "",
+            "password": ""
+          },
+          "bearer": {
+            "token": ""
+          },
+          "selection": 0
+        }
+      },
+      "idendpoint": "ad4948b6-9278-46a3-99e1-941a3583423a",
+      "rowkey": 624,
+      "enabled": true,
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "environment": "prd",
+      "timeout": 30,
+      "resource": "/system/log/responsetimeperminute",
+      "method": "GET",
+      "handler": "FUNCTION",
+      "access": 2,
+      "title": "",
+      "description": "",
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "keywords": "",
+      "code": "fnGetResponseTimePerMinute",
+      "cache_time": 0,
+      "createdAt": "2025-11-21T22:04:52.724Z",
+      "updatedAt": "2025-11-22T00:11:42.107Z"
+    },
+    {
+      "ctrl": {
         "admin": true,
         "users": [],
         "log": {
@@ -10050,7 +10143,8 @@ export const system_app = {
         "notes": [
           "Prefer `trace_id` as the first filter when investigating one failing execution path.",
           "When using date windows, send `start_date` and `end_date` together to keep the range explicit.",
-          "Use `last_hours` for quick recent searches and reserve broad unfiltered scans for exceptional cases because log volume can be high."
+          "Use `last_hours` for quick recent searches and reserve broad unfiltered scans for exceptional cases because log volume can be high.",
+          "Use `environment` (dev/qa/prd) to scope logs to a single environment; omit it to search across all environments."
         ]
       },
       "json_schema": {
@@ -10080,6 +10174,15 @@ export const system_app = {
               "idendpoint": {
                 "type": "string",
                 "description": "Endpoint UUID. Ignored when idapp is provided."
+              },
+              "environment": {
+                "type": "string",
+                "enum": [
+                  "dev",
+                  "qa",
+                  "prd"
+                ],
+                "description": "Target endpoint environment. If provided, filters logs by environment (logs recorded before this column existed are treated as 'prd')."
               },
               "log_level": {
                 "type": "integer",
@@ -10211,7 +10314,7 @@ export const system_app = {
       "handler": "FUNCTION",
       "access": 2,
       "title": "Get System Logs",
-      "description": "Returns logs with optional filters. Use trace_id for end-to-end troubleshooting and error-chain analysis.",
+      "description": "Returns logs with optional filters, including environment (dev/qa/prd). Use trace_id for end-to-end troubleshooting and error-chain analysis.",
       "price_by_request": 1,
       "price_kb_request": 1,
       "price_kb_response": 1,

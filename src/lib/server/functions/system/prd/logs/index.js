@@ -8,6 +8,7 @@ import {
   getLogs,
   getLogsRecordsPerMinute,
   getLogsStatusClassPerMinute,
+  getResponseTimePerMinute,
   getLogSummaryByAppStatusCode,
   getTopErrorEndpoints,
   getTopErrorEndpointsByTime,
@@ -241,6 +242,21 @@ export async function fnGetLogsStatusClassPerMinute(params) {
 
   try {
     let data = await getLogsStatusClassPerMinute(params?.request?.query);
+
+    r.data = data;
+    r.code = 200;
+  } catch (error) {
+    r.data = error;
+    r.code = 500;
+  }
+  return r;
+}
+
+export async function fnGetResponseTimePerMinute(params) {
+  let r = { data: undefined, code: 204 };
+
+  try {
+    let data = await getResponseTimePerMinute(params?.request?.query);
 
     r.data = data;
     r.code = 200;
