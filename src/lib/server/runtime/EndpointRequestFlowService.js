@@ -60,9 +60,19 @@ export class EndpointRequestFlowService {
       if (handler_param?.idendpoint && handler_param?.cache_time > 0) {
         this.endpoints.setCache(handler_param?.url_key, request, reply);
       }
-      handler_param.statusCode = reply.statusCode;
-      handler_param.responseTime = reply.openfusionapi.lastResponse.responseTime;
-      this.emitEndpointEvent("request_completed", handler_param);
+
+      this.emitEndpointEvent("request_completed", {
+        idendpoint: handler_param.idendpoint,
+        idapp: handler_param.idapp,
+        app: handler_param.app,
+        environment: handler_param.environment,
+        resource: handler_param.resource,
+        method: handler_param.method,
+        title: handler_param.title,
+        enabled: handler_param.enabled,
+        statusCode: reply.statusCode,
+        responseTime: reply.openfusionapi.lastResponse.responseTime,
+      });
     }
   }
 
