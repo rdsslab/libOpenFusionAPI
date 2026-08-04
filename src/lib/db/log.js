@@ -2,6 +2,7 @@ import { LogEntry, Application } from "./models.js";
 import { getEndpointByIdApp, getAllEndpoints } from "./endpoint.js";
 import { Op, Sequelize } from "sequelize";
 import dbsequelize from "./sequelize.js";
+import { getCorrectedNow } from "../server/timeSync.js";
 
 /**
  * Calcula una ventana [from, to] terminando en el instante actual, retrocediendo
@@ -9,11 +10,17 @@ import dbsequelize from "./sequelize.js";
  * sean consistentes, y aritmética de milisegundos (no dependiente de la zona
  * horaria local del proceso) ya que solo se necesita una duración absoluta.
  *
+ * `to` se calcula con `getCorrectedNow()` (no `new Date()` directo): si el reloj del
+ * host/contenedor está desincronizado, todas las consultas por `last_hours`/`last_days`
+ * de este archivo (getLogs, getLogsRecordsPerMinute, getLogsStatusClassPerMinute,
+ * getTopErrorEndpoints*, getAppEndpointUsageSummary) quedarían ancladas a una hora
+ * incorrecta; al centralizar aquí, un solo punto corrige a todas.
+ *
  * @param {{hours?: number, days?: number}} amount
  * @returns {{from: Date, to: Date}}
  */
 function windowFromNow({ hours = 0, days = 0 } = {}) {
-  const to = new Date();
+  const to = new Date(getCorrectedNow());
   const ms = (days * 24 + hours) * 60 * 60 * 1000;
   const from = new Date(to.getTime() - ms);
   return { from, to };
@@ -571,7 +578,10 @@ export const getLogStats = async (filters = {}) => {
 
     // Aplicar filtros
     if (filters.last_hours) {
-      const now = new Date();
+      // getCorrectedNow() en vez de new Date(): mismo motivo que windowFromNow más
+      // arriba en este archivo, para que este resumen no quede desalineado si el reloj
+      // del host/contenedor está desincronizado.
+      const now = new Date(getCorrectedNow());
       const pastDate = new Date(
         now.getTime() - filters.last_hours * 60 * 60 * 1000
       );

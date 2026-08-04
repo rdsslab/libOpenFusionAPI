@@ -28,6 +28,7 @@ import { createLog } from "./db/log.js";
 import { createFunctionVM } from "./server/createFunctionVM.js";
 import { CreateMCPHandler } from "./server/endpoint/handlerBuild/mcp.js";
 import { setServerListening } from "./server/utils.js";
+import { getCorrectedNow } from "./server/timeSync.js";
 import { defaultUser, login } from "./db/user.js";
 import { defaultMethods } from "./db/method.js";
 //import { defaultHandlers } from "./db/handler.js";
@@ -282,7 +283,11 @@ export default class ServerAPI extends EventEmitter {
       channel: "/server/events",
       payload: {
         event_name: event_name,
-        timestamp: new Date(),
+        // getCorrectedNow() en vez de new Date(): este timestamp es lo que el frontend
+        // recibe como `dateTime` en eventos en tiempo real (ej. request_completed) y usa
+        // para las gráficas del dashboard. Sin corrección, un reloj de
+        // host/contenedor desincronizado desalinea esas gráficas respecto a la hora real.
+        timestamp: new Date(getCorrectedNow()),
         data: data,
       },
     });

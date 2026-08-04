@@ -18,6 +18,7 @@ import {
 } from "../../../../../db/log.js";
 import { getAllEndpoints } from "../../../../../db/endpoint.js";
 import { Application as App } from "../../../../../db/models.js";
+import { getCorrectedNow } from "../../../../timeSync.js";
 
 export async function fnGetLogSummaryByAppStatusCode(params) {
   let r = { data: undefined, code: 204 };
@@ -321,7 +322,10 @@ export async function fnGetSystemHealthStats(params) {
     }
 
     r.data = {
-      timestamp: new Date().toISOString(),
+      // getCorrectedNow() en vez de new Date(): este campo es justamente lo que se usaría
+      // para diagnosticar si el reloj del host/contenedor está desincronizado, así que
+      // debe reflejar la hora corregida, no la hora cruda potencialmente equivocada.
+      timestamp: new Date(getCorrectedNow()).toISOString(),
       window_hours: last_hours,
       apps: { total: totalApps },
       endpoints: {

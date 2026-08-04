@@ -1,6 +1,7 @@
 import { Buffer } from "node:buffer";
 import { getIPFromRequest } from "../utils.js";
 import { getLogLevelForStatus } from "./utils.js";
+import { getCorrectedNow } from "../timeSync.js";
 
 const DEFAULT_ID_APP = "62a03367-e2d5-459c-b236-b6878f546142";
 
@@ -39,7 +40,12 @@ export class EndpointLogger {
 
     let data_log = {
       trace_id: request.headers["ofapi-trace-id"],
-      timestamp: new Date(),
+      // getCorrectedNow() en vez de new Date(): este timestamp se persiste y alimenta
+      // las gráficas de logs del dashboard (Requests per minute, Response Time per
+      // Request, Requests by Status, Top error endpoints); si el reloj del
+      // host/contenedor está desincronizado, esas gráficas quedarían corridas respecto
+      // a la hora real aunque el valor se serialice con un sufijo UTC ('Z') válido.
+      timestamp: new Date(getCorrectedNow()),
       idapp: handler_param?.idapp ?? DEFAULT_ID_APP,
       idendpoint: handler_param?.idendpoint ?? DEFAULT_ID_APP,
       environment: handler_param?.environment ?? "prd",
