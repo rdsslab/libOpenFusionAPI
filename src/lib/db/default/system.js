@@ -10144,7 +10144,8 @@ export const system_app = {
           "Prefer `trace_id` as the first filter when investigating one failing execution path.",
           "When using date windows, send `start_date` and `end_date` together to keep the range explicit.",
           "Use `last_hours` for quick recent searches and reserve broad unfiltered scans for exceptional cases because log volume can be high.",
-          "Use `environment` (dev/qa/prd) to scope logs to a single environment; omit it to search across all environments."
+          "Use `environment` (dev/qa/prd) to scope logs to a single environment; omit it to search across all environments.",
+          "Use `status_code` to list recent errors: an exact code (e.g. 502), a group (\"4xx\", \"5xx\"), or a comma-separated list (\"502,404\"). Combine with `last_hours` and `orderDirection=DESC` to get the most recent errors first, and use `lightweight=true` to get a compact per-request row (status_code, trace_id, url, timestamp, response_time, method) without headers/payloads."
         ]
       },
       "json_schema": {
@@ -10199,10 +10200,8 @@ export const system_app = {
                 "description": "HTTP method (GET, POST, PUT, PATCH, DELETE)."
               },
               "status_code": {
-                "type": "integer",
-                "minimum": 100,
-                "maximum": 599,
-                "description": "HTTP status code filter."
+                "type": ["integer", "string"],
+                "description": "HTTP status code filter. Accepts an exact code (404 or \"404\"), a group (\"4xx\", \"5xx\"), or a comma-separated list (\"502,404\"). Omit to return all status codes."
               },
               "limit": {
                 "type": "integer",

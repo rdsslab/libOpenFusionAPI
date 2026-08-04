@@ -66,7 +66,7 @@ export class EndpointLogger {
       response_time: reply?.openfusionapi?.lastResponse?.responseTime,
       response_data: undefined,
       message: reply?.openfusionapi?.lastResponse?.exception,
-      url: request.url,
+      url: new URL(request.url, "http://localhost").pathname,
       log_level,
     };
 

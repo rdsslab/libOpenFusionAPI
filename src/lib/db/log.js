@@ -432,22 +432,44 @@ export const getLogs = async (options = {}) => {
       whereConditions.method = method.toUpperCase().trim();
     }
 
-    // Filtro por status_code
-    if (status_code !== undefined && status_code !== null) {
-      const normalizedStatusCode = Number(status_code);
-      if (
-        !Number.isInteger(normalizedStatusCode) ||
-        normalizedStatusCode < 100 ||
-        normalizedStatusCode > 599
-      ) {
-        throwValidationError({
-          field: "status_code",
-          message: `Invalid 'status_code' value '${serializeValue(status_code)}'. Accepted range is 100 to 599.`,
-          received: status_code,
-          range: { min: 100, max: 599 },
-        });
+    // Filtro por status_code: acepta valor exacto (404), grupo (4xx/5xx) o lista separada por comas (502,404)
+    if (status_code !== undefined && status_code !== null && status_code !== "") {
+      const raw = String(status_code).trim();
+      const groupMatch = /^([1-5])xx$/i.exec(raw);
+
+      if (groupMatch) {
+        const base = Number(groupMatch[1]) * 100;
+        whereConditions.status_code = { [Op.between]: [base, base + 99] };
+      } else if (raw.includes(",")) {
+        const codes = raw.split(",").map((part) => Number(part.trim()));
+        const hasInvalidCode = codes.some(
+          (code) => !Number.isInteger(code) || code < 100 || code > 599,
+        );
+        if (hasInvalidCode) {
+          throwValidationError({
+            field: "status_code",
+            message: `Invalid 'status_code' value '${serializeValue(status_code)}'. Each code in the list must be an integer between 100 and 599.`,
+            received: status_code,
+            range: { min: 100, max: 599 },
+          });
+        }
+        whereConditions.status_code = { [Op.in]: codes };
+      } else {
+        const normalizedStatusCode = Number(raw);
+        if (
+          !Number.isInteger(normalizedStatusCode) ||
+          normalizedStatusCode < 100 ||
+          normalizedStatusCode > 599
+        ) {
+          throwValidationError({
+            field: "status_code",
+            message: `Invalid 'status_code' value '${serializeValue(status_code)}'. Accepted range is 100 to 599, or use group format (e.g. '4xx', '5xx') or comma-separated list (e.g. '502,404').`,
+            received: status_code,
+            range: { min: 100, max: 599 },
+          });
+        }
+        whereConditions.status_code = normalizedStatusCode;
       }
-      whereConditions.status_code = normalizedStatusCode;
     }
 
     // Filtro por App o idendpoint

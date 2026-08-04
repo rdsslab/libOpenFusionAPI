@@ -910,6 +910,11 @@ export const LogEntry = dbsequelize.define(
         name: "idx_logs_status_code",
         fields: ["status_code"],
       },
+      // 6. Búsquedas por status_code (individual/grupo/lista) + ventana de tiempo, ordenadas por timestamp
+      {
+        name: "idx_logs_statuscode_timestamp",
+        fields: ["status_code", "timestamp"],
+      },
     ],
   },
 );
