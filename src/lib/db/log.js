@@ -3,7 +3,21 @@ import { getEndpointByIdApp, getAllEndpoints } from "./endpoint.js";
 import { Op, Sequelize } from "sequelize";
 import dbsequelize from "./sequelize.js";
 
-import { DateTime } from "luxon";
+/**
+ * Calcula una ventana [from, to] terminando en el instante actual, retrocediendo
+ * `hours` u `days` horas/días. Usa un solo `to` de referencia para que `from`/`to`
+ * sean consistentes, y aritmética de milisegundos (no dependiente de la zona
+ * horaria local del proceso) ya que solo se necesita una duración absoluta.
+ *
+ * @param {{hours?: number, days?: number}} amount
+ * @returns {{from: Date, to: Date}}
+ */
+function windowFromNow({ hours = 0, days = 0 } = {}) {
+  const to = new Date();
+  const ms = (days * 24 + hours) * 60 * 60 * 1000;
+  const from = new Date(to.getTime() - ms);
+  return { from, to };
+}
 
 export const LOG_LEVEL = Object.freeze({
   TRACE: 0,
@@ -356,21 +370,7 @@ export const getLogs = async (options = {}) => {
             range: { min: 1 },
           });
       }
-      // TODO: Es posible que se deba usar Luxon para los calculos de fechas
-      //const now = new Date();
-
-      // 1. Obtener la fecha y hora actual
-      const ahora = DateTime.now();
-      // 2. Restar 5 horas
-      const tiempoAtras = ahora.minus({ hours: last_hours_int });
-
-      // 3. Convertir el resultado a un objeto Date de JavaScript
-      const pastDate = tiempoAtras.toJSDate();
-      /*
-      const pastDate = new Date(
-        now.getTime() - last_hours_int * 60 * 60 * 1000
-      );
-      */
+      const { from: pastDate } = windowFromNow({ hours: last_hours_int });
 
       dateFilter = {
         [Op.gte]: pastDate, // Greater Than or Equal
@@ -761,16 +761,9 @@ export const getLogsRecordsPerMinute = async (options) => {
 
     const sequelize = LogEntry.sequelize;
 
-    const endDate = new Date(); // Ahora
-    //const startDate = new Date(endDate.getTime() - last_hours * 60 * 60 * 1000); // Fecha de inicio
-
-    // 1. Obtener la fecha y hora actual
-    const ahora = DateTime.now();
-    // 2. Restar 5 horas
-    const tiempoAtras = ahora.minus({ hours: last_hours || 1 });
-
-    // 3. Convertir el resultado a un objeto Date de JavaScript
-    const startDate = tiempoAtras.toJSDate();
+    const { from: startDate, to: endDate } = windowFromNow({
+      hours: last_hours || 1,
+    });
 
     // Filtro por App o idendpoint
     let endpointFilter;
@@ -931,10 +924,9 @@ export const getLogsStatusClassPerMinute = async (options) => {
       throw new Error("Las horas deben ser un número positivo");
 
     const sequelize = LogEntry.sequelize;
-    const endDate = new Date();
-    const startDate = DateTime.now()
-      .minus({ hours: last_hours || 1 })
-      .toJSDate();
+    const { from: startDate, to: endDate } = windowFromNow({
+      hours: last_hours || 1,
+    });
 
     const rawResults = await getStatusCountsByMinute(
       sequelize,
@@ -982,10 +974,9 @@ export const getResponseTimePerMinute = async (options) => {
       throw new Error("Las horas deben ser un número positivo");
 
     const sequelize = LogEntry.sequelize;
-    const endDate = new Date();
-    const startDate = DateTime.now()
-      .minus({ hours: last_hours || 1 })
-      .toJSDate();
+    const { from: startDate, to: endDate } = windowFromNow({
+      hours: last_hours || 1,
+    });
 
     const rawResults = await getAvgResponseTimeByMinute(
       sequelize,
@@ -1029,7 +1020,7 @@ export async function getLogSummaryByAppStatusCode(data) {
         );
       }
 
-      const pastDate = DateTime.now().minus({ days: last_days }).toJSDate();
+      const { from: pastDate } = windowFromNow({ days: last_days });
 
       const summary = await LogEntry.findAll({
         attributes: [
@@ -1105,7 +1096,7 @@ export async function getAppEndpointUsageSummary(data) {
       ? allEndpoints
       : allEndpoints.filter((e) => e.enabled === (data.status === "enabled"));
 
-  const pastDate = DateTime.now().minus({ days: last_days }).toJSDate();
+  const { from: pastDate, to: windowEnd } = windowFromNow({ days: last_days });
 
   const counts = await LogEntry.findAll({
     attributes: [
@@ -1147,7 +1138,7 @@ export async function getAppEndpointUsageSummary(data) {
     window: {
       last_days,
       from: pastDate.toISOString(),
-      to: DateTime.now().toJSDate().toISOString(),
+      to: windowEnd.toISOString(),
     },
     totals: {
       total_endpoints: allEndpoints.length,
@@ -1186,7 +1177,7 @@ export async function getTopErrorEndpoints(data = {}) {
     );
   }
 
-  const pastDate = DateTime.now().minus({ hours: last_hours }).toJSDate();
+  const { from: pastDate, to: windowEnd } = windowFromNow({ hours: last_hours });
 
   const counts = await LogEntry.findAll({
     attributes: [
@@ -1238,7 +1229,7 @@ export async function getTopErrorEndpoints(data = {}) {
     window: {
       last_hours,
       from: pastDate.toISOString(),
-      to: DateTime.now().toJSDate().toISOString(),
+      to: windowEnd.toISOString(),
     },
     filters: {
       idapp: data.idapp || null,
