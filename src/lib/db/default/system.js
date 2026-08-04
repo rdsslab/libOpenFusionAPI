@@ -10201,7 +10201,7 @@ export const system_app = {
               },
               "status_code": {
                 "type": ["integer", "string"],
-                "description": "HTTP status code filter. Accepts an exact code (404 or \"404\"), a group (\"4xx\", \"5xx\"), or a comma-separated list (\"502,404\"). Omit to return all status codes."
+                "description": "HTTP status code filter. Accepts an exact code (404 or \"404\"), a group (\"4xx\", \"5xx\"), or a comma-separated list of codes and/or groups (\"502,404\", \"4xx,5xx\"). Omit to return all status codes."
               },
               "limit": {
                 "type": "integer",

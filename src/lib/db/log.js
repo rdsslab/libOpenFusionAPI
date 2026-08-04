@@ -432,7 +432,8 @@ export const getLogs = async (options = {}) => {
       whereConditions.method = method.toUpperCase().trim();
     }
 
-    // Filtro por status_code: acepta valor exacto (404), grupo (4xx/5xx) o lista separada por comas (502,404)
+    // Filtro por status_code: acepta valor exacto (404), grupo (4xx/5xx), lista de códigos
+    // (502,404) o lista que mezcle grupos y códigos (4xx,5xx / 5xx,404)
     if (status_code !== undefined && status_code !== null && status_code !== "") {
       const raw = String(status_code).trim();
       const groupMatch = /^([1-5])xx$/i.exec(raw);
@@ -441,19 +442,57 @@ export const getLogs = async (options = {}) => {
         const base = Number(groupMatch[1]) * 100;
         whereConditions.status_code = { [Op.between]: [base, base + 99] };
       } else if (raw.includes(",")) {
-        const codes = raw.split(",").map((part) => Number(part.trim()));
-        const hasInvalidCode = codes.some(
-          (code) => !Number.isInteger(code) || code < 100 || code > 599,
-        );
-        if (hasInvalidCode) {
+        // Cada elemento de la lista puede ser un grupo ('5xx') o un código exacto ('404'):
+        // los grupos se traducen a rangos y los códigos sueltos se agrupan en un Op.in.
+        const parts = raw
+          .split(",")
+          .map((part) => part.trim())
+          .filter((part) => part.length > 0);
+
+        if (parts.length === 0) {
           throwValidationError({
             field: "status_code",
-            message: `Invalid 'status_code' value '${serializeValue(status_code)}'. Each code in the list must be an integer between 100 and 599.`,
+            message: `Invalid 'status_code' value '${serializeValue(status_code)}'. The list must contain at least one code (100-599) or group (e.g. '4xx', '5xx').`,
             received: status_code,
             range: { min: 100, max: 599 },
           });
         }
-        whereConditions.status_code = { [Op.in]: codes };
+
+        const ranges = [];
+        const codes = [];
+
+        for (const part of parts) {
+          const partGroupMatch = /^([1-5])xx$/i.exec(part);
+
+          if (partGroupMatch) {
+            const base = Number(partGroupMatch[1]) * 100;
+            ranges.push({ [Op.between]: [base, base + 99] });
+          } else {
+            const code = Number(part);
+            if (!Number.isInteger(code) || code < 100 || code > 599) {
+              throwValidationError({
+                field: "status_code",
+                message: `Invalid 'status_code' value '${serializeValue(status_code)}'. Each item in the list must be an integer between 100 and 599, or a group (e.g. '4xx', '5xx').`,
+                received: status_code,
+                range: { min: 100, max: 599 },
+              });
+            }
+            codes.push(code);
+          }
+        }
+
+        if (ranges.length === 0) {
+          whereConditions.status_code = { [Op.in]: codes };
+        } else if (codes.length === 0 && ranges.length === 1) {
+          whereConditions.status_code = ranges[0];
+        } else {
+          whereConditions.status_code = {
+            [Op.or]: [
+              ...ranges,
+              ...(codes.length > 0 ? [{ [Op.in]: codes }] : []),
+            ],
+          };
+        }
       } else {
         const normalizedStatusCode = Number(raw);
         if (
@@ -463,7 +502,7 @@ export const getLogs = async (options = {}) => {
         ) {
           throwValidationError({
             field: "status_code",
-            message: `Invalid 'status_code' value '${serializeValue(status_code)}'. Accepted range is 100 to 599, or use group format (e.g. '4xx', '5xx') or comma-separated list (e.g. '502,404').`,
+            message: `Invalid 'status_code' value '${serializeValue(status_code)}'. Accepted range is 100 to 599, or use group format (e.g. '4xx', '5xx') or comma-separated list of codes and/or groups (e.g. '502,404', '4xx,5xx').`,
             received: status_code,
             range: { min: 100, max: 599 },
           });
@@ -1186,10 +1225,31 @@ export async function getAppEndpointUsageSummary(data) {
 }
 
 /**
- * Devuelve el top N de endpoints con más errores (status_code >= 400) en una ventana de
- * tiempo reciente. Filtros idapp/environment opcionales; si se omiten el ranking es global.
+ * Parsea el parámetro `status_codes` (string separado por comas, ej. "500,501,502",
+ * o array de números) a un array de enteros válidos (100-599). Devuelve [] si no viene
+ * o no contiene códigos válidos, en cuyo caso el llamador debe aplicar el filtro por defecto.
  *
- * @param {{last_hours?: number, top?: number, idapp?: string, environment?: string}} data
+ * @param {string|number[]|undefined} status_codes
+ */
+function parseStatusCodes(status_codes) {
+  if (status_codes === undefined || status_codes === null || status_codes === "") {
+    return [];
+  }
+  const raw = Array.isArray(status_codes)
+    ? status_codes
+    : String(status_codes).split(",");
+  return raw
+    .map((c) => Number(String(c).trim()))
+    .filter((c) => Number.isInteger(c) && c >= 100 && c <= 599);
+}
+
+/**
+ * Devuelve el top N de endpoints con más errores en una ventana de tiempo reciente.
+ * Filtros idapp/environment opcionales; si se omiten el ranking es global. Por defecto
+ * considera cualquier status_code >= 400; si se pasa `status_codes`, solo se cuentan
+ * esos códigos exactos.
+ *
+ * @param {{last_hours?: number, top?: number, idapp?: string, environment?: string, status_codes?: string|number[]}} data
  */
 export async function getTopErrorEndpoints(data = {}) {
   const last_hours =
@@ -1209,6 +1269,12 @@ export async function getTopErrorEndpoints(data = {}) {
     );
   }
 
+  const statusCodes = parseStatusCodes(data.status_codes);
+  const statusFilter =
+    statusCodes.length > 0
+      ? { status_code: { [Op.in]: statusCodes } }
+      : { status_code: { [Op.gte]: 400 } };
+
   const { from: pastDate, to: windowEnd } = windowFromNow({ hours: last_hours });
 
   const counts = await LogEntry.findAll({
@@ -1218,7 +1284,7 @@ export async function getTopErrorEndpoints(data = {}) {
     ],
     where: {
       [Op.and]: [
-        { status_code: { [Op.gte]: 400 } },
+        statusFilter,
         { timestamp: { [Op.gte]: pastDate } },
         ...(data.idapp ? [{ idapp: data.idapp }] : []),
         getEnvironmentFilter(data.environment),
@@ -1266,6 +1332,7 @@ export async function getTopErrorEndpoints(data = {}) {
     filters: {
       idapp: data.idapp || null,
       environment: data.environment || null,
+      status_codes: statusCodes.length > 0 ? statusCodes : null,
     },
     top_error_endpoints,
   };
