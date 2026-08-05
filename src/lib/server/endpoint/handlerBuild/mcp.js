@@ -1249,8 +1249,16 @@ _mcpConfig.tools.push({
   return (headers) => {
     const server = getServer();
     const currentHeaders = headers ?? {};
+    const registeredToolNames = new Set();
 
     for (const t of _mcpConfig.tools) {
+      const normalizedToolName = normalizeToolKey(t?.name);
+      if (registeredToolNames.has(normalizedToolName)) {
+        console.warn(`[MCP] Duplicate tool name skipped during registration: ${t?.name}`);
+        continue;
+      }
+      registeredToolNames.add(normalizedToolName);
+
       server.registerTool(t.name, t.info, async (data, context) => {
         return await t.handler(data, context, currentHeaders);
       });

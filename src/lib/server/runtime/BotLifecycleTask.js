@@ -1,6 +1,5 @@
 import { BotManager } from "../bot-manager/manager.js";
-import { getApplicationsTreeByFilters } from "../../db/app.js";
-import { disableEndpoint } from "../../db/endpoint.js";
+import { getActiveBots, disableBot } from "../../db/bot.js";
 import { getAppVarsObject } from "../utils.js";
 import { createLog } from "../../db/log.js";
 import crypto from "node:crypto";
@@ -14,16 +13,17 @@ export class BotLifecycleTask {
     this.isRunning = false;
 
     // Auto-disable an endpoint that keeps crashing so it stops wasting resources
-    this.manager.on("disable", async ({ botId, idapp }) => {
+    this.manager.on("disable", async ({ botId, idapp, reason }) => {
       try {
-        await disableEndpoint(botId);
+        await disableBot(botId);
         await this.persistLog(this.buildLogData({
           botId,
           idapp,
           status_code: 200,
           message: {
             event: "bot_auto_disabled",
-            reason: "Endpoint auto-disabled after repeated failures"
+            reason: reason || "unknown",
+            description: "Endpoint auto-disabled after repeated failures"
           }
         }));
       } catch (err) {
@@ -152,51 +152,58 @@ export class BotLifecycleTask {
     this.isRunning = true;
 
     try {
-      const apps = await getApplicationsTreeByFilters({
-        endpoint: { handler: "TELEGRAM_BOT" },
-      });
+      const activeBots = await getActiveBots();
 
-      for (let index = 0; index < apps.length; index++) {
-        const app = apps[index];
+      // Only supported provider for live workers right now is telegram.
+      // Other providers are stored but not started until their worker exists.
+      const supportedBots = activeBots.filter((b) => b.provider === "telegram");
 
-        if (app.endpoints && app.endpoints.length > 0) {
-          let appvars_obj = {};
+      // También detener bots que ya no deben estar corriendo.
+      // El BotManager tiene la lista de bots activos en memoria.
+      const runningBotIds = new Set(this.manager.listActiveBots());
+      const expectedBotIds = new Set(supportedBots.map((b) => b.idbot));
 
-          if (app.enabled) {
-            appvars_obj = getAppVarsObject(app.vrs);
+      // Detener bots que ya no están en la lista activa
+      for (const runningId of runningBotIds) {
+        if (!expectedBotIds.has(runningId)) {
+          try {
+            await this.manager.stopBot(runningId);
+          } catch (error) {
+            console.error(`[BotLifecycleTask] Error stopping bot ${runningId}:`, error);
           }
+        }
+      }
 
-          for (let index = 0; index < app.endpoints.length; index++) {
-            const element = app.endpoints[index];
-            try {
-              if (element.enabled && app.enabled) {
-                await this.manager.startBot(
-                  element.idendpoint,
-                  element.custom_data.token,
-                  element.code,
-                  element.environment,
-                  appvars_obj[element.environment],
-                  element.idapp,
-                );
-              } else {
-                await this.manager.stopBot(element.idendpoint);
-              }
-            } catch (error) {
-              await this.persistLog(this.buildLogData({
-                botId: element.idendpoint,
-                idapp: element.idapp,
-                status_code: 500,
-                message: {
-                  event: "bot_manage_error",
-                  error: error?.message || String(error),
-                  stack: error?.stack || null
-                }
-              })).catch((err) => {
-                // Last resort: the logging pipeline itself failed
-                console.error("Error managing bot " + element.idendpoint, error, err);
-              });
-            }
-          }
+      // Iniciar o mantener bots activos soportados
+      for (const bot of supportedBots) {
+        try {
+          // Construir objeto de app vars para el ambiente del bot
+          const appvars_obj = getAppVarsObject(bot.app?.vrs || []);
+          const env_vars = appvars_obj[bot.environment] || {};
+
+          await this.manager.startBot(
+            bot.idbot,
+            bot.token,
+            bot.code,
+            bot.environment,
+            { ...env_vars, ...bot.params, idapp: bot.idapp },
+            bot.idapp,
+          );
+        } catch (error) {
+          await this.persistLog(
+            this.buildLogData({
+              botId: bot.idbot,
+              idapp: bot.idapp,
+              status_code: 500,
+              message: {
+                event: "bot_manage_error",
+                error: error?.message || String(error),
+                stack: error?.stack || null,
+              },
+            })
+          ).catch((err) => {
+            console.error(`[BotLifecycleTask] Error managing bot ${bot.idbot}:`, error, err);
+          });
         }
       }
     } catch (error) {

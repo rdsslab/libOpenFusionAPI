@@ -4,6 +4,7 @@ import * as grammyModule from "grammy";
 import { functionsVars } from "../functionVars.js";
 import crypto from "node:crypto";
 
+// Telegram-specific worker. Other providers will use their own worker implementations.
 let activeBot = null;
 
 parentPort.on("message", async (message) => {
@@ -144,7 +145,8 @@ Nota importante: Este tiempo límite aplica solo a la carga inicial del código 
         });
 
         // Gracefully exit the worker thread instead of waiting to be terminated abruptly
-        process.exit(1);
+        process.exitCode = 1;
+        parentPort.close();
       }
     } else if (message.type === "STOP") {
       if (activeBot) {
@@ -160,7 +162,7 @@ Nota importante: Este tiempo límite aplica solo a la carga inicial del código 
         activeBot = null;
       }
       parentPort.postMessage({ type: "STOPPED" });
-      process.exit(0);
+      parentPort.close();
     }
   } catch (e) {
     console.error("Critical Work Error:", e);

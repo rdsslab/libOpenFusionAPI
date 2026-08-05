@@ -14,7 +14,7 @@ import { fileURLToPath } from "url";
 import { dirname } from "path";
 import Endpoint from "./server/endpoint/index.js";
 
-import { getAllBots } from "./db/bot.js";
+
 import { TasksInterval } from "./timer/tasks.js";
 import { defaultApiClient } from "./db/apiclient.js";
 
@@ -39,6 +39,7 @@ import {
   Application,
   AppVars,
   Endpoint as EndpointBBDD,
+  Bot,
   LogEntry,
   IntervalTask,
   tblDemo,
@@ -168,6 +169,8 @@ export default class ServerAPI extends EventEmitter {
       applicationModel: prefixTableName("application"),
       appvarsModel: prefixTableName("appvars"),
       endpointModel: prefixTableName("endpoint"),
+      botModel: prefixTableName("bot"),
+      onBotChanged: (data) => this._onBotChanged(data),
       appInvalidateDelayMs: 5000,
     });
 
@@ -297,7 +300,10 @@ export default class ServerAPI extends EventEmitter {
     const readyOrchestrator = new ServerReadyOrchestrator({
       websocketClientEndpoint: this.websocketClientEndpoint,
       tasksInterval: this.TasksInterval,
-      backgroundTaskFactory: () => new BackgroundTaskManager(this),
+      backgroundTaskFactory: () => {
+        this.backgroundTasks = new BackgroundTaskManager(this);
+        return this.backgroundTasks;
+      },
     });
 
     readyOrchestrator.start();
@@ -310,6 +316,32 @@ export default class ServerAPI extends EventEmitter {
 
   _deleteEndpointsByAppName(app_name) {
     this.endpoints.deleteApp(app_name);
+  }
+
+  /**
+   * Llamado por DbHookCacheInvalidationService cuando detecta un cambio
+   * en la tabla ofapi_bot. Dispara la sincronización inmediata del BotLifecycleTask.
+   *
+   * @param {Object} data - Datos del hook (model, action, data)
+   */
+  _onBotChanged(data) {
+    // El BotLifecycleTask tiene una referencia a través del BackgroundTaskManager.
+    // Accedemos vía this.backgroundTasks si ya está inicializado.
+    // Si no, el próximo ciclo del setInterval lo captará.
+    try {
+      if (
+        this.backgroundTasks &&
+        this.backgroundTasks.botLifecycleTask
+      ) {
+        // runOnce() es async pero el hook no necesita esperar el resultado.
+        // El error se maneja internamente dentro de runOnce().
+        this.backgroundTasks.botLifecycleTask.runOnce().catch((err) => {
+          console.error("[ServerAPI._onBotChanged] Error in botLifecycleTask.runOnce:", err);
+        });
+      }
+    } catch (err) {
+      console.error("[ServerAPI._onBotChanged] Error:", err);
+    }
   }
 
   loadFunctionFiles() {
@@ -452,6 +484,25 @@ export default class ServerAPI extends EventEmitter {
 
     // Crea un token para tener acceso a los endpoints protegidos
     CreateOpenFusionAPIToken();
+
+    // Deprecar endpoints TELEGRAM_BOT legacy.
+    // El sistema de bots ahora usa la tabla ofapi_bot.
+    // Los endpoints TELEGRAM_BOT existentes se deshabilitan para que no interfieran.
+    try {
+      const { Op } = await import("sequelize");
+      const [updatedCount] = await EndpointBBDD.update(
+        { enabled: false },
+        { where: { handler: "TELEGRAM_BOT", enabled: true } }
+      );
+      if (updatedCount > 0) {
+        console.warn(
+          `[buildDB] DEPRECATION: ${updatedCount} endpoint(s) with handler='TELEGRAM_BOT' were disabled.` +
+          ` Please migrate these bots to the new ofapi_bot table. See documentation.`
+        );
+      }
+    } catch (deprecationError) {
+      console.error("[buildDB] Error deprecating TELEGRAM_BOT endpoints:", deprecationError);
+    }
 
     return true;
   }

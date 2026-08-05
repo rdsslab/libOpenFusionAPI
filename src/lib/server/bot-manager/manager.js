@@ -7,21 +7,23 @@ import { EventEmitter } from "node:events";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const BOT_FAILURE_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
-const BOT_FAILURE_THRESHOLD = 3;              // failures before auto-disable
+const BOT_FAILURE_WINDOW_MS = 5 * 60 * 1000;      // 5 minutes
+const BOT_FAILURE_THRESHOLD = 3;                   // failures before auto-disable
+const BOT_FAILURE_DURATION_MS = 5 * 60 * 1000;     // continuous failure duration before auto-disable
 
 export class BotManager extends EventEmitter {
   constructor() {
     super();
     this.activeBots = new Map(); // Map<botId, Worker>
-    this.botErrorHistory = new Map(); // Map<botId, { timestamps: [], cooldownUntil: 0 }>
+    this.botErrorHistory = new Map(); // Map<botId, { timestamps: [], cooldownUntil: 0, firstFailureAt: null }>
   }
 
   /**
-   * Start a bot in a separate thread
+   * Start a Telegram bot in a separate thread.
+   * This manager is currently Telegram-specific; future providers will delegate to their own workers.
    * @param {string} botId - Unique ID for the bot
    * @param {string} token - Telegram Bot Token
-   * @param {string} code - The Javascript code string to execute
+   * @param {string} code - The Javascript code string to execute (grammY-based)
    * @param {string} environment - The environment to run the bot in (e.g. 'dev', 'prd')
    * @param {Object} app_env_vars - The appvars object to run the bot in (e.g. 'dev', 'prd')
    * @param {string} [idapp] - The UUID of the application
@@ -55,11 +57,13 @@ export class BotManager extends EventEmitter {
 
     const existingEntry = this.activeBots.get(botId);
 
-    // Calculate hash of the new code
-    const codeHash = crypto.createHash('sha256').update(code).digest('hex');
+    // Incluir token y app_env_vars en el hash para detectar cualquier cambio de configuración.
+    // Si token, code o app_env_vars cambian, el worker se reinicia con la nueva config.
+    const configPayload = JSON.stringify({ token, code, app_env_vars });
+    const configHash = crypto.createHash('sha256').update(configPayload).digest('hex');
 
     if (existingEntry) {
-      if (existingEntry.codeHash !== codeHash) {
+      if (existingEntry.configHash !== configHash) {
         this.emit("bot_log", {
           botId,
           idapp,
@@ -176,11 +180,17 @@ export class BotManager extends EventEmitter {
             // Handle error history and cooldown
             let history = this.botErrorHistory.get(botId);
             if (!history) {
-              history = { timestamps: [], cooldownUntil: 0 };
+              history = { timestamps: [], cooldownUntil: 0, firstFailureAt: null };
               this.botErrorHistory.set(botId, history);
             }
 
             const now = Date.now();
+
+            // Mark the start of the current failure streak
+            if (history.firstFailureAt === null) {
+              history.firstFailureAt = now;
+            }
+
             history.timestamps.push(now);
 
             // Keep only errors within the failure window
@@ -188,20 +198,36 @@ export class BotManager extends EventEmitter {
               (t) => now - t < BOT_FAILURE_WINDOW_MS,
             );
 
+            let disableReason = null;
+
             if (history.timestamps.length >= BOT_FAILURE_THRESHOLD) {
+              disableReason = "crash_count_threshold";
+            } else if (now - history.firstFailureAt >= BOT_FAILURE_DURATION_MS) {
+              disableReason = "duration_threshold";
+            }
+
+            if (disableReason) {
               this.emit("bot_log", {
                 botId,
                 idapp,
                 type: "BOT_CRASH",
                 error: {
-                  message: `Bot reached ${BOT_FAILURE_THRESHOLD} failures in 5 minutes. Disabling endpoint.`
+                  message: `Bot reached auto-disable threshold (${disableReason}). Disabling endpoint.`
                 },
                 botInfo: entry.botInfo
               });
               history.cooldownUntil = now + BOT_FAILURE_WINDOW_MS;
               history.timestamps = [];
+              history.firstFailureAt = null;
               // Notify callers so they can persist enabled=false in the DB
-              this.emit("disable", { botId, idapp });
+              this.emit("disable", { botId, idapp, reason: disableReason });
+            }
+          } else {
+            // Clean exit resets any failure streak
+            const history = this.botErrorHistory.get(botId);
+            if (history) {
+              history.firstFailureAt = null;
+              history.timestamps = [];
             }
           }
           this.activeBots.delete(botId);
@@ -214,7 +240,7 @@ export class BotManager extends EventEmitter {
         payload: { botId, token, code, environment, app_env_vars },
       });
 
-      this.activeBots.set(botId, { worker, codeHash, idapp, botInfo: null });
+      this.activeBots.set(botId, { worker, configHash, idapp, botInfo: null });
     });
   }
 

@@ -5,6 +5,8 @@ export class DbHookCacheInvalidationService {
     applicationModel,
     appvarsModel,
     endpointModel,
+    botModel,             // ← NUEVO: nombre de la tabla ofapi_bot
+    onBotChanged,         // ← NUEVO: callback cuando cambia un bot
     appInvalidateDelayMs = 5000,
   }) {
     this.endpoints = endpoints;
@@ -12,6 +14,8 @@ export class DbHookCacheInvalidationService {
     this.applicationModel = applicationModel;
     this.appvarsModel = appvarsModel;
     this.endpointModel = endpointModel;
+    this.botModel = botModel;
+    this.onBotChanged = onBotChanged;
     this.appInvalidateDelayMs = appInvalidateDelayMs;
   }
 
@@ -43,6 +47,21 @@ export class DbHookCacheInvalidationService {
         data?.data?.idendpoint,
         data?.data?.environment,
       );
+    }
+
+    if (
+      this.botModel &&
+      data.model === this.botModel &&
+      (data.action === "afterUpsert" ||
+        data.action === "afterCreate" ||
+        data.action === "afterUpdate" ||
+        data.action === "afterDestroy")
+    ) {
+      // Notificar al lifecycle para que sincronice de inmediato
+      if (typeof this.onBotChanged === "function") {
+        this.onBotChanged(data);
+      }
+      return;
     }
   }
 }

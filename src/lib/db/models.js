@@ -756,6 +756,127 @@ export const Endpoint = dbsequelize.define(
   },
 );
 
+// ============================================
+// MODELO Bot
+//
+// Tabla dedicada para bots de mensajería (`ofapi_bot`).
+// Los bots están atados a una Application y heredan las AppVars de dicha aplicación.
+// El campo `provider` identifica la plataforma (telegram, whatsapp, ms_teams, ...).
+//
+// IMPORTANTE: El handler `TELEGRAM_BOT` en la tabla `ofapi_endpoint` está DEPRECADO.
+// No crear nuevos bots usando ese handler. Usar este modelo y la capa db/bot.js.
+// ============================================
+export const Bot = dbsequelize.define(
+  ModelNames.Bot,
+  {
+    idbot: {
+      type: DataTypes.UUID,
+      primaryKey: true,
+      allowNull: false,
+      unique: true,
+      defaultValue: DataTypes.UUIDV4,
+      comment: "Unique identifier for the bot",
+    },
+    idapp: {
+      type: DataTypes.UUID,
+      allowNull: false,
+      references: {
+        model: Application,
+        key: "idapp",
+      },
+      onUpdate: "CASCADE",
+      onDelete: "CASCADE",
+      comment: "Application this bot belongs to",
+    },
+    rowkey: {
+      type: DataTypes.SMALLINT,
+      defaultValue: 0,
+    },
+    enabled: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: true,
+      allowNull: false,
+      comment: "Whether the bot should be running",
+    },
+    provider: {
+      type: DataTypes.STRING(50),
+      allowNull: false,
+      defaultValue: "telegram",
+      comment: "Bot messaging provider/platform (e.g. telegram, whatsapp, ms_teams)",
+      set(value) {
+        if (value === null || value === undefined) {
+          this.setDataValue("provider", value);
+          return;
+        }
+        this.setDataValue("provider", String(value).toLowerCase());
+      },
+    },
+    environment: {
+      type: DataTypes.STRING(4),
+      allowNull: false,
+      defaultValue: "prd",
+      comment: "Environment where the bot runs: dev, qa, prd",
+      set(value) {
+        if (value === null || value === undefined) {
+          this.setDataValue("environment", value);
+          return;
+        }
+        this.setDataValue("environment", String(value).toLowerCase());
+      },
+    },
+    name: {
+      type: DataTypes.STRING(100),
+      allowNull: false,
+      defaultValue: "",
+      comment: "Descriptive name for the bot",
+    },
+    description: {
+      type: DataTypes.TEXT,
+      allowNull: false,
+      defaultValue: "",
+      comment: "Long description of the bot purpose",
+    },
+    token: {
+      type: DataTypes.TEXT,
+      allowNull: false,
+      defaultValue: "",
+      comment: "Bot token/credential for the configured provider",
+    },
+    code: {
+      type: DataTypes.TEXT,
+      allowNull: false,
+      defaultValue: "",
+      comment: "Provider-specific JavaScript code executed by the bot worker",
+    },
+    params: jsonField("params", {
+      comment: "Additional bot parameters. Merged into the bot sandbox context alongside the app AppVars.",
+    }),
+  },
+  {
+    freezeTableName: true,
+    timestamps: true,
+    indexes: [
+      {
+        fields: ["idapp"],
+        name: "idx_bot_idapp",
+      },
+      {
+        fields: ["enabled"],
+        name: "idx_bot_enabled",
+      },
+      {
+        fields: ["provider"],
+        name: "idx_bot_provider",
+      },
+    ],
+    hooks: {
+      beforeValidate: (instance) => {
+        randomRowKey(instance);
+      },
+    },
+  },
+);
+
 export const LogEntry = dbsequelize.define(
   ModelNames.LogEntry,
   {
@@ -1450,3 +1571,19 @@ ApiKey.belongsTo(ApiClient, { foreignKey: "idclient", as: "client" });
 
 Application.hasMany(ApiKey, { foreignKey: "idapp", as: "keys" });
 ApiKey.belongsTo(Application, { foreignKey: "idapp", as: "app" });
+
+// ----------------------------
+// Application ↔ Bot
+// Un bot siempre pertenece a una aplicación.
+// Los bots usan las AppVars de su aplicación (no tienen vars propias).
+// ----------------------------
+Application.hasMany(Bot, {
+  foreignKey: "idapp",
+  as: "bots",
+  onDelete: "CASCADE",
+  onUpdate: "CASCADE",
+});
+Bot.belongsTo(Application, {
+  foreignKey: "idapp",
+  as: "app",
+});

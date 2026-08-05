@@ -50,6 +50,16 @@ async function runAllTests() {
         args: ["integration_test.js"],
       },
       {
+        label: "bot_crud_test.js",
+        command: "node",
+        args: ["bot_crud_test.js"],
+      },
+      {
+        label: "backup_restore_test.js",
+        command: "node",
+        args: ["backup_restore_test.js"],
+      },
+      {
         label: "fetch_timeout_test.js",
         command: "node",
         args: ["fetch_timeout_test.js"],

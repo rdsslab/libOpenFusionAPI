@@ -1,10 +1,23 @@
-import { Application, AppVars, Endpoint } from "./models.js";
+import { Op } from "sequelize";
+import {
+  Application,
+  AppVars,
+  Endpoint,
+  Bot,
+  IntervalTask,
+  ApiClient,
+  ApiKey,
+} from "./models.js";
 import {
   deleteEndpoint,
   getEndpointByIdApp,
   upsertEndpoint,
 } from "./endpoint.js";
 import { getAppVarsByIdApp, upsertAppVar } from "./appvars.js";
+import { upsertBot } from "./bot.js";
+import { upsertIntervalTask } from "./interval_task.js";
+import { upsertApiClient } from "./apiclient.js";
+import { upsertApiKey } from "./apikey.js";
 import { default_apps } from "./default/index.js";
 import { v4 as uuidv4 } from "uuid";
 import { system_app } from "./default/system.js";
@@ -79,6 +92,274 @@ function replace_Old_FUNCTIONS_NAMES(code) {
   code = replace_GENTOKEN(code);
   code = replace_NODEMAILER(code);
   return code;
+}
+
+/**
+ * Restaura las tareas (interval tasks) que vienen al nivel raíz del backup,
+ * en el mismo nivel que endpoints (app.tasks), no anidadas en cada endpoint.
+ *
+ * Solo upsertea las tareas que vienen en el backup. Las tareas que ya
+ * existen en base de datos pero no vienen en el backup NO se eliminan.
+ *
+ * Cada tarea se remapea al idendpoint real: upsertEndpoint puede reutilizar
+ * el idendpoint de un endpoint existente con el mismo
+ * (idapp + environment + resource + method), por lo que el idendpoint del
+ * backup no necesariamente es el que quedó en base de datos.
+ *
+ * @param {Array} tasks - tareas provenientes del backup (app.tasks)
+ * @param {Map<string, string>} idendpoint_map - idendpoint del backup -> idendpoint real
+ * @returns {Promise<Array>}
+ */
+async function restoreIntervalTasks(tasks, idendpoint_map) {
+  if (!Array.isArray(tasks) || tasks.length === 0) {
+    return [];
+  }
+
+  const pending = [];
+  const skipped = [];
+
+  for (const t of tasks) {
+    const target = idendpoint_map.get(t.idendpoint) || t.idendpoint;
+
+    if (!target) {
+      skipped.push(t);
+      continue;
+    }
+
+    // Si el endpoint no vino en el backup, validar que exista en base de datos
+    // para no violar la FK idendpoint -> endpoint.
+    if (!idendpoint_map.has(t.idendpoint)) {
+      const exists = await Endpoint.findByPk(target, {
+        attributes: ["idendpoint"],
+      });
+      if (!exists) {
+        skipped.push(t);
+        continue;
+      }
+    }
+
+    pending.push(upsertIntervalTask({ ...t, idendpoint: target }));
+  }
+
+  if (skipped.length > 0) {
+    console.warn(
+      `[restoreIntervalTasks] ${skipped.length} task(s) skipped: idendpoint not found`,
+      skipped.map((t) => ({ idtask: t.idtask, idendpoint: t.idendpoint }))
+    );
+  }
+
+  const results = await Promise.allSettled(pending);
+
+  results.forEach((r, index) => {
+    if (r.status === "rejected") {
+      console.error(
+        `[restoreIntervalTasks] Error restoring task ${index}:`,
+        r.reason
+      );
+    }
+  });
+
+  return results;
+}
+
+/**
+ * Restaura los usuarios externos (ApiClient) que vienen al nivel raíz del
+ * backup (app.clients).
+ *
+ * `username` es único a nivel global, así que si ya existe un cliente con ese
+ * username pero otro idclient (p.ej. restaurando un backup de otra instancia)
+ * se reutiliza el idclient existente en lugar de insertar una fila que
+ * violaría la restricción de unicidad. El mapeo resultante se usa para
+ * reapuntar las api keys.
+ *
+ * Solo upsertea los clientes que vienen en el backup; los que existen en base
+ * de datos y no vienen NO se eliminan.
+ *
+ * @param {Array} clients - clientes provenientes del backup (app.clients)
+ * @returns {Promise<Map<string, string>>} idclient del backup -> idclient real
+ */
+async function restoreApiClients(clients) {
+  const idclient_map = new Map();
+
+  if (!Array.isArray(clients) || clients.length === 0) {
+    return idclient_map;
+  }
+
+  for (const c of clients) {
+    try {
+      const data = { ...c };
+
+      if (data.username) {
+        const existing = await ApiClient.findOne({
+          where: { username: data.username },
+          attributes: ["idclient"],
+        });
+
+        if (existing && existing.idclient !== data.idclient) {
+          if (data.idclient) {
+            idclient_map.set(data.idclient, existing.idclient);
+          }
+          data.idclient = existing.idclient;
+        }
+      }
+
+      const res = await upsertApiClient(data);
+
+      if (c.idclient && res?.result?.idclient) {
+        idclient_map.set(c.idclient, res.result.idclient);
+      }
+    } catch (error) {
+      console.error(
+        `[restoreApiClients] Error restoring client ${c?.username || c?.idclient}:`,
+        error
+      );
+    }
+  }
+
+  return idclient_map;
+}
+
+/**
+ * Restaura las api keys que vienen al nivel raíz del backup (app.keys).
+ *
+ * - Todas las keys se fuerzan al idapp que se está restaurando.
+ * - El idclient se remapea con el mapa devuelto por restoreApiClients; si el
+ *   cliente no vino en el backup se valida que exista en base de datos para no
+ *   violar la FK idclient.
+ * - `idkey` es autoincremental, por lo que un idkey de otra instancia puede
+ *   corresponder a la key de otra app en el destino. Para no sobrescribirla, la
+ *   fila destino se resuelve por (idapp + idclient + token) y, si no existe, se
+ *   inserta dejando que la base asigne un idkey nuevo.
+ *
+ * Solo upsertea las keys que vienen en el backup; las que existen en base de
+ * datos y no vienen NO se eliminan.
+ *
+ * @param {Array} keys - api keys provenientes del backup (app.keys)
+ * @param {string} idapp - idapp destino
+ * @param {Map<string, string>} idclient_map - idclient del backup -> idclient real
+ * @returns {Promise<Array>}
+ */
+async function restoreApiKeys(keys, idapp, idclient_map) {
+  if (!Array.isArray(keys) || keys.length === 0) {
+    return [];
+  }
+
+  const results = [];
+  const skipped = [];
+
+  for (const k of keys) {
+    const target_client = idclient_map.get(k.idclient) || k.idclient;
+
+    if (!target_client || !k.token) {
+      skipped.push(k);
+      continue;
+    }
+
+    // Si el cliente no vino en el backup, validar que exista en base de datos
+    // para no violar la FK idclient -> api_client.
+    if (!idclient_map.has(k.idclient)) {
+      const exists = await ApiClient.findOne({
+        where: { idclient: target_client },
+        attributes: ["idclient"],
+      });
+      if (!exists) {
+        skipped.push(k);
+        continue;
+      }
+    }
+
+    try {
+      const data = { ...k, idapp, idclient: target_client };
+
+      const existing = await ApiKey.findOne({
+        where: { idapp, idclient: target_client, token: data.token },
+        attributes: ["idkey"],
+      });
+
+      if (existing) {
+        data.idkey = existing.idkey;
+      } else {
+        // Deja que la base asigne el idkey para no pisar una key ajena
+        delete data.idkey;
+      }
+
+      results.push(await upsertApiKey(data));
+    } catch (error) {
+      console.error(
+        `[restoreApiKeys] Error restoring key ${k?.idkey} for client ${target_client}:`,
+        error
+      );
+    }
+  }
+
+  if (skipped.length > 0) {
+    console.warn(
+      `[restoreApiKeys] ${skipped.length} key(s) skipped: client not found or missing token`,
+      skipped.map((k) => ({ idkey: k.idkey, idclient: k.idclient }))
+    );
+  }
+
+  return results;
+}
+
+function safeParseJson(value) {
+  if (value == null) return null;
+  if (typeof value === "object") return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Elimina endpoints existentes que entren en conflicto de nombre MCP con el
+ * endpoint que se va a restaurar. El seed del sistema es la fuente de verdad;
+ * si la ruta de un endpoint cambió pero conserva el mismo mcp.name, el
+ * endpoint antiguo debe ser reemplazado para evitar errores de unicidad.
+ */
+async function removeConflictingMcpEndpoints(appId, environment, endpointData) {
+  if (!appId || !environment || !endpointData) return;
+
+  const mcp = safeParseJson(endpointData.mcp);
+  if (!mcp?.enabled || !mcp?.name) return;
+
+  const targetName = String(mcp.name).trim();
+  if (!targetName) return;
+
+  const where = {
+    idapp: appId,
+    environment: String(environment).toLowerCase(),
+  };
+
+  if (endpointData.idendpoint) {
+    where.idendpoint = { [Op.ne]: endpointData.idendpoint };
+  }
+
+  const existing = await Endpoint.findAll({
+    where,
+    attributes: ["idendpoint", "mcp", "resource", "method"],
+  });
+
+  const conflictingIds = [];
+  for (const ep of existing) {
+    const plain = ep.toJSON ? ep.toJSON() : ep;
+    const currentMcp = safeParseJson(plain.mcp);
+    if (
+      currentMcp?.enabled &&
+      String(currentMcp.name).trim() === targetName
+    ) {
+      conflictingIds.push(plain.idendpoint);
+    }
+  }
+
+  if (conflictingIds.length > 0) {
+    console.log(
+      `[restoreAppFromBackup] Removing ${conflictingIds.length} endpoint(s) with conflicting MCP name '${targetName}' before restore:`,
+      conflictingIds.map((id) => ({ idendpoint: id }))
+    );
+    await Endpoint.destroy({ where: { idendpoint: conflictingIds } });
+  }
 }
 
 export const getAppWithEndpoints = async (
@@ -303,6 +584,22 @@ export const restoreAppFromBackup = async (app) => {
               }
             });
           }
+
+          if (Array.isArray(app.bots)) {
+            app.bots.forEach((b) => {
+              if (b.idapp === old_idapp) {
+                b.idapp = existing_app.idapp;
+              }
+            });
+          }
+
+          if (Array.isArray(app.keys)) {
+            app.keys.forEach((k) => {
+              if (k.idapp === old_idapp) {
+                k.idapp = existing_app.idapp;
+              }
+            });
+          }
         }
       }
 
@@ -349,9 +646,38 @@ export const restoreAppFromBackup = async (app) => {
           await Promise.allSettled(promises_appvars);
         }
 
+        if (Array.isArray(app.bots) && app.bots.length > 0) {
+          // Restore messaging bots (provider defaults to telegram if not present)
+          let promises_bots = app.bots.map((b) => {
+            if (!b.idapp || b.idapp !== app.idapp) {
+              b.idapp = app.idapp;
+            }
+            return upsertBot(b);
+          });
+          await Promise.allSettled(promises_bots);
+        }
+
+        // Restaurar los usuarios externos y sus api keys. Los clientes van
+        // primero por la FK idclient de las api keys.
+        const idclient_map = await restoreApiClients(app.clients);
+
+        if (Array.isArray(app.keys) && app.keys.length > 0) {
+          await restoreApiKeys(app.keys, app.idapp, idclient_map);
+        }
+
+        // idendpoint del backup -> idendpoint real luego del upsert.
+        // Se declara aquí para que esté disponible al restaurar app.tasks
+        // incluso si el backup no trae endpoints.
+        let idendpoint_map = new Map();
+
         if (Array.isArray(app.endpoints) && app.endpoints.length > 0) {
 
           let promises_endpoints = app.endpoints.map(async (ep) => {
+            // Capturar el idendpoint original ANTES del upsert: upsertEndpoint
+            // reescribe ep.idendpoint in-place cuando encuentra un endpoint
+            // existente con el mismo (idapp + environment + resource + method).
+            const source_idendpoint = ep.idendpoint;
+
             if (!ep.idapp) {
               ep.idapp = app.idapp;
             }
@@ -434,10 +760,38 @@ export const restoreAppFromBackup = async (app) => {
               }
             }
 
-            return upsertEndpoint(ep);
+            // Antes de restaurar el endpoint, eliminar endpoints antiguos que
+            // compartan el mismo nombre MCP en el mismo (idapp + environment).
+            // Esto permite que el backup reemplace una ruta obsoleta sin
+            // violar la restricción de unicidad de nombres MCP.
+            await removeConflictingMcpEndpoints(app.idapp, ep.environment, ep);
+
+            // Restaurar el endpoint. Si ya existe un endpoint con el mismo
+            // (idapp + environment + resource + method), upsertEndpoint lo
+            // reemplaza por completo con los datos del backup.
+            let res = await upsertEndpoint(ep);
+
+            return { res, source_idendpoint };
           });
+
           let result_endpoints = await Promise.allSettled(promises_endpoints);
           console.log("result_endpoints ==>>>", result_endpoints.length);
+
+          for (const r of result_endpoints) {
+            if (r.status !== "fulfilled" || !r.value?.res?.result) continue;
+            const { res, source_idendpoint } = r.value;
+            if (source_idendpoint) {
+              idendpoint_map.set(source_idendpoint, res.result.idendpoint);
+            }
+          }
+        }
+
+        // Restaurar las interval tasks del backup. Vienen al mismo nivel que
+        // endpoints (app.tasks) y se procesan DESPUÉS de los endpoints por la
+        // FK idendpoint. Las tareas que existan en BD pero no estén en el
+        // backup NO se eliminan; solo se upsertean las que vienen en él.
+        if (Array.isArray(app.tasks) && app.tasks.length > 0) {
+          await restoreIntervalTasks(app.tasks, idendpoint_map);
         }
       }
 
@@ -482,7 +836,12 @@ export const getAppById = async (
 
 export async function getAppBackupById(idapp) {
   try {
-    const data = await getApplicationTreeByFilters({ idapp: idapp });
+    // with_clients: el backup incluye los usuarios externos con api key en la
+    // app y esas api keys, al mismo nivel que endpoints.
+    const data = await getApplicationTreeByFilters({
+      idapp: idapp,
+      with_clients: true,
+    });
     return data;
   } catch (error) {
     console.error("Error al obtener Application:", error);
@@ -731,8 +1090,20 @@ export async function getApplicationsTreeByFilters(filters = {}) {
   }
 }
 
+/**
+ * Obtiene el árbol completo de una aplicación: datos de la app, variables,
+ * bots, endpoints, interval tasks y (opcionalmente) los usuarios externos
+ * con sus api keys. Todas las colecciones se devuelven al mismo nivel.
+ * Usado por getAppBackupById para generar el backup exportable de una app.
+ *
+ * @param {object} filters
+ * @param {boolean} [filters.with_clients] - Incluye `clients` (ApiClient) y
+ *   `keys` (ApiKey) en el resultado. Solo para el backup: estas colecciones
+ *   contienen credenciales (password hasheada y token), por lo que NO deben
+ *   viajar en el árbol que consume el runtime.
+ */
 export async function getApplicationTreeByFilters(filters = {}) {
-  const { idapp, app, enabled, endpoint } = filters;
+  const { idapp, app, enabled, endpoint, with_clients = false } = filters;
   try {
     const appWhere = {};
     const endpointWhere = {};
@@ -773,29 +1144,86 @@ export async function getApplicationTreeByFilters(filters = {}) {
       endpointWhere.enabled = endpoint.enabled;
     }
 
+    const include = [
+      {
+        model: AppVars,
+        as: "vrs",
+        required: false,
+      },
+      {
+        model: Bot,
+        as: "bots",
+        required: false,
+      },
+      {
+        model: Endpoint,
+        as: "endpoints",
+        required: Object.keys(endpointWhere).length > 0,
+        where:
+          Object.keys(endpointWhere).length > 0 ? endpointWhere : undefined,
+        include: [
+          {
+            model: IntervalTask,
+            as: "tasks",
+            required: false,
+          }
+        ],
+      },
+    ];
+
+    if (with_clients) {
+      // Las api keys de la app traen anidado su usuario externo (ApiClient);
+      // ambos se aplanan más abajo a keys / clients.
+      include.push({
+        model: ApiKey,
+        as: "keys",
+        required: false,
+        include: [
+          {
+            model: ApiClient,
+            as: "client",
+            required: false,
+          },
+        ],
+      });
+    }
+
     const data = await Application.findOne({
       where: appWhere,
-      include: [
-        {
-          model: AppVars,
-          as: "vrs",
-          required: false,
-        },
-        {
-          model: Endpoint,
-          as: "endpoints",
-          required: Object.keys(endpointWhere).length > 0,
-          where:
-            Object.keys(endpointWhere).length > 0 ? endpointWhere : undefined,
-        },
-      ],
+      include,
     });
 
     if (!data) return {};
 
     const appData = data.toJSON();
 
-    appData.vrs = appData.vrs.map((item) => {
+    // Las interval tasks se exponen al mismo nivel que endpoints (app.tasks),
+    // no anidadas dentro de cada endpoint.
+    const flat_tasks = [];
+    appData.endpoints = (appData.endpoints || []).map((ep) => {
+      const { tasks, ...endpoint } = ep;
+      if (Array.isArray(tasks) && tasks.length > 0) {
+        flat_tasks.push(...tasks);
+      }
+      return endpoint;
+    });
+    appData.tasks = flat_tasks;
+
+    if (with_clients) {
+      // Los usuarios externos se exponen al mismo nivel que keys (app.clients),
+      // deduplicados: un mismo cliente puede tener varias api keys en la app.
+      const clients = new Map();
+      appData.keys = (appData.keys || []).map((k) => {
+        const { client, ...key } = k;
+        if (client && !clients.has(client.idclient)) {
+          clients.set(client.idclient, client);
+        }
+        return key;
+      });
+      appData.clients = [...clients.values()];
+    }
+
+    appData.vrs = (appData.vrs || []).map((item) => {
       item.value = parseAppVar(item);
       return item;
     });

@@ -33,8 +33,8 @@ export class EndpointLoader {
       JS: async (returnHandler, appvars_obj) => {
         await this._initVmHandler(returnHandler, appvars_obj);
       },
-      FUNCTION: async (returnHandler) => {
-        this._initFunctionHandler(returnHandler);
+      FUNCTION: async (returnHandler, appvars_obj) => {
+        await this._initFunctionHandler(returnHandler, appvars_obj);
       },
     };
   }
@@ -253,7 +253,7 @@ export class EndpointLoader {
     }
   }
 
-  _initFunctionHandler(returnHandler) {
+  async _initFunctionHandler(returnHandler, appvars_obj) {
     if (returnHandler.params.code) {
       const { environment, app, code } = returnHandler.params;
       let methodFn;
@@ -268,6 +268,16 @@ export class EndpointLoader {
       }
 
       if (!methodFn) {
+        const codeStr = typeof code === "string" ? code.trim() : "";
+        const looksLikeFunctionName = /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(codeStr);
+
+        // Compatibility path for misconfigured FUNCTION endpoints with inline JS code.
+        if (codeStr && !looksLikeFunctionName) {
+          returnHandler.params.handler = "JS";
+          await this._initVmHandler(returnHandler, appvars_obj);
+          return;
+        }
+
         return null;
       }
       returnHandler.params.Fn = methodFn;

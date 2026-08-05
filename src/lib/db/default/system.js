@@ -204,7 +204,7 @@ export const system_app = {
       "handler": "FUNCTION",
       "access": 2,
       "title": "",
-      "description": "Get App data to backup by idapp",
+      "description": "Get App data to backup by idapp. This backup includes endpoints, application variables, interval tasks, bots, and the external users (api clients) holding api keys for the app together with those api keys. SENSITIVE: the payload carries client password hashes and api key tokens; treat it as a credential export.",
       "price_by_request": 1,
       "price_kb_request": 1,
       "price_kb_response": 1,
@@ -889,7 +889,7 @@ export const system_app = {
       "handler": "FUNCTION",
       "access": 2,
       "title": "",
-      "description": "Restore App data from backup by idapp",
+      "description": "Restore App data from backup by idapp. This backup includes endpoints, application variables, interval tasks, bots, and the external users (api clients) holding api keys for the app together with those api keys. Records present in the database but absent from the payload are NOT deleted.",
       "price_by_request": 1,
       "price_kb_request": 1,
       "price_kb_response": 1,
@@ -1847,9 +1847,9 @@ export const system_app = {
       "cors": {},
       "mcp": {
         "enabled": true,
-        "name": "list_all_bots",
-        "title": "List All API Clients (Bots)",
-        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns all registered API clients (also referred to as bots). An API client is an external agent or service that authenticates via API key to call OpenFusionAPI endpoints. Each entry includes the client credentials and the app it is associated with. Use 'list_api_clients' to filter by username or idclient.",
+        "name": "list_api_keys",
+        "title": "List API Keys",
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns API key records with optional filters: idapp, idclient, token, enabled, startAt, and endAt. If no filters are provided, all API keys are returned.",
         "operation_mode": "read",
         "requires_explicit_confirmation": false,
         "side_effects": "No persistent write side effects expected.",
@@ -1859,10 +1859,38 @@ export const system_app = {
         "in": {
           "enabled": true,
           "schema": {
-            "title": "ListAllBotsRequest",
+            "title": "ListApiKeysRequest",
             "type": "object",
             "additionalProperties": false,
-            "properties": {}
+            "properties": {
+              "idapp": {
+                "type": "string",
+                "format": "uuid",
+                "description": "Optional application UUID filter."
+              },
+              "idclient": {
+                "type": "string",
+                "format": "uuid",
+                "description": "Optional API client UUID filter."
+              },
+              "endAt": {
+                "type": "string",
+                "description": "Optional exact filter for key expiration date/time."
+              },
+              "startAt": {
+                "type": "string",
+                "description": "Optional exact filter for key start date/time."
+              },
+              "enabled": {
+                "type": "boolean",
+                "description": "Optional enabled status filter."
+              },
+              "token": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Optional exact token filter."
+              }
+            }
           }
         },
         "out": {
@@ -1928,12 +1956,12 @@ export const system_app = {
       "method": "GET",
       "handler": "FUNCTION",
       "access": 3,
-      "title": "Get API Key",
-      "description": "Get API Key",
+      "title": "List API Keys",
+      "description": "Returns API key records filtered by optional parameters (idapp, idclient, startAt, endAt, enabled, token).",
       "price_by_request": 1,
       "price_kb_request": 1,
       "price_kb_response": 1,
-      "keywords": "",
+      "keywords": "apikey,list,filters,idapp,idclient,token,enabled",
       "code": "fnGetApiKeyByFilters",
       "cache_time": 30,
       "createdAt": "2026-02-21T07:45:25.852Z",
@@ -2199,10 +2227,10 @@ export const system_app = {
             "properties": {
               "handler": {
                 "type": "string",
-                "minLength": 1,
-                "maxLength": 25,
-                "pattern": "^[A-Z_]+$",
-                "description": "Handler identifier in uppercase. Value: JS."
+                "enum": [
+                  "JS"
+                ],
+                "description": "Only supported handler value for this tool: JS."
               },
               "library": {
                 "type": "string",
@@ -12116,6 +12144,354 @@ export const system_app = {
       "cache_time": 0,
       "createdAt": "2025-11-21T22:04:52.726Z",
       "updatedAt": "2026-07-13T17:27:59.812Z"
+    },
+    {
+      "idendpoint": "bc3017d5-ae7d-482f-bd6b-913141963280",
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "environment": "prd",
+      "resource": "/bots",
+      "method": "GET",
+      "handler": "FUNCTION",
+      "access": 2,
+      "enabled": true,
+      "title": "List all bots",
+      "description": "Returns a catalog of messaging bots. Supports filtering by idapp, environment, provider, and enabled status. Token and code are excluded by default.",
+      "keywords": "bot,messaging,list,catalog",
+      "timeout": 30,
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "code": "fnListBots",
+      "mcp": {
+        "enabled": true,
+        "name": "list_bots",
+        "title": "List Bots",
+        "description": "Returns a list of messaging bots registered in the system. Supports filtering by application (idapp), environment (dev/qa/prd), provider (telegram, whatsapp, ms_teams), and enabled status. If `idbot` is provided, returns the single bot instead of a list. Only telegram bots are executed by the runtime today; other providers are stored for future use.",
+        "operation_mode": "read",
+        "requires_explicit_confirmation": false
+      },
+      "ctrl": {},
+      "cors": {},
+      "custom_data": {},
+      "json_schema": {
+  "in": {
+    "enabled": true,
+    "schema": {
+      "type": "object",
+      "properties": {
+        "idapp": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+          "description": "Filter by application UUID."
+        },
+        "idbot": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+          "description": "Return a single bot by UUID instead of a list."
+        },
+        "environment": {
+          "type": "string",
+          "enum": [
+            "dev",
+            "qa",
+            "prd"
+          ],
+          "description": "Filter by environment."
+        },
+        "provider": {
+          "type": "string",
+          "description": "Filter by messaging provider (telegram, whatsapp, ms_teams, etc.)."
+        },
+        "enabled": {
+          "type": "string",
+          "enum": [
+            "true",
+            "false"
+          ],
+          "description": "Filter by enabled status."
+        },
+        "include_code": {
+          "type": "string",
+          "enum": [
+            "true",
+            "false"
+          ],
+          "description": "Include bot code in response."
+        },
+        "include_token": {
+          "type": "string",
+          "enum": [
+            "true",
+            "false"
+          ],
+          "description": "Include bot token in response."
+        },
+        "limit": {
+          "type": "string",
+          "pattern": "^\\d+$",
+          "description": "Maximum number of results."
+        },
+        "offset": {
+          "type": "string",
+          "pattern": "^\\d+$",
+          "description": "Number of results to skip."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "out": {
+    "enabled": false
+  }
+},
+      "headers_test": {},
+      "data_test": {
+        "query": [
+          { "enabled": true, "key": "idapp", "value": "c4ca4238-a0b9-2382-0dcc-509a6f75849b", "internal_hash_row": "bot-list-q1" },
+          { "enabled": false, "key": "provider", "value": "telegram", "internal_hash_row": "bot-list-q2" },
+          { "enabled": false, "key": "enabled", "value": "true", "internal_hash_row": "bot-list-q3" }
+        ],
+        "body": { "selection": 0, "json": {}, "xml": { "code": "" }, "text": { "value": "" }, "form": {} },
+        "headers": [{ "enabled": false, "key": "", "value": "", "internal_hash_row": "bot-list-h1" }],
+        "auth": { "basic": { "username": "", "password": "" }, "bearer": { "token": "" }, "selection": 0 }
+      }
+    },
+    {
+      "idendpoint": "e81d801e-6b76-4173-b1f1-07465643aafa",
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "environment": "prd",
+      "resource": "/bots",
+      "method": "POST",
+      "handler": "FUNCTION",
+      "access": 2,
+      "enabled": true,
+      "title": "Upsert bot",
+      "description": "Creates or updates a messaging bot. The provider field selects the platform (telegram, whatsapp, ms_teams, etc.). Only telegram is executed by the runtime today.",
+      "keywords": "bot,messaging,create,update,upsert,provider",
+      "timeout": 30,
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "code": "fnUpsertBot",
+      "mcp": {
+        "enabled": true,
+        "name": "upsert_bot",
+        "title": "Upsert Bot",
+        "description": "Creates or updates a messaging bot. Required fields: idapp, name, token, code. Optional fields: idbot, provider (default: telegram), description, environment, enabled, params. Only telegram bots are executed by the runtime today; other providers are stored for future use.",
+        "operation_mode": "write",
+        "requires_explicit_confirmation": true
+      },
+      "ctrl": {},
+      "cors": {},
+      "custom_data": {},
+      "json_schema": {
+        "in": {
+          "enabled": true,
+          "schema": {
+            "type": "object",
+            "properties": {
+              "idbot": {
+                "type": "string",
+                "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                "description": "Bot UUID. Omit to create a new bot."
+              },
+              "idapp": {
+                "type": "string",
+                "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                "description": "Application UUID that owns this bot."
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100,
+                "description": "Descriptive name for the bot."
+              },
+              "provider": {
+                "type": "string",
+                "default": "telegram",
+                "description": "Messaging provider/platform (telegram, whatsapp, ms_teams, etc.). Defaults to telegram."
+              },
+              "description": {
+                "type": "string",
+                "description": "Long description of the bot purpose."
+              },
+              "token": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Bot token or credential for the configured provider."
+              },
+              "code": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Provider-specific JavaScript code executed by the bot worker."
+              },
+              "environment": {
+                "type": "string",
+                "enum": ["dev", "qa", "prd"],
+                "default": "prd",
+                "description": "Environment where the bot runs."
+              },
+              "enabled": {
+                "type": "boolean",
+                "default": true,
+                "description": "Whether the bot should be running."
+              },
+              "params": {
+                "type": "object",
+                "description": "Additional bot parameters."
+              }
+            },
+            "required": ["idapp", "name", "token", "code"],
+            "additionalProperties": false
+          }
+        },
+        "out": { "enabled": false }
+      },
+      "headers_test": {},
+      "data_test": {
+        "query": [{ "enabled": false, "key": "", "value": "", "internal_hash_row": "bot-upsert-q1" }],
+        "body": {
+          "selection": 0,
+          "json": {
+            "code": {
+              "idapp": "c4ca4238-a0b9-2382-0dcc-509a6f75849b",
+              "name": "demo-bot",
+              "provider": "telegram",
+              "token": "123456:ABC-DEF1234",
+              "code": "console.log('demo bot');",
+              "environment": "prd",
+              "enabled": true
+            }
+          },
+          "xml": { "code": "" },
+          "text": { "value": "" },
+          "form": {}
+        },
+        "headers": [{ "enabled": false, "key": "", "value": "", "internal_hash_row": "bot-upsert-h1" }],
+        "auth": { "basic": { "username": "", "password": "" }, "bearer": { "token": "" }, "selection": 0 }
+      }
+    },
+    {
+      "idendpoint": "f6fa3059-9fb9-4a0f-a494-83a8e5991431",
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "environment": "prd",
+      "resource": "/bots",
+      "method": "DELETE",
+      "handler": "FUNCTION",
+      "access": 2,
+      "enabled": true,
+      "title": "Delete bot",
+      "description": "Deletes a messaging bot by idbot. Provide idbot as a query parameter or in the request body.",
+      "keywords": "bot,messaging,delete",
+      "timeout": 30,
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "code": "fnDeleteBot",
+      "mcp": {
+        "enabled": true,
+        "name": "delete_bot",
+        "title": "Delete Bot",
+        "description": "Deletes a messaging bot by idbot. Provide idbot as a query parameter or in the request body.",
+        "operation_mode": "write",
+        "requires_explicit_confirmation": true
+      },
+      "ctrl": {},
+      "cors": {},
+      "custom_data": {},
+      "json_schema": {
+  "in": {
+    "enabled": true,
+    "schema": {
+      "type": "object",
+      "properties": {
+        "idbot": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+          "description": "Bot UUID to delete (passed as query parameter or in body)."
+        }
+      },
+      "required": [
+        "idbot"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "out": {
+    "enabled": false
+  }
+},
+      "headers_test": {},
+      "data_test": {}
+    },
+    {
+      "idendpoint": "5ca44a0a-7d08-4bd8-8071-1567371f47f6",
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "environment": "prd",
+      "resource": "/bots/status",
+      "method": "PATCH",
+      "handler": "FUNCTION",
+      "access": 2,
+      "enabled": true,
+      "title": "Enable or disable bot",
+      "description": "Enables or disables a messaging bot by idbot. Provide idbot as a query parameter (or in the body) and boolean enabled in the body.",
+      "keywords": "bot,messaging,enable,disable,status",
+      "timeout": 30,
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "code": "fnEnableDisableBot",
+      "mcp": {
+        "enabled": true,
+        "name": "enable_disable_bot",
+        "title": "Enable/Disable Bot",
+        "description": "Enables or disables a messaging bot. Requires idbot (query or body) and boolean enabled in the request body.",
+        "operation_mode": "write",
+        "requires_explicit_confirmation": true
+      },
+      "ctrl": {},
+      "cors": {},
+      "custom_data": {},
+      "json_schema": {
+  "in": {
+    "enabled": true,
+    "schema": {
+      "type": "object",
+      "properties": {
+        "idbot": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+          "description": "Bot UUID (passed as query parameter or in body)."
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "true to enable the bot, false to disable it."
+        }
+      },
+      "required": [
+        "idbot",
+        "enabled"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "out": {
+    "enabled": false
+  }
+},
+      "headers_test": {},
+      "data_test": {
+        "query": [{ "enabled": false, "key": "", "value": "", "internal_hash_row": "bot-status-q1" }],
+        "body": {
+          "selection": 0,
+          "json": { "code": { "enabled": false } },
+          "xml": { "code": "" },
+          "text": { "value": "" },
+          "form": {}
+        },
+        "headers": [{ "enabled": false, "key": "", "value": "", "internal_hash_row": "bot-status-h1" }],
+        "auth": { "basic": { "username": "", "password": "" }, "bearer": { "token": "" }, "selection": 0 }
+      }
     }
   ]
 }

@@ -61,6 +61,29 @@ export async function createApiClient(data, random_password = true) {
 }
 
 /**
+ * Hace UPSERT de un ApiClient tal cual viene en los datos.
+ *
+ * A diferencia de createApiClient, NO genera ni hashea la contraseña: se asume
+ * que `data.password` ya viene hasheada (p.ej. proveniente de un backup). Usar
+ * createApiClient para el alta normal de un cliente.
+ *
+ * @param {object} data - Datos del cliente (password ya hasheada si viene).
+ * @returns {Promise<{ result: any, created: boolean }>}
+ */
+export const upsertApiClient = async (data) => {
+  try {
+    const [result, created] = await ApiClient.upsert(data, { returning: true });
+    return { result, created };
+  } catch (error) {
+    console.error("Error performing upsert on ApiClient:", error, {
+      idclient: data?.idclient,
+      username: data?.username,
+    });
+    throw error;
+  }
+};
+
+/**
  * Finds a valid API client by username and password.
  * Applies the following constraints:
  *  - enabled = true
