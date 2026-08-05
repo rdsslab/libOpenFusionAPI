@@ -518,7 +518,7 @@ export const CreateMCPHandler = async (app_name, environment) => {
   };
 
   const hasStructuredRuntimeSpecificPayload = (handler) => {
-    return ["SOAP", "HANA", "MONGODB", "MCP", "TELEGRAM_BOT", "SQL_BULK_I"].includes(handler);
+    return ["SOAP", "HANA", "MONGODB", "MCP", "SQL_BULK_I"].includes(handler);
   };
 
   const isEndpointUpsertLikeTool = (toolName) => {
@@ -788,7 +788,7 @@ export const CreateMCPHandler = async (app_name, environment) => {
   const getEndpointUpsertDescriptionAddon = (endpoint) => {
     if (!isEndpointUpsertEndpoint(endpoint)) return "";
 
-    return " Handler-specific note: `handler` defines the shape of `code` and related fields. Use the input schema field descriptions for the stored contract, and call `handler_documentation` before composing payloads for SQL_BULK_I, SOAP, HANA, MONGODB, MCP, TELEGRAM_BOT, or other handler-specific structures.";
+    return " Handler-specific note: `handler` defines the shape of `code` and related fields. Use the input schema field descriptions for the stored contract, and call `handler_documentation` before composing payloads for SQL_BULK_I, SOAP, HANA, MONGODB, MCP, or other handler-specific structures. Messaging bots are not endpoints: use `get_bot_skill` and `upsert_bot` instead.";
   };
 
   // Guard against missing endpoint collections when an app is partially configured.
@@ -1086,7 +1086,21 @@ ${endpointUpsertHandlerGuide}
 
             let sanitizedHeaders = {};
             if (currentHeaders) {
-              const forbidden = new Set(["expect", "host", "connection", "keep-alive"]);
+              // `content-type` y `content-length` describen el cuerpo de la petición MCP
+              // entrante (siempre JSON), no el de la petición saliente. Reenviarlos rompía
+              // las tools DELETE: uFetch manda `data` como querystring y sin cuerpo en
+              // GET/HEAD/DELETE, así que el endpoint recibía `Content-Type: application/json`
+              // con cuerpo vacío y Fastify respondía FST_ERR_CTP_EMPTY_JSON_BODY.
+              // uFetch ya pone el Content-Type correcto cuando sí hay cuerpo.
+              const forbidden = new Set([
+                "expect",
+                "host",
+                "connection",
+                "keep-alive",
+                "content-type",
+                "content-length",
+                "transfer-encoding",
+              ]);
               if (typeof currentHeaders.forEach === "function") {
                 currentHeaders.forEach((v, k) => {
                   if (!forbidden.has(k.toLowerCase())) sanitizedHeaders[k] = v;

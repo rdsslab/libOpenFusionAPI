@@ -88,7 +88,7 @@ Each guide provides step-by-step instructions, screenshots, and best practices t
 Important operational note:
 
 - Some bundled applications such as `demo` are restored from repository defaults on server startup. If you customize a seeded endpoint and need the change to survive restarts, update the corresponding default app definition in `src/lib/db/default/` as well.
-- For `TELEGRAM_BOT`, a successful HTTP response does not by itself confirm that the bot started correctly. Validate worker startup in server logs too.
+- Messaging bots are not endpoints: they are stored in the dedicated `ofapi_bot` table and each enabled bot runs in its own worker thread. Manage them with the bot tools (`list_bots`, `upsert_bot`, `enable_disable_bot`, `delete_bot`) and confirm startup in the logs (`method = BOT`, `idendpoint = idbot`), not in the tool response. See `src/docs/bots/`.
 
 ## 🧑‍💻 Ideal For
 

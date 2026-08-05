@@ -1,6 +1,7 @@
 import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
+import { expandDocIncludes } from "./docsInclude.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -12,14 +13,14 @@ export const HANDLER_DOC_OPTIONAL_FILES = ["examples.md", "examples.json", "api.
 export const readHandlerSkill = async (handler) => {
   const dir = getHandlerDocDir(handler);
   const skillPath = path.resolve(dir, "AI_SKILL.md");
-  const markdown = await readFileIfExists(skillPath);
+  const markdown = await expandDocIncludes(await readFileIfExists(skillPath));
   return {
     handler,
     markdown: markdown || "No specific AI skill documentation found for this handler."
   };
 };
 
-const readFileIfExists = async (filePath) => {
+export const readFileIfExists = async (filePath) => {
   try {
     return await fs.readFile(filePath, "utf8");
   } catch (error) {
@@ -28,7 +29,7 @@ const readFileIfExists = async (filePath) => {
   }
 };
 
-const readJsonIfExists = async (filePath) => {
+export const readJsonIfExists = async (filePath) => {
   const content = await readFileIfExists(filePath);
   if (content === undefined) return undefined;
   return JSON.parse(content);

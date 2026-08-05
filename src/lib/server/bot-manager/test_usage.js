@@ -61,7 +61,7 @@ async function main() {
                     }
                 }
             },
-            method: "TELEGRAM_BOT",
+            method: "BOT",
             url: "telegram://bot/bot_test",
             ip: "127.0.0.1"
         };

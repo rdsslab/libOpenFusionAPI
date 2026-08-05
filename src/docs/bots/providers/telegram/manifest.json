@@ -1,0 +1,48 @@
+{
+  "provider": "telegram",
+  "label": "Telegram",
+  "status": "active",
+  "runtime_supported": true,
+  "summary": "Telegram bots implemented with grammY. The runtime pre-creates the $BOT instance from the resolved token, evaluates your code to register handlers, validates the token against the Telegram API, and then starts long polling in a dedicated Worker thread.",
+  "library": {
+    "name": "grammy",
+    "npm": "grammy",
+    "sandbox_namespace": "grammy"
+  },
+  "sandbox": {
+    "injected": [
+      "grammy",
+      "$BOT",
+      "$BOT_TOKEN",
+      "$_APP_VARS_",
+      "app_vars_by_direct_name",
+      "bot_params",
+      "idapp",
+      "functionsVars (same injected library pool as the JS handler)"
+    ]
+  },
+  "runtime": {
+    "worker": "src/lib/server/bot-manager/worker.js",
+    "load_timeout_ms": 10000,
+    "allowed_updates": ["message", "callback_query"],
+    "drop_pending_updates": true,
+    "handle_signals": false,
+    "token_validation": "api.getMe() before start"
+  },
+  "fields": {
+    "token": "Telegram Bot API token from @BotFather, or an application variable reference such as $_VAR_TELEGRAM_TOKEN (resolved for the bot's environment).",
+    "code": "JavaScript that registers handlers on the pre-created $BOT instance. Never instantiate the bot and never call $BOT.start().",
+    "params": "Extra JSON merged into the sandbox AFTER the application AppVars, so params win on key collisions."
+  },
+  "error_types": {
+    "INVALID_TOKEN": "Telegram answered 401 (GrammyError). The token is wrong or revoked.",
+    "CONNECTION_ERROR": "Network failure reaching the Telegram API (HttpError).",
+    "STARTUP_ERROR": "The script threw, timed out, or left no valid $BOT instance.",
+    "BOT_ERROR": "Runtime error raised while handling an update."
+  },
+  "docs": {
+    "main": "README.md",
+    "skill": "AI_SKILL.md",
+    "examples": ["examples.md"]
+  }
+}

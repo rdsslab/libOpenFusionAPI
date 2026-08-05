@@ -763,8 +763,8 @@ export const Endpoint = dbsequelize.define(
 // Los bots están atados a una Application y heredan las AppVars de dicha aplicación.
 // El campo `provider` identifica la plataforma (telegram, whatsapp, ms_teams, ...).
 //
-// IMPORTANTE: El handler `TELEGRAM_BOT` en la tabla `ofapi_endpoint` está DEPRECADO.
-// No crear nuevos bots usando ese handler. Usar este modelo y la capa db/bot.js.
+// Los bots NO son endpoints: no existe un handler de endpoint para bots.
+// Documentación: src/docs/bots/
 // ============================================
 export const Bot = dbsequelize.define(
   ModelNames.Bot,

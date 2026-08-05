@@ -36,7 +36,7 @@ You are an expert **MongoDB Database Administrator and NoSQL Architect**. You wr
       $_RETURN_DATA_ = "<h1>My Report</h1>";
       ```
 4.  **JavaScript Environment Constraints**:
-    - Because this handler executes custom JavaScript code inside a VM sandbox block, you **must** review the guidelines, performance rules, and constraints defined in the [JS Handler AI Guide](../JS/AI_SKILL.md) as an indispensable and required part.
+    - Because this handler executes custom JavaScript code inside a VM sandbox block, the shared JavaScript sandbox guidelines, performance rules, and constraints are appended at the end of this document ("Shared JavaScript Sandbox Skill") and are an indispensable and required part of this skill.
 
 ## Common Payload Shape for Creation/Updates
 When using `upsert_mongodb_endpoint_handler` to create/update an endpoint:
@@ -61,4 +61,10 @@ const results = await mongooseInstance
 
 $_RETURN_DATA_ = results;
 ```
+
+---
+
+# Shared JavaScript Sandbox Skill
+
+<!-- include: skills/JS_CORE.md -->
 

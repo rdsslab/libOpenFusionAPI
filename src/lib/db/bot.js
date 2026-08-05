@@ -6,8 +6,9 @@
  * Cada bot pertenece a un `provider` (telegram, whatsapp, ms_teams, etc.).
  * Los bots están atados a una Application y usan las AppVars de dicha app.
  *
- * IMPORTANTE: El handler `TELEGRAM_BOT` en la tabla `ofapi_endpoint` está DEPRECADO.
- * No crear nuevos bots vía endpoints. Usar esta capa directamente.
+ * Los bots NO son endpoints: no existe un handler de endpoint para bots.
+ * Documentación: src/docs/bots/ (y las herramientas MCP get_bot_skill /
+ * get_bot_provider_skill).
  */
 
 import { Bot, Application, AppVars } from "./models.js";

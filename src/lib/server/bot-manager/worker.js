@@ -10,7 +10,7 @@ let activeBot = null;
 parentPort.on("message", async (message) => {
   try {
     if (message.type === "START") {
-      const { token, code, botId, environment, app_env_vars } = message.payload;
+      const { token, code, botId, environment, app_env_vars, traceId } = message.payload;
       console.log(`[Worker ${botId}] Starting...`);
 
       const defaults = {
@@ -19,7 +19,10 @@ parentPort.on("message", async (message) => {
       };
 
       const mockRequest = {
-        headers: { "ofapi-trace-id": crypto.randomUUID() },
+        // El trace lo asigna el ciclo de vida para que los logs del arranque y los
+        // `ofapi.log` del código del bot queden en el mismo trace. Fallback local
+        // solo si el worker se invoca sin traceId (p.ej. desde un test).
+        headers: { "ofapi-trace-id": traceId || crypto.randomUUID() },
         openfusionapi: {
           handler: {
             params: {
@@ -28,7 +31,7 @@ parentPort.on("message", async (message) => {
             }
           }
         },
-        method: "TELEGRAM_BOT",
+        method: "BOT",
         url: `telegram://bot/${botId}`,
         ip: "localhost"
       };

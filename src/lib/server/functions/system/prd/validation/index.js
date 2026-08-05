@@ -1,7 +1,7 @@
 import { validateEndpointCode } from "../../../../../validation/codeValidator.js";
 
 /**
- * Valida el código JS embebido de un handler (JS, MONGODB, TELEGRAM_BOT) en
+ * Valida el código JS embebido de un handler (JS, MONGODB) en
  * busca de llamadas a APIs de librerías desactualizadas/renombradas. Reporta
  * lo que se puede autocorregir y lo que requiere revisión manual, sin
  * modificar nada persistido — el llamador decide qué hacer con el resultado.

@@ -10,5 +10,6 @@
 - HANA scope: [handlers/HANA/README.md](handlers/HANA/README.md) documents the dedicated SAP HANA handler that uses `@sap/hana-client`.
 - Cross-engine caution: behavior validated for MSSQL / T-SQL should not be assumed on PostgreSQL, MySQL, MariaDB, SQLite, or HANA without testing on that engine.
 - Seeded app caution: some bundled apps are restored from `src/lib/db/default/` on startup, so persistent changes to seeded endpoints should be synchronized in those default definitions.
-- TELEGRAM_BOT caution: HTTP `200` confirms route handling, not successful bot startup. Check worker logs for real startup validation.
+- Messaging bots: bots are not endpoints. See [bots/README.md](bots/README.md) for the `ofapi_bot` model, the provider registry, and the lifecycle. Bot startup must be confirmed in the logs (`method = BOT`, `idendpoint = idbot`), never in the tool response.
+- Shared skill core: [skills/JS_CORE.md](skills/JS_CORE.md) holds the JavaScript sandbox guidance common to the JS handler, the MONGODB handler and bots. It is embedded into each `AI_SKILL.md` through the `<!-- include: skills/JS_CORE.md -->` marker, expanded at read time by `src/lib/server/docsInclude.js`.
 - Recurring tasks: OpenFusionAPI supports recurrent execution of endpoints through interval tasks. Use system tools `/interval_tasks/byidapp` (read), `/interval_tasks/upsert` (write), and `/interval_tasks/delete` (write) to manage schedules.

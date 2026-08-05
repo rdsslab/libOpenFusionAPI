@@ -108,6 +108,36 @@ export const createLogEntriesBulk = async (logDataArray) => {
 };
 
 
+/** Representación legible de un valor para incluirlo en un mensaje de error. */
+const serializeValue = (value) => {
+  if (value === undefined) return "undefined";
+  if (value === null) return "null";
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+};
+
+/**
+ * Lanza un error de validación con la forma que los handlers traducen a HTTP 400.
+ * A nivel de módulo (no dentro de `getLogs`) para que también lo usen los helpers
+ * de filtrado definidos más abajo.
+ */
+const throwValidationError = ({ field, message, received, accepted, range }) => {
+  const validationError = new Error(message);
+  validationError.name = "ValidationError";
+  validationError.statusCode = 400;
+  validationError.details = {
+    field,
+    ...(received !== undefined ? { received } : {}),
+    ...(accepted ? { accepted } : {}),
+    ...(range ? { range } : {}),
+  };
+  throw validationError;
+};
+
 /**
  * Función para consultar logs con filtros opcionales
  * @param {Object} options - Parámetros de filtrado
@@ -119,6 +149,7 @@ export const createLogEntriesBulk = async (logDataArray) => {
  * @param {number} options.level - Nivel del log (SMALLINT)
  * @param {string} options.method - Método HTTP (GET, POST, etc.)
  * @param {number} options.status_code - Código de estado HTTP
+ * @param {string} [options.event] - Filtra por `message.event`. Un nombre o lista separada por comas (ej: 'bot_started,bot_startup_error')
  * @param {number} options.limit - Límite de registros a devolver (default: 1000, max: 10000)
  * @param {number} options.offset - Offset para paginación
  * @param {string} options.order - Campo para ordenar (default: 'timestamp')
@@ -141,6 +172,7 @@ export const getLogs = async (options = {}) => {
       log_level,
       method,
       status_code,
+      event,
       limit = 1000,
       offset = 0,
       order = "timestamp",
@@ -249,30 +281,6 @@ export const getLogs = async (options = {}) => {
     if (!hasOrderDirection && requestedInlineOrderDirection) {
       normalizedOrderDirection = requestedInlineOrderDirection.toUpperCase();
     }
-
-    const serializeValue = (value) => {
-      if (value === undefined) return "undefined";
-      if (value === null) return "null";
-      if (typeof value === "string") return value;
-      try {
-        return JSON.stringify(value);
-      } catch {
-        return String(value);
-      }
-    };
-
-      const throwValidationError = ({ field, message, received, accepted, range }) => {
-        const validationError = new Error(message);
-        validationError.name = "ValidationError";
-        validationError.statusCode = 400;
-        validationError.details = {
-          field,
-          ...(received !== undefined ? { received } : {}),
-          ...(accepted ? { accepted } : {}),
-          ...(range ? { range } : {}),
-        };
-        throw validationError;
-      };
 
       // Validate pagination bounds
       if (!Number.isInteger(normalizedLimit)) {
@@ -528,6 +536,11 @@ export const getLogs = async (options = {}) => {
 
     // Filtro por environment
     Object.assign(whereConditions, getEnvironmentFilter(environment));
+
+    // Filtro por message.event (eventos de bots, tareas y otros logs estructurados)
+    if (event !== undefined && event !== null && event !== "") {
+      Object.assign(whereConditions, getMessageEventFilter(event));
+    }
 
     // === CONFIGURACIÓN DE LA CONSULTA ===
 
@@ -812,6 +825,74 @@ function getEnvironmentFilter(environment) {
     return { [Op.or]: [{ environment: "prd" }, { environment: null }] };
   }
   return { environment };
+}
+
+/**
+ * Expresión SQL que extrae `message.event` como texto.
+ *
+ * `message` es DataTypes.JSON en postgres/mysql, pero TEXT en sqlite y mssql (ver
+ * JSON_TYPE en models.js), así que no sirve el acceso JSON de Sequelize ni un LIKE
+ * genérico: cada dialecto necesita su propia función de extracción. Todos los motores
+ * soportados tienen una, y funcionan igual sobre una columna JSON o sobre TEXT con
+ * JSON válido dentro.
+ *
+ * @returns {import("sequelize").Utils.Literal}
+ */
+function getMessageEventColumn() {
+  const dialect = dbsequelize.getDialect();
+
+  switch (dialect) {
+    case "postgres":
+      return dbsequelize.literal(`"message"->>'event'`);
+    case "mysql":
+    case "mariadb":
+      return dbsequelize.literal(
+        `JSON_UNQUOTE(JSON_EXTRACT(\`message\`, '$.event'))`
+      );
+    case "sqlite":
+      return dbsequelize.literal(`json_extract(\`message\`, '$.event')`);
+    case "mssql":
+      return dbsequelize.literal(`JSON_VALUE([message], '$.event')`);
+    case "oracle":
+      return dbsequelize.literal(`JSON_VALUE("message", '$.event')`);
+    default:
+      throw new Error(
+        `Filtering logs by 'event' is not supported on dialect '${dialect}'.`
+      );
+  }
+}
+
+/**
+ * Filtro por `message.event`. Acepta un evento o una lista separada por comas
+ * (`bot_started,bot_startup_error`). Los valores se pasan como parámetros de la
+ * consulta, nunca interpolados en el SQL.
+ *
+ * @param {string} event
+ * @returns {object} fragmento para `whereConditions`
+ */
+function getMessageEventFilter(event) {
+  const events = String(event)
+    .split(",")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+
+  if (events.length === 0) {
+    throwValidationError({
+      field: "event",
+      message: `Invalid 'event' value '${serializeValue(event)}'. Provide one event name or a comma-separated list.`,
+      received: event,
+    });
+  }
+
+  const column = getMessageEventColumn();
+
+  return {
+    [Op.and]: [
+      events.length === 1
+        ? dbsequelize.where(column, events[0])
+        : dbsequelize.where(column, { [Op.in]: events }),
+    ],
+  };
 }
 
 export const getLogsRecordsPerMinute = async (options) => {

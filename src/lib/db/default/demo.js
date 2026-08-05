@@ -302,6 +302,30 @@ export const demo_app = {
       "environment": "dev",
       "createdAt": "2026-04-05T22:40:00.000Z",
       "updatedAt": "2026-04-05T22:40:00.000Z"
+    },
+    {
+      "value": "",
+      "idvar": "b6c1f0a4-52d7-4e39-8c11-9a7d3f6be204",
+      "idapp": "c4ca4238-a0b9-2382-0dcc-509a6f75849b",
+      "name": "$_VAR_DEMO_TELEGRAM_TOKEN",
+      "type": "string",
+      "environment": "dev",
+      "createdAt": "2026-08-05T00:00:00.000Z",
+      "updatedAt": "2026-08-05T00:00:00.000Z"
+    }
+  ],
+  "bots": [
+    {
+      "idbot": "a1d4e7b0-3c62-4f58-9e21-7b05d8c4a913",
+      "idapp": "c4ca4238-a0b9-2382-0dcc-509a6f75849b",
+      "name": "Demo Echo Bot",
+      "provider": "telegram",
+      "environment": "dev",
+      "enabled": false,
+      "description": "Minimal echo bot example. Disabled on purpose: put a real @BotFather token in the application variable $_VAR_DEMO_TELEGRAM_TOKEN for the dev environment and then enable it with enable_disable_bot. See src/docs/bots/ or the get_bot_skill MCP tool.",
+      "token": "$_VAR_DEMO_TELEGRAM_TOKEN",
+      "params": {},
+      "code": "// The runtime already created $BOT from the resolved token.\n// Never call new grammy.Bot(...) and never call $BOT.start().\n\n$BOT.command(\"start\", async (ctx) => {\n  await ctx.reply(\"Envíame cualquier texto y te lo repito.\");\n});\n\n$BOT.on(\"message:text\", async (ctx) => {\n  await ctx.reply(`Recibido: ${ctx.message.text}`);\n});\n"
     }
   ],
   "endpoints": [
@@ -1692,106 +1716,6 @@ export const demo_app = {
       "cache_time": 30,
       "createdAt": "2026-04-04T03:01:03.010Z",
       "updatedAt": "2026-04-04T03:01:03.010Z"
-    },
-    {
-      "ctrl": {
-        "admin": true,
-        "users": [],
-        "log": {
-          "status_info": 1,
-          "status_success": 1,
-          "status_redirect": 1,
-          "status_client_error": 2,
-          "status_server_error": 3
-        }
-      },
-      "cors": {},
-      "mcp": {
-        "enabled": true,
-        "name": "demo_bot_ping_v2",
-        "title": "demo_bot_ping_v2",
-        "description": "Second minimal TELEGRAM_BOT smoke-test endpoint used only to exercise lifecycle loading."
-      },
-      "json_schema": {
-        "in": {
-          "enabled": false,
-          "schema": {
-            "type": "object",
-            "properties": {},
-            "additionalProperties": true
-          }
-        },
-        "out": {
-          "enabled": false,
-          "schema": {
-            "type": "object",
-            "properties": {},
-            "additionalProperties": true
-          }
-        }
-      },
-      "custom_data": {
-        "token": "demo-token-not-used-2"
-      },
-      "headers_test": {},
-      "data_test": {
-        "query": [
-          {
-            "enabled": false,
-            "key": "",
-            "value": "",
-            "internal_hash_row": "demo-bot-q2"
-          }
-        ],
-        "body": {
-          "selection": 0,
-          "json": {
-            "code": {}
-          },
-          "xml": {
-            "code": ""
-          },
-          "text": {
-            "value": ""
-          },
-          "form": {}
-        },
-        "headers": {},
-        "auth": {
-          "selection": 0,
-          "basic": {
-            "username": "",
-            "password": ""
-          },
-          "bearer": {
-            "token": ""
-          }
-        },
-        "last_response": {
-          "data": "",
-          "sizeKBResponse": -1
-        }
-      },
-      "idendpoint": "29b0b5d2-7619-465f-947b-fbd6db872e7e",
-      "rowkey": 318,
-      "enabled": false,
-      "idapp": "c4ca4238-a0b9-2382-0dcc-509a6f75849b",
-      "environment": "dev",
-      "timeout": 30,
-      "resource": "/ofapi/examples/bot/ping2",
-      "method": "GET",
-      "handler": "TELEGRAM_BOT",
-      "access": 0,
-      "title": "Bot ping example 2",
-      "description": "Second minimal TELEGRAM_BOT endpoint for lifecycle smoke testing. Prefer `/api/demo/bot/qa` as a real grammY example and let the runtime start `$BOT` automatically.",
-      "price_by_request": 1,
-      "price_kb_request": 1,
-      "price_kb_response": 1,
-      "keywords": "example,telegram_bot",
-      "code": "$BOT.on(\"message:text\", async (ctx) => {\n  await ctx.reply(\"Demo bot ping 2 activo\");\n});\n",
-      "cache_time": 0,
-      "createdAt": "2026-04-04T03:04:26.443Z",
-      "updatedAt": "2026-04-04T03:04:26.443Z"
     },
     {
       "ctrl": {
@@ -5322,106 +5246,6 @@ export const demo_app = {
     },
     {
       "ctrl": {
-        "admin": true,
-        "users": [],
-        "log": {
-          "status_info": 1,
-          "status_success": 1,
-          "status_redirect": 1,
-          "status_client_error": 2,
-          "status_server_error": 3
-        }
-      },
-      "cors": {},
-      "mcp": {
-        "enabled": false,
-        "name": "",
-        "title": "",
-        "description": ""
-      },
-      "json_schema": {
-        "in": {
-          "enabled": false,
-          "schema": {
-            "type": "object",
-            "properties": {},
-            "additionalProperties": true
-          }
-        },
-        "out": {
-          "enabled": false,
-          "schema": {
-            "type": "object",
-            "properties": {},
-            "additionalProperties": true
-          }
-        }
-      },
-      "custom_data": {
-        "token": "1702232983:AAFmNpYVuKXQQEwmT0Qr8NouVOi-B3B_YXY"
-      },
-      "headers_test": {},
-      "data_test": {
-        "query": [
-          {
-            "enabled": false,
-            "key": "",
-            "value": "",
-            "type": 1
-          }
-        ],
-        "body": {
-          "selection": 0,
-          "json": {
-            "code": {}
-          },
-          "xml": {
-            "code": ""
-          },
-          "text": {
-            "value": ""
-          },
-          "form": {}
-        },
-        "headers": {},
-        "auth": {
-          "selection": 0,
-          "basic": {
-            "username": "",
-            "password": ""
-          },
-          "bearer": {
-            "token": ""
-          }
-        },
-        "last_response": {
-          "data": "",
-          "sizeKBResponse": -1
-        }
-      },
-      "idendpoint": "f7d8e356-e06c-47cc-92a1-9946761b5751",
-      "rowkey": 250,
-      "enabled": false,
-      "idapp": "c4ca4238-a0b9-2382-0dcc-509a6f75849b",
-      "environment": "qa",
-      "timeout": 30,
-      "resource": "/bot",
-      "method": "POST",
-      "handler": "TELEGRAM_BOT",
-      "access": 0,
-      "title": "Telegram grammY bot example",
-      "description": "Example TELEGRAM_BOT endpoint that stores grammY code using the injected `$BOT` instance, including commands and callback handlers. The runtime starts the bot automatically after loading the script.",
-      "price_by_request": 1,
-      "price_kb_request": 1,
-      "price_kb_response": 1,
-      "keywords": "bot,telegram,grammy,example",
-      "code": "\n// Comando /start\n$BOT.command(\"start\", async (ctx) => {\n  await ctx.reply(\"¿Deseas continuar?\", {\n    reply_markup: {\n      inline_keyboard: [\n        [\n          { text: \"✅ Aceptar\", callback_data: \"aceptar\" },\n          { text: \"❌ Cancelar\", callback_data: \"cancelar\" },\n        ],\n      ],\n    },\n  });\n});\n\n// Manejo de botones\n$BOT.on(\"callback_query:data\", async (ctx) => {\n  const action = ctx.callbackQuery.data;\n\n  if (action === \"aceptar\") {\n    await ctx.answerCallbackQuery({ text: \"✅ Has aceptado.\" });\n    await ctx.editMessageText(\"¡Gracias por aceptar! 🎉\", {\n      reply_markup: { inline_keyboard: [] },\n    });\n  } else if (action === \"cancelar\") {\n    await ctx.answerCallbackQuery({ text: \"❌ Has cancelado.\" });\n    await ctx.editMessageText(\"Operación cancelada. 😢\", {\n      reply_markup: { inline_keyboard: [] },\n    });\n  }\n});\n\nconsole.log(\"Bot listo! 🤖\");",
-      "cache_time": 10,
-      "createdAt": "2026-02-07T04:09:57.824Z",
-      "updatedAt": "2026-07-22T11:21:59.683Z"
-    },
-    {
-      "ctrl": {
         "users": [],
         "log": {}
       },
@@ -5882,106 +5706,6 @@ export const demo_app = {
       "cache_time": 0,
       "createdAt": "2026-04-05T22:25:00.000Z",
       "updatedAt": "2026-04-05T22:25:00.000Z"
-    },
-    {
-      "ctrl": {
-        "admin": true,
-        "users": [],
-        "log": {
-          "status_info": 1,
-          "status_success": 1,
-          "status_redirect": 1,
-          "status_client_error": 2,
-          "status_server_error": 3
-        }
-      },
-      "cors": {},
-      "mcp": {
-        "enabled": true,
-        "name": "demo_bot_ping_v1",
-        "title": "demo_bot_ping_v1",
-        "description": "Minimal TELEGRAM_BOT example. It is useful only to validate that the bot lifecycle can load an endpoint, not to model a real grammY bot."
-      },
-      "json_schema": {
-        "in": {
-          "enabled": false,
-          "schema": {
-            "type": "object",
-            "properties": {},
-            "additionalProperties": true
-          }
-        },
-        "out": {
-          "enabled": false,
-          "schema": {
-            "type": "object",
-            "properties": {},
-            "additionalProperties": true
-          }
-        }
-      },
-      "custom_data": {
-        "token": "demo-token-not-used"
-      },
-      "headers_test": {},
-      "data_test": {
-        "query": [
-          {
-            "enabled": false,
-            "key": "",
-            "value": "",
-            "internal_hash_row": "demo-bot-q1"
-          }
-        ],
-        "body": {
-          "selection": 0,
-          "json": {
-            "code": {}
-          },
-          "xml": {
-            "code": ""
-          },
-          "text": {
-            "value": ""
-          },
-          "form": {}
-        },
-        "headers": {},
-        "auth": {
-          "selection": 0,
-          "basic": {
-            "username": "",
-            "password": ""
-          },
-          "bearer": {
-            "token": ""
-          }
-        },
-        "last_response": {
-          "data": "",
-          "sizeKBResponse": -1
-        }
-      },
-      "idendpoint": "6666cbb1-e90c-40ea-b302-508e5de3e941",
-      "rowkey": 131,
-      "enabled": false,
-      "idapp": "c4ca4238-a0b9-2382-0dcc-509a6f75849b",
-      "environment": "dev",
-      "timeout": 30,
-      "resource": "/ofapi/examples/bot/ping",
-      "method": "GET",
-      "handler": "TELEGRAM_BOT",
-      "access": 0,
-      "title": "Bot ping example",
-      "description": "Minimal TELEGRAM_BOT endpoint kept as a lifecycle smoke test. Real bots should store grammY code in `code`, provide a token in `custom_data.token`, and let the runtime start `$BOT` automatically.",
-      "price_by_request": 1,
-      "price_kb_request": 1,
-      "price_kb_response": 1,
-      "keywords": "example,telegram_bot",
-      "code": "$BOT.command(\"start\", async (ctx) => {\n  await ctx.reply(\"Demo bot ping activo\");\n});\n",
-      "cache_time": 0,
-      "createdAt": "2026-04-04T03:01:18.630Z",
-      "updatedAt": "2026-04-04T03:01:18.630Z"
     },
     {
       "ctrl": {

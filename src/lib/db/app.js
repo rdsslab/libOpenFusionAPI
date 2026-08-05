@@ -682,7 +682,7 @@ export const restoreAppFromBackup = async (app) => {
               ep.idapp = app.idapp;
             }
 
-            if (ep.handler == "JS" || ep.handler == "MONGODB" || ep.handler == "TELEGRAM_BOT") {
+            if (ep.handler == "JS" || ep.handler == "MONGODB") {
               // Este bloque es para compatibilidad con versiones antiguas del backup
               ep.code = replace_Old_FUNCTIONS_NAMES(ep.code);
 

@@ -485,25 +485,6 @@ export default class ServerAPI extends EventEmitter {
     // Crea un token para tener acceso a los endpoints protegidos
     CreateOpenFusionAPIToken();
 
-    // Deprecar endpoints TELEGRAM_BOT legacy.
-    // El sistema de bots ahora usa la tabla ofapi_bot.
-    // Los endpoints TELEGRAM_BOT existentes se deshabilitan para que no interfieran.
-    try {
-      const { Op } = await import("sequelize");
-      const [updatedCount] = await EndpointBBDD.update(
-        { enabled: false },
-        { where: { handler: "TELEGRAM_BOT", enabled: true } }
-      );
-      if (updatedCount > 0) {
-        console.warn(
-          `[buildDB] DEPRECATION: ${updatedCount} endpoint(s) with handler='TELEGRAM_BOT' were disabled.` +
-          ` Please migrate these bots to the new ofapi_bot table. See documentation.`
-        );
-      }
-    } catch (deprecationError) {
-      console.error("[buildDB] Error deprecating TELEGRAM_BOT endpoints:", deprecationError);
-    }
-
     return true;
   }
 }

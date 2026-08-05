@@ -1277,7 +1277,7 @@ export const system_app = {
         "enabled": true,
         "name": "agent_onboarding",
         "title": "Agent Onboarding Guide",
-        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns best practices, recommended workflows, and key tips for MCP agents (AI or human) to use the OpenFusionAPI toolset efficiently and safely, including guidance on recurring interval task tooling. Agents must not modify endpoints or interval tasks unless the user explicitly requests it or explicitly authorizes it, with stricter caution for endpoints in the system application. All content is provided in English.",
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns best practices, recommended workflows, and key tips for MCP agents (AI or human) to use the OpenFusionAPI toolset efficiently and safely, including guidance on recurring interval task tooling and on messaging bots. Agents must not modify endpoints, interval tasks or bots unless the user explicitly requests it or explicitly authorizes it, with stricter caution for endpoints in the system application. Note that bots are NOT endpoints: they are managed with the dedicated bot tools and must be preceded by `get_bot_skill`. All content is provided in English.",
         "operation_mode": "read",
         "requires_explicit_confirmation": false,
         "side_effects": "No persistent write side effects expected.",
@@ -1318,6 +1318,12 @@ export const system_app = {
                   "get_system_logs": {
                     "type": "string"
                   },
+                  "apps_list": {
+                    "type": "string"
+                  },
+                  "bot_skill": {
+                    "type": "string"
+                  },
                   "interval_tasks_byidapp": {
                     "type": "string"
                   },
@@ -1355,12 +1361,14 @@ export const system_app = {
           "selection": 0,
           "json": {
             "code": {
-              "summary": "Welcome to OpenFusionAPI. Use /api/handler/documentation for handler details and /api/handler/skill for handler-specific guidance. OpenFusionAPI also supports recurring interval tasks for endpoint automation.",
+              "summary": "Welcome to OpenFusionAPI. Use /api/handler/documentation for handler details and /api/handler/skill for handler-specific guidance. OpenFusionAPI also supports recurring interval tasks for endpoint automation, and long-lived messaging bots (see /bots/skill).",
               "links": {
                 "handler_documentation": "/api/handler/documentation",
                 "handler_skill": "/api/handler/skill",
                 "endpoint_upsert": "/api/endpoint",
                 "get_system_logs": "/api/system/logs",
+                "apps_list": "/api/system/api/apps-list",
+                "bot_skill": "/bots/skill",
                 "interval_tasks_byidapp": "/interval_tasks/byidapp",
                 "interval_tasks_upsert": "/interval_tasks/upsert",
                 "interval_tasks_delete": "/interval_tasks/delete"
@@ -1385,7 +1393,7 @@ export const system_app = {
       "price_kb_request": 0,
       "price_kb_response": 0,
       "keywords": "onboarding,guide,agent,AI,best practices",
-      "code": "const trace_id = request?.headers?.['ofapi-trace-id'] || '';\n$_RETURN_DATA_ = {\n  summary: '1. Always inspect each tool description and input schema first; treat the system catalog as source of truth. 2. For endpoint creation/updates, choose handler first and match payload shape to that handler. 3. Read current endpoint data before updates and patch incrementally. 4. Validate JSON Schema with validate_json_schema_for_mcp before publishing. 5. Use trace_id in logs to follow one execution path end to end. 6. OpenFusionAPI supports recurring interval tasks for endpoint automation; use the interval_tasks tools to inspect tasks (read-only) and, only with explicit user authorization, create/update/delete schedules.',\n  links: {\n    handler_documentation: '/api/handler/documentation',\n    handler_skill: '/api/handler/skill',\n    endpoint_upsert: '/api/endpoint',\n    get_system_logs: '/api/system/logs',\n    interval_tasks_byidapp: '/interval_tasks/byidapp',\n    interval_tasks_upsert: '/interval_tasks/upsert',\n    interval_tasks_delete: '/interval_tasks/delete'\n  },\n  trace_id\n};",
+      "code": "const trace_id = request?.headers?.['ofapi-trace-id'] || '';\n$_RETURN_DATA_ = {\n  summary: '1. Always inspect each tool description and input schema first; treat the system catalog as source of truth. 2. Every resource belongs to an application: start with apps_list to resolve the target idapp before creating endpoints, application variables or bots. 3. For endpoint creation/updates, choose handler first and match payload shape to that handler. 4. Read current endpoint data before updates and patch incrementally. 5. Validate JSON Schema with validate_json_schema_for_mcp before publishing. 6. Use trace_id in logs to follow one execution path end to end. 7. OpenFusionAPI supports recurring interval tasks for endpoint automation; use the interval_tasks tools to inspect tasks (read-only) and, only with explicit user authorization, create/update/delete schedules. 8. OpenFusionAPI also runs long-lived messaging bots (Telegram today). Bots are NOT endpoints: they live in their own ofapi_bot table and are managed with list_bots, upsert_bot, enable_disable_bot and delete_bot. If the user asks for a bot, call get_bot_skill FIRST and then get_bot_provider_skill; never try to build a bot with endpoint_upsert.',\n  links: {\n    handler_documentation: '/api/handler/documentation',\n    handler_skill: '/api/handler/skill',\n    endpoint_upsert: '/api/endpoint',\n    get_system_logs: '/api/system/logs',\n    apps_list: '/api/system/api/apps-list',\n    bot_skill: '/bots/skill',\n    interval_tasks_byidapp: '/interval_tasks/byidapp',\n    interval_tasks_upsert: '/interval_tasks/upsert',\n    interval_tasks_delete: '/interval_tasks/delete'\n  },\n  trace_id\n};",
       "cache_time": 3600,
       "createdAt": "2026-05-19T00:00:00.000Z",
       "updatedAt": "2026-05-19T00:00:00.000Z"
@@ -4995,7 +5003,6 @@ export const system_app = {
                   "MONGODB",
                   "TEXT",
                   "MCP",
-                  "TELEGRAM_BOT",
                   "NA"
                 ],
                 "minLength": 1,
@@ -5055,7 +5062,7 @@ export const system_app = {
               "code": {
                 "type": "string",
                 "default": "",
-                "description": "Handler payload. Convention depends on `handler`: JS => server-side JavaScript source and it must assign `$_RETURN_DATA_` instead of using `return`; FUNCTION => internal function name such as `fnMyFunction`; FETCH => target URL string; TEXT => raw text content while MIME metadata lives in `custom_data.mimeType`. This handler can be used to expose text with a mimetype, but also for other types of files like a PDF converted to base64 or other files up to 1Mega. Optionally, add `custom_data.fileName` if it requires to be downloadable; SQL => SQL query string while connection settings live in `custom_data`; SQL_BULK_I/SOAP/HANA/MONGODB/MCP => handler-specific configuration payload; TELEGRAM_BOT => JavaScript source that configures the injected grammY bot instance available as `$BOT`, while the Telegram token is normally provided in `custom_data.token`. Do not instantiate the bot manually and do not call `$BOT.start()` because the runtime starts it automatically. You can also pass an AppVar placeholder string such as `\"$_MY_VAR\"`; it will be resolved at runtime to the effective application variable value."
+                "description": "Handler payload. Convention depends on `handler`: JS => server-side JavaScript source and it must assign `$_RETURN_DATA_` instead of using `return`; FUNCTION => internal function name such as `fnMyFunction`; FETCH => target URL string; TEXT => raw text content while MIME metadata lives in `custom_data.mimeType`. This handler can be used to expose text with a mimetype, but also for other types of files like a PDF converted to base64 or other files up to 1Mega. Optionally, add `custom_data.fileName` if it requires to be downloadable; SQL => SQL query string while connection settings live in `custom_data`; SQL_BULK_I/SOAP/HANA/MONGODB/MCP => handler-specific configuration payload. Messaging bots are not endpoints: to create or modify a bot call `get_bot_skill` and use `upsert_bot`. You can also pass an AppVar placeholder string such as `\"$_MY_VAR\"`; it will be resolved at runtime to the effective application variable value."
               },
               "cors": {
                 "$ref": "#/$defs/jsonValue",
@@ -5077,7 +5084,7 @@ export const system_app = {
               },
               "custom_data": {
                 "$ref": "#/$defs/jsonValue",
-                "description": "Handler-specific auxiliary data. Common examples: SQL connection settings, TEXT `mimeType` and optional `fileName`, or TELEGRAM_BOT `token`. For handlers with runtime-specific payloads, confirm the expected `custom_data` shape with `handler_documentation` before saving. You can pass AppVar placeholder strings such as `\"$_MY_VAR\"` in fields that accept string values; placeholders are resolved at runtime."
+                "description": "Handler-specific auxiliary data. Common examples: SQL connection settings, or TEXT `mimeType` and optional `fileName`. For handlers with runtime-specific payloads, confirm the expected `custom_data` shape with `handler_documentation` before saving. You can pass AppVar placeholder strings such as `\"$_MY_VAR\"` in fields that accept string values; placeholders are resolved at runtime."
               },
               "headers_test": {
                 "$ref": "#/$defs/jsonValue",
@@ -7950,7 +7957,7 @@ export const system_app = {
         "safe_alternative": "Use a read-only catalog/search/status tool first to verify target ids and scope.",
         "exampleRequest": {
           "idapp": "00000000-0000-0000-0000-000000000001",
-          "name": "MY_CONFIG_VALUE",
+          "name": "$_VAR_MY_CONFIG_VALUE",
           "type": "string",
           "environment": "prd",
           "value": "example-value"
@@ -7978,7 +7985,7 @@ export const system_app = {
               "name": {
                 "type": "string",
                 "maxLength": 50,
-                "description": "Variable name."
+                "description": "Variable name, INCLUDING the `$_VAR_` prefix (e.g. `$_VAR_MY_CONFIG_VALUE`). The stored name is the same string used to reference the variable from endpoint payloads or from a bot `token`, so a name without the prefix will never resolve as a placeholder."
               },
               "type": {
                 "type": "string",
@@ -8031,7 +8038,7 @@ export const system_app = {
           "json": {
             "code": {
               "idapp": "00000000-0000-0000-0000-000000000001",
-              "name": "MY_CONFIG_VALUE",
+              "name": "$_VAR_MY_CONFIG_VALUE",
               "type": "string",
               "environment": "prd",
               "value": "example-value"
@@ -8593,7 +8600,7 @@ export const system_app = {
         "enabled": true,
         "name": "handler_documentation",
         "title": "Handler Documentation",
-        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns canonical documentation for one endpoint handler, including usage notes and optional generated references/examples. Call this before building complex handler payloads (for example SQL_BULK_I, SOAP, HANA, MONGODB, MCP, TELEGRAM_BOT) in `endpoint_upsert`.",
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns canonical documentation for one endpoint handler, including usage notes and optional generated references/examples. Call this before building complex handler payloads (for example SQL_BULK_I, SOAP, HANA, MONGODB, MCP) in `endpoint_upsert`. For messaging bots use `get_bot_skill` and `get_bot_provider_skill` instead; bots are not endpoints.",
         "operation_mode": "read",
         "requires_explicit_confirmation": false,
         "side_effects": "No persistent write side effects expected.",
@@ -8613,7 +8620,7 @@ export const system_app = {
                 "minLength": 1,
                 "maxLength": 25,
                 "pattern": "^[A-Z_]+$",
-                "description": "Handler identifier in uppercase. Recommended values: JS, FETCH, SOAP, SQL, TEXT, SQL_BULK_I, HANA, FUNCTION, MONGODB, MCP, TELEGRAM_BOT, NA."
+                "description": "Handler identifier in uppercase. Recommended values: JS, FETCH, SOAP, SQL, TEXT, SQL_BULK_I, HANA, FUNCTION, MONGODB, MCP, NA."
               }
             },
             "additionalProperties": false,
@@ -10173,7 +10180,9 @@ export const system_app = {
           "When using date windows, send `start_date` and `end_date` together to keep the range explicit.",
           "Use `last_hours` for quick recent searches and reserve broad unfiltered scans for exceptional cases because log volume can be high.",
           "Use `environment` (dev/qa/prd) to scope logs to a single environment; omit it to search across all environments.",
-          "Use `status_code` to list recent errors: an exact code (e.g. 502), a group (\"4xx\", \"5xx\"), or a comma-separated list (\"502,404\"). Combine with `last_hours` and `orderDirection=DESC` to get the most recent errors first, and use `lightweight=true` to get a compact per-request row (status_code, trace_id, url, timestamp, response_time, method) without headers/payloads."
+          "Use `status_code` to list recent errors: an exact code (e.g. 502), a group (\"4xx\", \"5xx\"), or a comma-separated list (\"502,404\"). Combine with `last_hours` and `orderDirection=DESC` to get the most recent errors first, and use `lightweight=true` to get a compact per-request row (status_code, trace_id, url, timestamp, response_time, method) without headers/payloads.",
+          "Use `event` to filter structured logs by `message.event` instead of scanning payloads client-side. To verify a bot started, combine `idendpoint=<idbot>` with `event=bot_started`; to diagnose one that did not, use `event=bot_token_error,bot_startup_error,bot_auto_disabled`.",
+          "`lightweight=true` omits the `message` column from the response but `event` still filters correctly, so the two combine safely."
         ]
       },
       "json_schema": {
@@ -10230,6 +10239,11 @@ export const system_app = {
               "status_code": {
                 "type": ["integer", "string"],
                 "description": "HTTP status code filter. Accepts an exact code (404 or \"404\"), a group (\"4xx\", \"5xx\"), or a comma-separated list of codes and/or groups (\"502,404\", \"4xx,5xx\"). Omit to return all status codes."
+              },
+              "event": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Filter structured logs by their `message.event` name. Accepts one event or a comma-separated list (\"bot_started,bot_startup_error\"). Bot events: bot_started, bot_token_error, bot_startup_error, bot_runtime_error, bot_worker_crash, bot_auto_disabled, bot_restarting, bot_start_retry_scheduled, bot_start_deferred, bot_manage_error."
               },
               "limit": {
                 "type": "integer",
@@ -10504,7 +10518,7 @@ export const system_app = {
         "enabled": true,
         "name": "validate_endpoint_code",
         "title": "Validate Endpoint Code",
-        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics and pre-flight checks before saving endpoint code.\nAnalyzes the JS source of a handler (JS, MONGODB, TELEGRAM_BOT) for calls to outdated/renamed library APIs (e.g. uFetch.GET -> uFetch.get). Returns findings marked as autofixable or requiring manual review, plus the auto-fixed code when applicable. Set dry_run=true to also execute the code in the real sandbox and capture runtime deprecation warnings (skipped automatically for TELEGRAM_BOT to avoid real side effects).",
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics and pre-flight checks before saving endpoint code.\nAnalyzes the JS source of a handler (JS, MONGODB) for calls to outdated/renamed library APIs (e.g. uFetch.GET -> uFetch.get). Returns findings marked as autofixable or requiring manual review, plus the auto-fixed code when applicable. Set dry_run=true to also execute the code in the real sandbox and capture runtime deprecation warnings.",
         "operation_mode": "read",
         "requires_explicit_confirmation": false,
         "side_effects": "No persistent write side effects expected. When dry_run=true, the code is actually executed and may perform real network/DB calls just like execute_endpoint_test.",
@@ -10526,8 +10540,7 @@ export const system_app = {
                 "type": "string",
                 "enum": [
                   "JS",
-                  "MONGODB",
-                  "TELEGRAM_BOT"
+                  "MONGODB"
                 ],
                 "description": "Handler type of the endpoint whose code is being validated."
               },
@@ -10541,7 +10554,7 @@ export const system_app = {
               },
               "dry_run": {
                 "type": "boolean",
-                "description": "If true, executes the code in the real sandbox to capture runtime deprecation warnings. Skipped for TELEGRAM_BOT."
+                "description": "If true, executes the code in the real sandbox to capture runtime deprecation warnings."
               },
               "app_vars": {
                 "type": "object",
@@ -12166,7 +12179,7 @@ export const system_app = {
         "enabled": true,
         "name": "list_bots",
         "title": "List Bots",
-        "description": "Returns a list of messaging bots registered in the system. Supports filtering by application (idapp), environment (dev/qa/prd), provider (telegram, whatsapp, ms_teams), and enabled status. If `idbot` is provided, returns the single bot instead of a list. Only telegram bots are executed by the runtime today; other providers are stored for future use.",
+        "description": "Returns a list of messaging bots registered in the system. Supports filtering by application (idapp), environment (dev/qa/prd), provider (telegram, whatsapp, ms_teams), and enabled status. If `idbot` is provided, returns the single bot instead of a list. Only telegram bots are executed by the runtime today; other providers are stored for future use.\nIMPORTANT: `enabled: true` only means the row is marked to run. It does NOT mean the bot is running. Confirm real startup with `get_system_logs` filtering `idendpoint = <idbot>` and looking for a `bot_started` event.\nBefore creating or modifying a bot, call `get_bot_skill` first.",
         "operation_mode": "read",
         "requires_explicit_confirmation": false
       },
@@ -12203,38 +12216,39 @@ export const system_app = {
           "description": "Filter by messaging provider (telegram, whatsapp, ms_teams, etc.)."
         },
         "enabled": {
-          "type": "string",
-          "enum": [
-            "true",
-            "false"
+          "anyOf": [
+            { "type": "boolean" },
+            { "type": "string", "enum": ["true", "false"] }
           ],
-          "description": "Filter by enabled status."
+          "description": "Filter by enabled status. Accepts a boolean or the strings 'true'/'false'."
         },
         "include_code": {
-          "type": "string",
-          "enum": [
-            "true",
-            "false"
+          "anyOf": [
+            { "type": "boolean" },
+            { "type": "string", "enum": ["true", "false"] }
           ],
-          "description": "Include bot code in response."
+          "description": "Include bot code in response. Accepts a boolean or the strings 'true'/'false'."
         },
         "include_token": {
-          "type": "string",
-          "enum": [
-            "true",
-            "false"
+          "anyOf": [
+            { "type": "boolean" },
+            { "type": "string", "enum": ["true", "false"] }
           ],
-          "description": "Include bot token in response."
+          "description": "Include bot token in response. Accepts a boolean or the strings 'true'/'false'."
         },
         "limit": {
-          "type": "string",
-          "pattern": "^\\d+$",
-          "description": "Maximum number of results."
+          "anyOf": [
+            { "type": "integer", "minimum": 1 },
+            { "type": "string", "pattern": "^\\d+$" }
+          ],
+          "description": "Maximum number of results. Accepts a number or a numeric string."
         },
         "offset": {
-          "type": "string",
-          "pattern": "^\\d+$",
-          "description": "Number of results to skip."
+          "anyOf": [
+            { "type": "integer", "minimum": 0 },
+            { "type": "string", "pattern": "^\\d+$" }
+          ],
+          "description": "Number of results to skip. Accepts a number or a numeric string."
         }
       },
       "additionalProperties": false
@@ -12277,7 +12291,7 @@ export const system_app = {
         "enabled": true,
         "name": "upsert_bot",
         "title": "Upsert Bot",
-        "description": "Creates or updates a messaging bot. Required fields: idapp, name, token, code. Optional fields: idbot, provider (default: telegram), description, environment, enabled, params. Only telegram bots are executed by the runtime today; other providers are stored for future use.",
+        "description": "Creates or updates a messaging bot. Required fields: idapp, name, token, code. Optional fields: idbot, provider (default: telegram), description, environment, enabled, params. Only telegram bots are executed by the runtime today; other providers are stored for future use.\nPREREQUISITE: call `get_bot_skill` and then `get_bot_provider_skill` BEFORE using this tool. Do not compose `code` from the example payload alone — it will not work.\n`code` must register handlers on the pre-created `$BOT` instance (e.g. `$BOT.on(\"message:text\", ...)`). A script that registers no handler makes the worker fail with \"Code did not define a valid $BOT instance.\". Never call `new grammy.Bot(...)` and never call `$BOT.start()`.\n`token` should reference an application variable (any value starting with `$_`, e.g. `$_VAR_TELEGRAM_TOKEN`, created with `appvar_upsert` using that exact prefixed name for the bot's environment); a literal token is also accepted. This tool returns a `warning` field when the referenced variable does not exist yet.\nA 200 response only means the row was saved. Verify real startup with `get_system_logs` filtering `idendpoint = <idbot>` and expecting a `bot_started` event.",
         "operation_mode": "write",
         "requires_explicit_confirmation": true
       },
@@ -12355,11 +12369,12 @@ export const system_app = {
           "json": {
             "code": {
               "idapp": "c4ca4238-a0b9-2382-0dcc-509a6f75849b",
-              "name": "demo-bot",
+              "name": "demo-echo-bot",
               "provider": "telegram",
-              "token": "123456:ABC-DEF1234",
-              "code": "console.log('demo bot');",
-              "environment": "prd",
+              "description": "Echo bot: replies with the same text it receives.",
+              "token": "$_VAR_DEMO_TELEGRAM_TOKEN",
+              "code": "// $BOT already exists. Register handlers on it; never instantiate or start it.\n$BOT.command(\"start\", async (ctx) => {\n  await ctx.reply(\"Send me any text and I will echo it back.\");\n});\n\n$BOT.on(\"message:text\", async (ctx) => {\n  await ctx.reply(`Received: ${ctx.message.text}`);\n});\n",
+              "environment": "dev",
               "enabled": true
             }
           },
@@ -12392,9 +12407,12 @@ export const system_app = {
         "enabled": true,
         "name": "delete_bot",
         "title": "Delete Bot",
-        "description": "Deletes a messaging bot by idbot. Provide idbot as a query parameter or in the request body.",
+        "description": "Deletes a messaging bot by idbot. Provide idbot as a query parameter or in the request body. Deletion is permanent: the row is removed and the running worker is stopped on the next lifecycle poll (within ~10s). To stop a bot without losing its code and token, use `enable_disable_bot` with enabled=false instead. Background on bots: `get_bot_skill`.",
         "operation_mode": "write",
-        "requires_explicit_confirmation": true
+        "requires_explicit_confirmation": true,
+        "exampleRequest": {
+          "idbot": "8454e48a-cbda-4f5a-94d2-c0a57429a5af"
+        }
       },
       "ctrl": {},
       "cors": {},
@@ -12445,9 +12463,13 @@ export const system_app = {
         "enabled": true,
         "name": "enable_disable_bot",
         "title": "Enable/Disable Bot",
-        "description": "Enables or disables a messaging bot. Requires idbot (query or body) and boolean enabled in the request body.",
+        "description": "Enables or disables a messaging bot. Requires idbot (query or body) and boolean enabled in the request body. Both fields are mandatory in every call — sending only `enabled` fails with 404 Bot not found. The change takes effect on the next lifecycle poll (within ~10s): enabling starts a worker, disabling stops it. Enabling does not guarantee the bot runs — verify with `get_system_logs` filtering `idendpoint = <idbot>` and expecting a `bot_started` event. If the bot was auto-disabled after repeated startup failures, read those logs and fix the cause before re-enabling; re-enabling blindly just burns another cooldown. Background on bots: `get_bot_skill`.",
         "operation_mode": "write",
-        "requires_explicit_confirmation": true
+        "requires_explicit_confirmation": true,
+        "exampleRequest": {
+          "idbot": "8454e48a-cbda-4f5a-94d2-c0a57429a5af",
+          "enabled": false
+        }
       },
       "ctrl": {},
       "cors": {},
@@ -12484,12 +12506,127 @@ export const system_app = {
         "query": [{ "enabled": false, "key": "", "value": "", "internal_hash_row": "bot-status-q1" }],
         "body": {
           "selection": 0,
-          "json": { "code": { "enabled": false } },
+          "json": { "code": { "idbot": "8454e48a-cbda-4f5a-94d2-c0a57429a5af", "enabled": false } },
           "xml": { "code": "" },
           "text": { "value": "" },
           "form": {}
         },
         "headers": [{ "enabled": false, "key": "", "value": "", "internal_hash_row": "bot-status-h1" }],
+        "auth": { "basic": { "username": "", "password": "" }, "bearer": { "token": "" }, "selection": 0 }
+      }
+    },
+    {
+      "idendpoint": "3f1b7c62-9a4d-4c58-8f2e-6b0d51a7c401",
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "environment": "prd",
+      "resource": "/bots/skill",
+      "method": "GET",
+      "handler": "FUNCTION",
+      "access": 0,
+      "enabled": true,
+      "title": "Bots AI Skill",
+      "description": "Returns the general AI agent skill for creating and operating messaging bots (ofapi_bot table), including the provider model, the token/AppVar rules and the shared JavaScript sandbox core.",
+      "keywords": "bot,skill,mcp,ai,agent,provider,docs",
+      "timeout": 30,
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "cache_time": 3600,
+      "code": "fnGetBotSkill",
+      "mcp": {
+        "enabled": true,
+        "name": "get_bot_skill",
+        "title": "Get Bots AI Skill",
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Call this FIRST whenever the user asks to create, modify, debug or operate a messaging bot.\nOpenFusionAPI runs messaging bots as rows of the dedicated `ofapi_bot` table, NOT as endpoints, and there is no bot endpoint handler. Returns the bot data model, the `provider` concept (currently only `telegram` is executed by the runtime; `whatsapp` and `ms_teams` are reserved for future use), how the `token` resolves application variables, the lifecycle and auto-disable rules, the observability contract, the CRUD workflow using `list_bots`, `upsert_bot`, `enable_disable_bot` and `delete_bot`, and the shared JavaScript sandbox skill (already embedded in the response). Afterwards call `get_bot_provider_skill` for the platform specifics.",
+        "operation_mode": "read",
+        "requires_explicit_confirmation": false,
+        "side_effects": "No persistent write side effects expected.",
+        "safe_alternative": "N/A",
+        "exampleRequest": {}
+      },
+      "ctrl": {},
+      "cors": {},
+      "custom_data": {},
+      "json_schema": {
+        "in": {
+          "enabled": true,
+          "schema": {
+            "type": "object",
+            "title": "GetBotSkill",
+            "properties": {},
+            "additionalProperties": false
+          }
+        },
+        "out": { "enabled": false }
+      },
+      "headers_test": {},
+      "data_test": {
+        "query": [],
+        "body": { "selection": 0, "json": {}, "xml": { "code": "" }, "text": { "value": "" }, "form": {} },
+        "headers": [{ "enabled": false, "key": "", "value": "", "internal_hash_row": "bot-skill-h1" }],
+        "auth": { "basic": { "username": "", "password": "" }, "bearer": { "token": "" }, "selection": 0 }
+      }
+    },
+    {
+      "idendpoint": "7c9e4a18-2f65-4d0b-9ab3-5e81c2d6f902",
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "environment": "prd",
+      "resource": "/bots/skill/provider",
+      "method": "GET",
+      "handler": "FUNCTION",
+      "access": 0,
+      "enabled": true,
+      "title": "Bot Provider AI Skill",
+      "description": "Returns the provider-specific AI agent skill for one messaging provider. Only 'telegram' is executed by the runtime today.",
+      "keywords": "bot,provider,telegram,grammy,skill,mcp,docs",
+      "timeout": 30,
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "cache_time": 3600,
+      "code": "fnGetBotProviderSkill",
+      "mcp": {
+        "enabled": true,
+        "name": "get_bot_provider_skill",
+        "title": "Get Bot Provider AI Skill",
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Call after `get_bot_skill` and before writing or debugging provider-specific bot code.\nReturns the platform skill for one bot `provider`. For `telegram` it covers the grammY integration: the pre-created `$BOT` instance (never call `new grammy.Bot()` or `$BOT.start()`), `$BOT_TOKEN`, the `grammy` module namespace, how application variables and `bot.params` are merged into the sandbox, the fixed `allowed_updates` list that limits which grammY listeners can ever fire, the 10s script evaluation budget, the restart/auto-disable policy, the error taxonomy and how to read bot logs. Only `telegram` is executed by the runtime today; `whatsapp` and `ms_teams` are reserved provider names with no worker implementation. Use `get_bot_skill` to list the documented providers.",
+        "operation_mode": "read",
+        "requires_explicit_confirmation": false,
+        "side_effects": "No persistent write side effects expected.",
+        "safe_alternative": "N/A",
+        "exampleRequest": { "provider": "telegram" }
+      },
+      "ctrl": {},
+      "cors": {},
+      "custom_data": {},
+      "json_schema": {
+        "in": {
+          "enabled": true,
+          "schema": {
+            "type": "object",
+            "title": "GetBotProviderSkill",
+            "properties": {
+              "provider": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 50,
+                "pattern": "^[a-z0-9_-]+$",
+                "description": "Messaging provider in lowercase. Documented and executed today: 'telegram'. Reserved but not executed: 'whatsapp', 'ms_teams'."
+              }
+            },
+            "required": ["provider"],
+            "additionalProperties": false
+          }
+        },
+        "out": { "enabled": false }
+      },
+      "headers_test": {},
+      "data_test": {
+        "query": [
+          { "enabled": true, "key": "provider", "value": "telegram", "internal_hash_row": "bot-provider-skill-q1" }
+        ],
+        "body": { "selection": 0, "json": {}, "xml": { "code": "" }, "text": { "value": "" }, "form": {} },
+        "headers": [{ "enabled": false, "key": "", "value": "", "internal_hash_row": "bot-provider-skill-h1" }],
         "auth": { "basic": { "username": "", "password": "" }, "bearer": { "token": "" }, "selection": 0 }
       }
     }

@@ -8,7 +8,6 @@ import { sqlHana } from "./sqlHana.js";
 import { sqlFunctionInsertBulk } from "./sqlFunctionInsertBulk.js";
 import { mongodbFunction } from "./mongoDB.js";
 import { mcpFunction } from "./mcpFunction.js";
-import { botTelegramFunction } from "./botTelegramFunction.js";
 import { replyException } from "./utils.js";
 import { listFunctionsVars } from "../server/functionVars.js";
 import { readHandlerDocBundle, getHandlerLibraryDoc as readHandlerLibraryDoc } from "../server/handlerDocs.js";
@@ -87,15 +86,6 @@ export const Handlers = {
     css_class: "danger",
     description:
       "Create an MCP server that exposes enabled endpoints as MCP tools for AI Agents to use.",
-  },
-  TELEGRAM_BOT: {
-    label: "Telegram Bot",
-    fn: botTelegramFunction,
-    css_icon: "fa-brands fa-bots",
-    css_class: "info",
-    description:
-      "Create a Telegram Bot. Within this endpoint, you can write JavaScript code to give the Bot functionality.",
-    modules: listFunctionsVars()
   },
   NA: {
     label: "Not Assigned",

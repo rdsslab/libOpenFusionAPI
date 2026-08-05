@@ -13,11 +13,7 @@ const MATCHERS = {
 
 // Handlers cuyo `code` es JavaScript embebido ejecutado por el usuario y por lo
 // tanto puede contener llamadas a librerías con APIs desactualizadas.
-const APPLICABLE_HANDLERS = ["JS", "MONGODB", "TELEGRAM_BOT"];
-
-// Ejecutar el código real durante un dry-run puede disparar efectos secundarios
-// (conexiones a Telegram vía grammy, etc.). Se excluye de la ejecución dinámica.
-const DRY_RUN_EXCLUDED_HANDLERS = ["TELEGRAM_BOT"];
+const APPLICABLE_HANDLERS = ["JS", "MONGODB"];
 
 function walkAst(node, visit) {
   if (!node || typeof node !== "object") return;
@@ -120,7 +116,7 @@ async function runDryRun(code, app_vars) {
 }
 
 /**
- * Analiza el código JS embebido de un handler (JS, MONGODB, TELEGRAM_BOT) en
+ * Analiza el código JS embebido de un handler (JS, MONGODB) en
  * busca de llamadas a APIs de librerías desactualizadas/renombradas, aplica
  * los autofixes seguros y opcionalmente lo ejecuta en el sandbox real para
  * capturar warnings de deprecación en tiempo de ejecución.
@@ -203,7 +199,7 @@ export async function validateEndpointCode({
   const fixed_code = autofixed ? applyTextFixes(code, textFixes) : code;
 
   let dry_run = { executed: false };
-  if (dryRun && !DRY_RUN_EXCLUDED_HANDLERS.includes(handler)) {
+  if (dryRun) {
     dry_run = await runDryRun(fixed_code, app_vars);
     for (const warning of dry_run.warnings) {
       findings.push({

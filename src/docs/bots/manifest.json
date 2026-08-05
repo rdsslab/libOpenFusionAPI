@@ -1,0 +1,71 @@
+{
+  "namespace": "bots",
+  "label": "Messaging Bots",
+  "status": "active",
+  "summary": "Long-running messaging bots stored in the dedicated ofapi_bot table (NOT endpoints). Each bot belongs to an application, inherits that application's AppVars for its environment, and runs in its own Worker thread.",
+  "code_language": "javascript",
+  "storage": {
+    "table": "ofapi_bot",
+    "backup_table": "ofapi_bot_bkp",
+    "primary_key": "idbot",
+    "parent": "ofapi_application.idapp (ON DELETE CASCADE)",
+    "db_layer": "src/lib/db/bot.js",
+    "model": "src/lib/db/models.js"
+  },
+  "runtime": {
+    "lifecycle_task": "src/lib/server/runtime/BotLifecycleTask.js",
+    "manager": "src/lib/server/bot-manager/manager.js",
+    "worker": "src/lib/server/bot-manager/worker.js",
+    "poll_interval_ms": 10000,
+    "load_timeout_ms": 10000,
+    "failure_threshold": 3,
+    "failure_window_ms": 300000
+  },
+  "primary_skill": {
+    "core": "skills/JS_CORE.md",
+    "handler_reference": "JS",
+    "reason": "Bot code is JavaScript executed in the same node:vm sandbox contract as the JS handler, with the same injected library pool.",
+    "tools": ["handler_library_documentation"]
+  },
+  "crud_tools": {
+    "read": ["list_bots"],
+    "write": ["upsert_bot", "enable_disable_bot", "delete_bot"],
+    "skill": ["get_bot_skill", "get_bot_provider_skill"]
+  },
+  "observability": {
+    "log_method": "BOT",
+    "log_idendpoint": "idbot",
+    "log_url": "telegram://bot/<username|idbot>",
+    "tool": "get_system_logs"
+  },
+  "docs": {
+    "main": "README.md",
+    "skill": "AI_SKILL.md"
+  },
+  "providers": [
+    {
+      "provider": "telegram",
+      "label": "Telegram",
+      "status": "active",
+      "runtime_supported": true,
+      "library": "grammy",
+      "docs_dir": "providers/telegram"
+    },
+    {
+      "provider": "whatsapp",
+      "label": "WhatsApp",
+      "status": "planned",
+      "runtime_supported": false,
+      "library": null,
+      "docs_dir": null
+    },
+    {
+      "provider": "ms_teams",
+      "label": "Microsoft Teams",
+      "status": "planned",
+      "runtime_supported": false,
+      "library": null,
+      "docs_dir": null
+    }
+  ]
+}

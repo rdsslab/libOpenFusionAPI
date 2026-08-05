@@ -16,6 +16,14 @@ docs/
 │   └── EXTERNAL_DEPENDENCY_DOC_TEMPLATE.md# Formatting guide for documenting external libraries
 ├── dependencies/
 │   └── uFetch.md                          # Concrete guide for the @rdsslab/uFetch package
+├── skills/
+│   └── JS_CORE.md                         # Shared JavaScript sandbox skill, embedded via includes
+├── bots/                                  # Messaging bots namespace (ofapi_bot table, NOT endpoints)
+│   ├── README.md                          # Architecture, providers, REST/MCP surface
+│   ├── manifest.json                      # Namespace contract + provider registry
+│   ├── AI_SKILL.md                        # Served by the get_bot_skill MCP tool
+│   └── providers/
+│       └── telegram/                      # Served by the get_bot_provider_skill MCP tool
 └── handlers/
     ├── README.md                          # Table of active handlers and summary of rules
     ├── FETCH/
@@ -28,9 +36,24 @@ docs/
     ├── SOAP/
     ├── SQL/
     ├── SQL_BULK_I/
-    ├── TELEGRAM_BOT/
     └── TEXT/
 ```
+
+### 🔗 Shared Skill Core (includes)
+
+`AI_SKILL.md` files may embed a shared fragment with a marker on its own line:
+
+```markdown
+<!-- include: skills/JS_CORE.md -->
+```
+
+`src/lib/server/docsInclude.js` (`expandDocIncludes`) resolves the marker at read time, so every skill-serving tool returns one self-contained document instead of a relative link an AI agent cannot follow. Rules: paths are relative to `src/docs`, must be `.md`, must stay inside `src/docs`, and are expanded one level only (no recursion, no cycles). A broken include leaves a visible comment instead of failing the response.
+
+`skills/` intentionally lives **outside** `handlers/`, because `validateHandlerDocs.js` requires a `README.md` + `manifest.json` for every folder inside `handlers/`.
+
+### 🤖 Bots Namespace
+
+Messaging bots are not endpoints and therefore do not belong under `handlers/`. They are rows of the dedicated `ofapi_bot` table, each enabled bot running in its own worker thread. Their documentation contract mirrors the handler one (`README.md` + `manifest.json` + `AI_SKILL.md`) and is served by two MCP tools: `get_bot_skill` (general: data model, provider concept, token/AppVar resolution, lifecycle, observability, CRUD workflow, plus the embedded JavaScript core) and `get_bot_provider_skill` (platform specifics per `provider`). `bots/manifest.json` is the authoritative provider registry; `src/lib/server/bot-manager/providers.js` (`RUNTIME_SUPPORTED_PROVIDERS`) is the authoritative list of providers the runtime can actually start.
 
 ### 📄 Per-Handler Documentation Contract
 Every active handler directory inside `docs/handlers/` must follow this structure:
@@ -115,8 +138,9 @@ Below is a cheat sheet of the 12 active handlers defined in [handler.js](../src/
 | **FUNCTION** | Function | System Function Name | Runs pre-compiled native JS functions registered on the server. |
 | **MONGODB** | MongoDB | Mongo Query Object | Connects to MongoDB, supports query pipelines and JS execution. |
 | **MCP** | MCP | Configuration payload | Spins up an MCP server to expose app endpoints as tools/resources. |
-| **TELEGRAM_BOT**| Telegram Bot | Bot event handler JS | Manages a Telegram Bot wrapper, executing JS handler on bot updates. |
 | **NA** | Not Assigned | Fallback string | Internal fallback/no-op route (behaves as TEXT). |
+
+Messaging bots are **not** in this table: they are not endpoints and have no handler. See the Bots Namespace section above and `bots/README.md`.
 
 ---
 
