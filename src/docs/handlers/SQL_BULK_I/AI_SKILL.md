@@ -28,7 +28,7 @@ When using `upsert_sql_bulk_i_endpoint_handler` to create/update an endpoint:
 - `resource`: HTTP resource path (usually `POST`).
 - `method`: `POST`.
 - `table_name`: Target database table name (stored in endpoint `code`).
-- `custom_data`: Either the database connection config object or a string reference like `"$_VAR_MAIN_DB"`.
+- `custom_data`: Either the database connection config object or a string reference like `"$_VAR_MAIN_DB"`. The reference goes in `custom_data`, never in `code` (`code` is the target table name). Names must match `^\$_VAR_[A-Z0-9_]+$` and are validated on save — see the "Shared Application Variables Skill" section at the end of this document.
 
 ## Minimal Working Example / Template
 * **Table Name (`code`)**:
@@ -42,3 +42,9 @@ customer_leads
   { "first_name": "Jane", "last_name": "Smith", "email": "jane.smith@example.com" }
 ]
 ```
+
+---
+
+# Shared Application Variables Skill
+
+<!-- include: skills/APPVARS.md -->

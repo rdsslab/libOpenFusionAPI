@@ -39,7 +39,18 @@ Store the WSDL URL and any shared config as an Application Variable and referenc
 $_VAR_SOAP_SERVICE_WSDL
 ```
 
-The AppVar value should contain the WSDL URL string. Credentials or extra options can be stored in the same variable if needed.
+The AppVar value must be a **JSON configuration object**, not a bare WSDL URL string: the resolved value is parsed as JSON and must provide `wsdl` and `functionName`. Credentials or extra options can be stored in the same variable.
+
+```json
+{
+  "wsdl": "https://example.com/service?wsdl",
+  "functionName": "SubmitOrder"
+}
+```
+
+> **The `$_VAR_` prefix is part of the variable name.** Names must match `^\$_VAR_[A-Z0-9_]+$` and the stored name must be identical, character for character, to the string written in `code`. This is validated when saving the variable.
+>
+> Note also that `code` is only consulted when `custom_data` does **not** already contain a `wsdl` property. If `custom_data.wsdl` is set, that inline configuration wins and `code` — including any AppVar reference in it — is ignored.
 
 **`code` field — Inline WSDL config**:
 
@@ -100,7 +111,7 @@ In that case:
 - Correct `functionName`: `SubmitOrder`
 - Incorrect `functionName`: `orderRequest`
 
-**`custom_data`** is currently unused by the SOAP handler. Use the `code` field for WSDL and options.
+**`custom_data`** is used by the SOAP handler only when it contains a `wsdl` property: in that case it is taken as the inline configuration and the `code` field is ignored. When `custom_data.wsdl` is absent, the configuration is read from `code` (an Application Variable reference or an inline JSON config). Note that `custom_data` is **not** AppVar-resolved — a `$_VAR_…` string placed there never resolves; put the reference in `code`.
 
 </details>
 

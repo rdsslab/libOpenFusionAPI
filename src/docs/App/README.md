@@ -75,7 +75,10 @@ These variables allow you to store reusable values that can be accessed by any e
 
 To create a variable:
 
-1. Enter the variable name in **UPPERCASE**, without spaces or special characters.
+1. Enter the variable name using the required format: the prefix **`$_VAR_`** followed by uppercase letters, digits and underscores — for example `$_VAR_MAIN_DB`. No spaces, no lowercase, no dashes or dots.
+   - The `$_VAR_` prefix is **part of the stored name**, not something added later. A variable saved as `MAIN_DB` is never resolved, and any endpoint referencing it fails at request time.
+   - The name is validated when saving; an invalid one is rejected and the error suggests the corrected name.
+   - Maximum 50 characters, of which the prefix uses 6.
 2. Click **“NEW”**.
 3. A small editor will appear where you can assign a value to the variable.  
    - Supported types: `string`, `JSON`, or `numeric`.

@@ -34,6 +34,7 @@ You are an expert **SAP HANA Database Administrator and High-Performance SQL Arc
 
 5.  **Connection Configuration (`custom_data` / `hana_config`)**:
     - Set the HANA database options under `custom_data.config` or bind them to an Application Variable reference (e.g. `"custom_data": "$_VAR_HANA_DB"`).
+    - **For HANA the AppVar reference goes in `custom_data`, never in `code`** (`code` is the SQL query). The whole field is the reference — the string replaces the entire config object. Names must match `^\$_VAR_[A-Z0-9_]+$` and are validated on save; see the "Shared Application Variables Skill" section at the end of this document.
     - Properties structure:
       - `serverNode`: Host name/IP and port (e.g., `192.168.10.25:30015` or `hxehost:39013`).
       - `uid`: Database user name.
@@ -85,3 +86,9 @@ LIMIT 100
   }
 }
 ```
+
+---
+
+# Shared Application Variables Skill
+
+<!-- include: skills/APPVARS.md -->

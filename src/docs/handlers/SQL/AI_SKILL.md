@@ -40,6 +40,7 @@ You are an expert **Relational Database Administrator and Multi-Dialect SQL Deve
 
 6.  **Connection Parameters Configuration (`custom_data`)**:
     - Standard connection settings are stored under `custom_data` or referred to via an Application Variable (recommended, e.g. `"custom_data": "$_VAR_MAIN_DB"`).
+    - **For SQL the AppVar reference goes in `custom_data`, never in `code`** (`code` is the SQL query). The whole field is the reference — the string replaces the entire config object. Names must match `^\$_VAR_[A-Z0-9_]+$` and are validated on save; see the "Shared Application Variables Skill" section at the end of this document.
     - Structure template:
       - `database`: Database name.
       - `username`: Database user.
@@ -127,3 +128,9 @@ LIMIT 10 OFFSET 0
   }
 }
 ```
+
+---
+
+# Shared Application Variables Skill
+
+<!-- include: skills/APPVARS.md -->

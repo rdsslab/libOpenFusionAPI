@@ -26,8 +26,16 @@ When using `upsert_fetch_endpoint_handler` to create/update an endpoint:
 - `method`: HTTP Verb.
 - `target_url`: The remote URL to forward requests to (stored in endpoint `code`).
 
+**Application Variables in FETCH**: the AppVar reference goes in **`code`** (the target URL), not in `custom_data`. Set `code` to `"$_VAR_MY_SERVICE_URL"` and store the URL as the variable's value — useful when the destination host differs per environment. Unlike the SQL-family handlers the resolved value is used as a plain string and is not parsed as JSON, so store a plain URL. Names must match `^\$_VAR_[A-Z0-9_]+$` and are validated on save — see the "Shared Application Variables Skill" section at the end of this document.
+
 ## Minimal Working Example / Template
 * **Target URL (`code`)**:
 ```text
 https://api.github.com/repos/rdsslab/libOpenFusionAPI/issues
 ```
+
+---
+
+# Shared Application Variables Skill
+
+<!-- include: skills/APPVARS.md -->

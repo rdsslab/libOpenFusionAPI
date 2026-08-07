@@ -607,6 +607,36 @@ export const restoreAppFromBackup = async (app) => {
       let restore_app = await upsertApp(app);
 
       let migration_report = {};
+      // Variables de aplicación que el restore no pudo guardar (típicamente por
+      // no cumplir la convención de nombre `$_VAR_NOMBRE`). Antes se perdían:
+      // los dos bucles hacían `Promise.allSettled` y descartaban el resultado,
+      // así que un backup se restauraba a medias sin avisar a nadie.
+      let appvars_rejected = [];
+
+      // Recoge los rechazos de un `Promise.allSettled` sobre upserts de AppVars.
+      const collectAppVarRejections = (settled, sources) => {
+        settled.forEach((outcome, index) => {
+          if (outcome.status !== "rejected") {
+            return;
+          }
+
+          const source = sources[index] || {};
+          const detail = {
+            name: source.name,
+            environment: source.environment,
+            error: outcome.reason?.message || String(outcome.reason),
+            ...(outcome.reason?.code ? { code: outcome.reason.code } : {}),
+            ...(outcome.reason?.details?.suggestion
+              ? { suggestion: outcome.reason.details.suggestion }
+              : {}),
+          };
+
+          appvars_rejected.push(detail);
+          console.error(
+            `[restoreAppFromBackup] AppVar "${detail.name}" (${detail.environment}) rejected: ${detail.error}`,
+          );
+        });
+      };
 
       if (restore_app.idapp == app.idapp) {
         // Restaurado, se procede a cargar el resto de tablas relacionadas
@@ -616,6 +646,7 @@ export const restoreAppFromBackup = async (app) => {
         if (app.vars && typeof app.vars === "object") {
           // Hacemos un upsert de las variables de aplicación
           let promises_vars = [];
+          let sources_vars = [];
           let k_env = Object.keys(app.vars);
           for (let index = 0; index < k_env.length; index++) {
             const env_name = k_env[index];
@@ -630,11 +661,15 @@ export const restoreAppFromBackup = async (app) => {
                 environment: env_name,
                 value: app.vars[env_name][name_var],
               };
+              sources_vars.push(v);
               promises_vars.push(upsertAppVar(v));
             }
           }
 
-          await Promise.allSettled(promises_vars);
+          collectAppVarRejections(
+            await Promise.allSettled(promises_vars),
+            sources_vars,
+          );
         }
 
         if (Array.isArray(app.vrs) && app.vrs.length > 0) {
@@ -643,7 +678,10 @@ export const restoreAppFromBackup = async (app) => {
             return upsertAppVar(v);
           });
 
-          await Promise.allSettled(promises_appvars);
+          collectAppVarRejections(
+            await Promise.allSettled(promises_appvars),
+            app.vrs,
+          );
         }
 
         if (Array.isArray(app.bots) && app.bots.length > 0) {
@@ -796,9 +834,13 @@ export const restoreAppFromBackup = async (app) => {
       }
 
       let new_backup = await getAppBackupById(app.idapp);
-      return Object.keys(migration_report).length > 0
-        ? { ...new_backup, migration_report }
-        : new_backup;
+      return {
+        ...new_backup,
+        ...(Object.keys(migration_report).length > 0 ? { migration_report } : {}),
+        // Se reporta para que quien restaure sepa que el backup quedó incompleto
+        // en lugar de asumir que se restauró todo.
+        ...(appvars_rejected.length > 0 ? { appvars_rejected } : {}),
+      };
     }
   } catch (error) {
     console.error("Error restoring backup app:", error);

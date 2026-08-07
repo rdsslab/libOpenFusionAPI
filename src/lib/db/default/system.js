@@ -17,7 +17,7 @@ export const system_app = {
       "value": "\"\\\"\\\\\\\"ok\\\\\\\"\\\"\"",
       "idvar": "d384f7ac-2dc1-4fa2-9b11-325e65d671c3",
       "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
-      "name": "zz_test_probe",
+      "name": "$_VAR_ZZ_TEST_PROBE",
       "type": "string",
       "environment": "prd",
       "createdAt": "2026-03-28T23:51:38.957Z",
@@ -27,7 +27,7 @@ export const system_app = {
       "value": "\"\\\"\\\\\\\"ok\\\\\\\"\\\"\"",
       "idvar": "1862a5f1-c691-4296-9e68-def58fbe2dbb",
       "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
-      "name": "zz_test_probe_cleanup",
+      "name": "$_VAR_ZZ_TEST_PROBE_CLEANUP",
       "type": "string",
       "environment": "qa",
       "createdAt": "2026-03-28T23:51:44.917Z",
@@ -37,7 +37,7 @@ export const system_app = {
       "value": "\"\\\"\\\\\\\"before_create_app\\\\\\\"\\\"\"",
       "idvar": "4ba8bd0a-24b3-4301-93c6-d366fd8e7e14",
       "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
-      "name": "zz_flow_marker",
+      "name": "$_VAR_ZZ_FLOW_MARKER",
       "type": "string",
       "environment": "dev",
       "createdAt": "2026-03-28T23:51:55.035Z",
@@ -7126,7 +7126,7 @@ export const system_app = {
         "enabled": true,
         "name": "appvar_migrate",
         "title": "Migrate AppVar to Another Environment",
-        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nCopies one or more application variables (AppVars) from their current environment to a target environment (dev, qa, or prd). The original AppVar is NOT deleted — this is a copy/promote operation, not a move. Each item in the array requires 'idappvar' (UUID of the source AppVar) and 'target_env' (destination environment). Possible per-item outcomes: 'success' (migrated and new_idappvar is returned), 'ignored' (source is already in target_env), 'already exists' (an AppVar with same app+name already exists in target_env — treated as success, variable replaced), or 'error'. To obtain idappvar values use 'app_vars' (full list) or query AppVars by idapp. To verify the migration use 'app_vars' filtering by the target environment after calling this tool.",
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nCopies one or more application variables (AppVars) from their current environment to a target environment (dev, qa, or prd). The original AppVar is NOT deleted — this is a copy/promote operation, not a move. Each item in the array requires 'idappvar' (UUID of the source AppVar) and 'target_env' (destination environment). Possible per-item outcomes: 'success' (migrated and new_idappvar is returned), 'ignored' (source is already in target_env), 'already exists' (an AppVar with same app+name already exists in target_env — treated as success, variable replaced), or 'error'. The variable NAME is propagated verbatim from the source row, so migrating a legacy AppVar whose name does not match `^\\$_VAR_[A-Z0-9_]+$` fails with `code: \"INVALID_APPVAR_NAME\"` and a `suggestion` for that item; rename the source variable first (and every endpoint referencing it) before migrating. To obtain idappvar values use 'app_vars' (full list) or query AppVars by idapp. To verify the migration use 'app_vars' filtering by the target environment after calling this tool.",
         "operation_mode": "write",
         "requires_explicit_confirmation": true,
         "side_effects": "May create, update, delete, restore, migrate, or invalidate application resources.",
@@ -7985,7 +7985,8 @@ export const system_app = {
               "name": {
                 "type": "string",
                 "maxLength": 50,
-                "description": "Variable name, INCLUDING the `$_VAR_` prefix (e.g. `$_VAR_MY_CONFIG_VALUE`). The stored name is the same string used to reference the variable from endpoint payloads or from a bot `token`, so a name without the prefix will never resolve as a placeholder."
+                "pattern": "^\\$_VAR_[A-Z0-9_]+$",
+                "description": "Variable name, INCLUDING the `$_VAR_` prefix (e.g. `$_VAR_MY_CONFIG_VALUE`). REQUIRED FORMAT: `^\\$_VAR_[A-Z0-9_]+$` — the `$_VAR_` prefix followed by uppercase letters, digits and underscores only. This is validated when saving: an invalid name is rejected with HTTP 400 and `code: \"INVALID_APPVAR_NAME\"`, and the response `details.suggestion` carries the corrected name. The stored name is the same string used to reference the variable from endpoint payloads or from a bot `token` and is matched character for character, so a name without the prefix never resolves as a placeholder. The 50-character limit includes the 6-character prefix, leaving 44 for the rest."
               },
               "type": {
                 "type": "string",
@@ -8773,7 +8774,7 @@ export const system_app = {
         "exampleRequest": {
           "idapp": "00000000-0000-0000-0000-000000000001",
           "environment": "prd",
-          "name": "MY_CONFIG_VALUE"
+          "name": "$_VAR_MY_CONFIG_VALUE"
         },
         "notes": [
           "Use this after `appvar_upsert` when you need to confirm the runtime value that endpoints will actually see.",
@@ -8792,7 +8793,7 @@ export const system_app = {
               },
               "name": {
                 "type": "string",
-                "description": "Stored AppVar name (for example `MY_CONFIG_VALUE`). To reference a variable inside endpoint JSON payloads, use placeholder strings like `$_MY_CONFIG_VALUE`."
+                "description": "Stored AppVar name, INCLUDING the `$_VAR_` prefix (for example `$_VAR_MY_CONFIG_VALUE`). The runtime never adds or strips the prefix: the stored name and the placeholder written in the endpoint configuration must match character for character, so pass the exact same string you used with `appvar_upsert`."
               },
               "environment": {
                 "type": "string",
@@ -8851,7 +8852,7 @@ export const system_app = {
           {
             "enabled": true,
             "key": "name",
-            "value": "MY_CONFIG_VALUE",
+            "value": "$_VAR_MY_CONFIG_VALUE",
             "type": 1
           },
           {

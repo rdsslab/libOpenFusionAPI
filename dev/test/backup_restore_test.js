@@ -140,7 +140,7 @@ async function runTests() {
 
   const extraAppVar = await AppVars.create({
     idapp: TEST_APP_ID,
-    name: "EXTRA_VAR_NOT_IN_BACKUP",
+    name: "$_VAR_EXTRA_NOT_IN_BACKUP",
     environment: "dev",
     value: "extra value",
     type: "string",

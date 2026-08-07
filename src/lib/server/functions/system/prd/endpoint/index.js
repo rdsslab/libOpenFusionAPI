@@ -462,14 +462,15 @@ export async function fnAppVarMigrate(params) {
           continue;
         }
 
-        // Preparar datos para upsert en el nuevo ambiente
+        // Preparar datos para upsert en el nuevo ambiente.
+        // OJO: `description` NO es columna del modelo AppVars; enviarlo solo
+        // añadía ruido (siempre undefined). Por eso no se incluye.
         const upsertData = {
           idapp: data.idapp,
           environment: target_env,
           name: data.name,
           value: data.value,
           type: data.type,
-          description: data.description,
         };
 
         // Verificar si ya existe una AppVar con el mismo name, idapp y target_env
@@ -482,9 +483,13 @@ export async function fnAppVarMigrate(params) {
         });
 
         if (existingAppVar) {
-          // Si ya existe, actualizar su valor
+          // Si ya existe, actualizar esa misma fila.
+          // La primary key del modelo es `idvar`, NO `idappvar` (ese es solo el
+          // nombre del parámetro de entrada de la herramienta). Enviar
+          // `idappvar` dejaba la clave en undefined y el upsert no apuntaba a la
+          // fila encontrada, así que esta rama no reemplazaba nada.
           await upsertAppVar({
-            idappvar: existingAppVar.dataValues.idappvar,
+            idvar: existingAppVar.idvar,
             ...upsertData,
           });
 
@@ -492,24 +497,34 @@ export async function fnAppVarMigrate(params) {
             idappvar,
             target_env,
             status: "success",
-            new_idappvar: existingAppVar.dataValues.idappvar,
+            new_idappvar: existingAppVar.idvar,
             message: "AppVar replaced successfully in target environment",
           });
         } else {
-          // Si no existe, crear una nueva (sin idappvar para que genere uno nuevo)
+          // Si no existe, crear una nueva (sin idvar para que genere uno nuevo)
           const upsertResult = await upsertAppVar(upsertData);
 
           results.push({
             idappvar,
             target_env,
             status: "success",
-            new_idappvar: upsertResult.dataValues?.idappvar || upsertResult.result?.idappvar,
+            new_idappvar: upsertResult?.idvar,
             message: "AppVar migrated successfully",
           });
         }
 
       } catch (err) {
-        results.push({ idappvar, target_env, status: "error", message: err.message });
+        // Un nombre legacy (sin el prefijo `$_VAR_`) hace fallar la migración por
+        // diseño: se propaga el nombre de la fila origen. Se devuelve el código
+        // y la sugerencia para que el agente sepa qué corregir.
+        results.push({
+          idappvar,
+          target_env,
+          status: "error",
+          message: err.message,
+          ...(err?.code ? { code: err.code } : {}),
+          ...(err?.details?.suggestion ? { suggestion: err.details.suggestion } : {}),
+        });
       }
     }
 

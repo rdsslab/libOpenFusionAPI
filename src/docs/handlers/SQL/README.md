@@ -54,6 +54,8 @@ Instead of storing credentials in the endpoint, reference an Application Variabl
 ```
 This keeps secrets out of endpoint configuration. Manage AppVars from the application settings panel.
 
+> **The `$_VAR_` prefix is part of the variable name.** Names must match `^\$_VAR_[A-Z0-9_]+$` and the stored name must be identical, character for character, to the string written in `custom_data`. This is validated when saving the variable. A variable created as `MAIN_DB` is never resolved: the literal string reaches the handler and the request fails with `400 Invalid JSON in method custom_data/AppVar`. If the prefix is right but no variable exists for the endpoint's environment, the error is `AppVar $_VAR_MAIN_DB not found for environment <env>` instead.
+
 **Note**: Connection details can also be dynamically overridden per request (see "Dynamic Connection" below).
 
 </details>

@@ -20,6 +20,18 @@ export async function fnUpsertAppVar(params) {
 
     r.code = 200;
   } catch (error) {
+    // Nombre inválido: 400 estructurado para que los agentes MCP puedan
+    // detectarlo y autocorregirse, en vez de un 500 con el error crudo.
+    if (error?.code === "INVALID_APPVAR_NAME") {
+      r.data = {
+        error: error.message,
+        code: error.code,
+        details: error.details,
+      };
+      r.code = 400;
+      return r;
+    }
+
     r.data = error;
     r.code = 500;
   }

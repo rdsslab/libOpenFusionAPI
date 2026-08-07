@@ -110,6 +110,14 @@ Connection options follow the `@sap/hana-client` configuration model. Typical mi
 ```
 
 Connection definitions can be placed directly in the endpoint configuration or stored as **Application Variables** per environment (Development / Quality / Production).
+
+To use an Application Variable, set the endpoint's `custom_data` to the variable name — the whole field is the reference, and it replaces the entire configuration object:
+
+```json
+"$_VAR_HANA_DB"
+```
+
+> The `$_VAR_` prefix is part of the variable name. Names must match `^\$_VAR_[A-Z0-9_]+$` and the stored name must be identical, character for character, to the string written in `custom_data`; this is validated when saving the variable. The reference goes in `custom_data`, never in `code` (`code` holds the SQL statement). A variable created as `HANA_DB` is never resolved and the request fails with `400 Invalid JSON in method custom_data/AppVar`.
 </details>
 
 ---

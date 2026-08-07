@@ -4,6 +4,7 @@ import dbsequelize from "./sequelize.js";
 import { v4 as uuidv4 } from "uuid";
 import { emitHook } from "../server/utils.js";
 import { validateAppName } from "../server/validation.js";
+import { validateAppVarName } from "./appvarName.js";
 
 const { TABLE_NAME_PREFIX_API } = process.env;
 const IS_MSSQL = ["mssql", "sqlite"].includes(dbsequelize.getDialect());
@@ -472,6 +473,17 @@ export const AppVars = dbsequelize.define(
     name: {
       type: DataTypes.STRING(50),
       allowNull: false,
+      // Enforced at the model layer on purpose: this is the only place that also
+      // covers AppVars.create / AppVars.bulkCreate and any direct model use,
+      // not just the upsertAppVar choke point.
+      validate: {
+        isAppVarName(value) {
+          const check = validateAppVarName(value);
+          if (!check.valid) {
+            throw new Error(check.message);
+          }
+        },
+      },
     },
     type: {
       type: DataTypes.STRING(25),

@@ -48,6 +48,8 @@ When using `upsert_soap_endpoint_handler` to create/update an endpoint:
 - `method`: HTTP Verb (usually `POST` or `GET`).
 - `custom_data`: Object containing properties `wsdl` and `method` (and optional `options`).
 
+**Application Variables in SOAP**: unlike the SQL-family handlers, the AppVar reference goes in **`code`**, not in `custom_data`. The handler only reads `code` when `custom_data.wsdl` is absent: if `custom_data` already carries a `wsdl`, it is used inline and `code` is ignored entirely. The AppVar value must be a JSON configuration object (it is parsed as JSON), not a bare WSDL URL string. Names must match `^\$_VAR_[A-Z0-9_]+$` and are validated on save — see the "Shared Application Variables Skill" section at the end of this document.
+
 ## Minimal Working Example / Template
 * **Custom Data (`custom_data`)**:
 ```json
@@ -63,3 +65,9 @@ When using `upsert_soap_endpoint_handler` to create/update an endpoint:
   "intB": 10
 }
 ```
+
+---
+
+# Shared Application Variables Skill
+
+<!-- include: skills/APPVARS.md -->

@@ -44,7 +44,8 @@ The following rules apply to **every** JavaScript block executed by OpenFusionAP
 
 1. **Application Variables (`$_APP_VARS_`)**:
    - `$_APP_VARS_` is an object containing the resolved Application Variables for the current environment.
-   - In addition to `$_APP_VARS_['$_VAR_NAME']`, you can reference each variable directly by its name (e.g. `$_MY_VARIABLE`), because they are dynamically defined in the execution scope at runtime.
+   - In addition to `$_APP_VARS_['$_VAR_NAME']`, you can reference each variable directly by its name (e.g. `$_VAR_MY_VARIABLE`), because they are dynamically defined in the execution scope at runtime.
+   - Variable names always follow the format `$_VAR_NAME` (prefix `$_VAR_` plus uppercase letters, digits and underscores). That format is enforced when the variable is saved, which is precisely what guarantees the name is a valid JavaScript identifier and therefore reachable directly in the sandbox.
    - Store every secret (tokens, credentials, connection strings) as an Application Variable. Never hardcode secrets in the source.
 
 2. **Exception Handling (`$_EXCEPTION_`)**:

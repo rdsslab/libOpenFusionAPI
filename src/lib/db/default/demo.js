@@ -98,7 +98,7 @@ export const demo_app = {
       "value": "\"\\\"ok amigo\\\"\"",
       "idvar": "ebcef503-7e6c-4268-9cb6-4d2106b8f54a",
       "idapp": "c4ca4238-a0b9-2382-0dcc-509a6f75849b",
-      "name": "TEST_VAR",
+      "name": "$_VAR_TEST",
       "type": "string",
       "environment": "dev",
       "createdAt": "2026-02-23T21:59:05.815Z",
@@ -196,7 +196,7 @@ export const demo_app = {
       },
       "idvar": "692aee5f-9926-4f65-9b15-231e3c82ee4e",
       "idapp": "c4ca4238-a0b9-2382-0dcc-509a6f75849b",
-      "name": "$_VAR_$_VAR_CNX_OMS",
+      "name": "$_VAR_CNX_OMS",
       "type": "json",
       "environment": "dev",
       "createdAt": "2025-11-22T00:04:44.615Z",
@@ -279,7 +279,7 @@ export const demo_app = {
       "value": "\"{}\"",
       "idvar": "0cad1b1f-1c22-439a-bf7b-b00d54398ba6",
       "idapp": "c4ca4238-a0b9-2382-0dcc-509a6f75849b",
-      "name": "TEST_VAR_1",
+      "name": "$_VAR_TEST_1",
       "type": "string",
       "environment": "dev",
       "createdAt": "2026-02-23T21:58:00.808Z",
@@ -5269,7 +5269,7 @@ export const demo_app = {
           }
         }
       },
-      "custom_data": "$_VAR_$_VAR_CNX_OMS",
+      "custom_data": "$_VAR_CNX_OMS",
       "headers_test": {},
       "data_test": {
         "auth": {

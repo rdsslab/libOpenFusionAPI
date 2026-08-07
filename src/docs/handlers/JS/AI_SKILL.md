@@ -51,3 +51,9 @@ $_RETURN_DATA_ = {
   timestamp: new Date().toISOString()
 };
 ```
+
+---
+
+# Shared Application Variables Skill
+
+<!-- include: skills/APPVARS.md -->

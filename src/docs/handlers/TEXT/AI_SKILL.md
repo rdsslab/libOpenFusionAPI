@@ -27,6 +27,8 @@ When using `upsert_text_endpoint_handler` to create/update an endpoint:
 - `text_content`: Static text string to return (stored in endpoint `code`).
 - `custom_data`: Object with properties `mimeType` and optionally `fileName`.
 
+**Application Variables in TEXT**: the AppVar reference goes in **`custom_data`** (the presentation config). `code` holds the literal payload and is **never** AppVar-resolved, so a `$_VAR_…` string written inside the text content is served verbatim instead of being replaced. Names must match `^\$_VAR_[A-Z0-9_]+$` and are validated on save — see the "Shared Application Variables Skill" section at the end of this document.
+
 ## Minimal Working Example / Template
 * **Static Content (`code`)**:
 ```json
@@ -42,3 +44,9 @@ When using `upsert_text_endpoint_handler` to create/update an endpoint:
   "mimeType": "application/json"
 }
 ```
+
+---
+
+# Shared Application Variables Skill
+
+<!-- include: skills/APPVARS.md -->
