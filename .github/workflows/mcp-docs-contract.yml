@@ -24,5 +24,20 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Run MCP docs contract test
-        run: npm run test:mcp-docs
+      # Auditoria offline del contrato de las tools MCP: comprueba sobre el seed
+      # que la prosa, los metadatos y el json_schema de cada tool digan lo mismo.
+      # No necesita servidor ni base de datos, asi que es la unica comprobacion
+      # MCP que puede correr en CI.
+      #
+      # `npm run test:mcp-docs` y `npm run test:mcp-names` NO se ejecutan aqui a
+      # proposito: leen la configuracion de servidores MCP de
+      # %APPDATA%\Code\User\mcp.json y hacen JSON-RPC contra una instancia viva,
+      # asi que en Linux fallan con "APPDATA is not defined" antes de comprobar
+      # nada. Se ejecutan en local contra un servidor arrancado.
+      - name: Run MCP contract audit
+        run: npm run test:mcp-contract
+
+      # Comprueba que cada json_schema.in llegue de verdad al agente en lugar de
+      # degradarse a un objeto abierto al convertirse a Zod.
+      - name: Run MCP schema conversion smoke test
+        run: npm run test:mcp-schemas

@@ -7,23 +7,28 @@ There is no bot endpoint handler: a bot is a row in `ofapi_bot`, managed exclusi
 ## Architecture
 
 ```
-ofapi_bot row (enabled)
+ofapi_bot row (enabled = user intent)
       │
       │  every 10 s: getActiveBots() + app AppVars for bot.environment
       ▼
 BotLifecycleTask ──────────────► BotManager ──────────────► Worker (one per bot)
  src/lib/server/runtime/          src/lib/server/            src/lib/server/
  BotLifecycleTask.js              bot-manager/manager.js     bot-manager/worker.js
-      │                                 │                          │
+      │                                 │  + failurePolicy.js      │
       │ starts / stops / restarts       │ config hash + failure     │ node:vm sandbox,
-      │ auto-disables on repeat fail    │ policy (3 fails / 5 min)  │ provider client
+      │ persists runtime_status         │ classification, backoff   │ provider client
+      │ detects platform outages        │ quarantine, disable       │
       ▼
  log table (method = BOT, idendpoint = idbot)
 ```
 
 - **One Worker thread per enabled bot.** A crashing bot cannot take the API down.
 - **Restart on change.** The manager hashes `token` + `code` + app variables; any change restarts that bot on the next poll.
-- **Auto-disable.** Three failures inside a 5-minute window set `enabled = false` on the row and apply a cooldown.
+- **`enabled` is intent, `runtime_status` is reality.** The runtime never clears `enabled` for a recoverable failure. Observed health lives in its own columns (`runtime_status`, `failure_count`, `last_error_type`, `next_retry_at`, …), persisted so it survives a process restart.
+- **Recoverable failures never disable.** Network, DNS, `429` and provider `5xx` produce exponential backoff with jitter (10 s → 5 min), then quarantine (15/30/60 min) that probes **indefinitely**. The bot recovers on its own once the cause clears.
+- **Permanent failures do disable — reversibly.** A revoked token or code that does not compile disables the row after 3 attempts with `disabled_by = 'system'`. Correcting the token or code via `upsert_bot` re-enables it automatically.
+- **Stability window.** A start counts as consolidated only after 60 s up, so a bot that crash-loops accumulates failures instead of resetting its streak on every restart.
+- **Platform outages.** If ≥3 bots exist and half or more fail with recoverable errors at once, the runtime logs one `bot_platform_outage_suspected`, freezes quarantine escalation and pins the backoff at 5 min until any bot starts.
 
 ## Providers
 
@@ -62,7 +67,7 @@ Bot activity lands in the normal log table, so the usual tooling works:
 - `client` = `telegram-api`
 - `log_level` = 3 (full)
 
-Events: `bot_started`, `bot_token_error`, `bot_startup_error`, `bot_runtime_error`, `bot_worker_crash`, `bot_auto_disabled`, `bot_restarting`, `bot_manage_error`. Each worker run shares a single `trace_id`.
+Events: `bot_started`, `bot_token_error`, `bot_startup_error`, `bot_runtime_error`, `bot_worker_crash`, `bot_start_retry_scheduled`, `bot_start_deferred`, `bot_quarantined`, `bot_auto_disabled`, `bot_restarting`, `bot_manage_error`, `bot_platform_outage_suspected`, `bot_platform_outage_cleared`. Each worker run shares a single `trace_id`.
 
 Inside bot code, `ofapi.log(...)` is routed to the same table.
 

@@ -60,15 +60,31 @@ start({
 
 | Type | Cause | Retry policy | Where you see it |
 |---|---|---|---|
-| `bot_token_error` | Empty token, or an AppVar reference that does not resolve for the bot's environment. The bot is not started. | permanent | log event, status 400 |
+| `bot_token_error` | Empty token, or an AppVar reference that does not resolve for the bot's environment. The bot is not started. | not retried | log event, status 400 |
 | `INVALID_TOKEN` | Telegram answered 401 to `getMe()` (`GrammyError`). Token wrong or revoked by @BotFather. | permanent | `bot_startup_error` |
-| `CONNECTION_ERROR` | Network failure reaching the Telegram API (`HttpError`). | **transient** | `bot_startup_error` |
-| `STARTUP_ERROR` | Your script threw, exceeded the 10 s budget, or left no valid `$BOT`. | permanent | `bot_startup_error` |
+| `FORBIDDEN` | Telegram answered 403/404: the bot was blocked or deleted. | permanent | `bot_startup_error` |
+| `CODE_ERROR` | Your script does not compile, or it left no valid `$BOT`. | permanent | `bot_startup_error` |
+| `CONNECTION_ERROR` | Network failure reaching the Telegram API (`HttpError`, `ECONNRESET`, `EAI_AGAIN`, …). | **recoverable** | `bot_startup_error` |
+| `RATE_LIMITED` | Telegram answered 429. The `retry_after` it sends is honoured. | **recoverable** | `bot_startup_error` |
+| `PROVIDER_ERROR` | Telegram answered 5xx. | **recoverable** | `bot_startup_error` |
+| `STARTUP_ERROR` / `WORKER_CRASH` / `WORKER_EXIT` | Unclassified failure. Treated as recoverable, but quarantined sooner. | **recoverable** | `bot_startup_error`, `bot_worker_crash` |
 | `BOT_ERROR` | An update handler threw at runtime. The bot keeps running. | n/a | `bot_runtime_error` |
 
-**Permanent** failures: three inside a 5-minute window auto-disable the bot row (`enabled = false`) and start a 5-minute cooldown, so a bad token or an invalid script stops retrying. Because the lifecycle retries every 10 s, that threshold is normally reached in **about 20–30 seconds** — check the logs promptly rather than waiting out the full window. Read them before re-enabling.
+**Recoverable** failures never disable the bot. It stays `enabled` and is retried with exponential
+backoff plus jitter (10 s → 5 min ceiling), logging `bot_start_retry_scheduled` per attempt and one
+`bot_start_deferred` per wait. After 8 consecutive failures (4 if unclassified) it moves to
+`QUARANTINED` and probes every 15/30/60 minutes **forever**, so it comes back on its own when the
+network does. `CONNECTION_ERROR` means the runtime never reached Telegram, so the token was never
+even checked: diagnose the network (proxy, TLS inspection, egress rules) instead of editing `token`
+or `code`. Verify from the host with `curl -sS https://api.telegram.org/bot<token>/getMe`; a TCP
+connect that succeeds and then fails during the TLS handshake means the host is blocked, not that the
+credential is wrong.
 
-**Transient** failures (`CONNECTION_ERROR`) never disable the bot. It stays `enabled` and is retried with escalating backoff (10 s → 30 s → 60 s → 2 min → 5 min), logging `bot_start_retry_scheduled` per attempt and one `bot_start_deferred` per wait. `CONNECTION_ERROR` means the runtime never reached Telegram, so the token was never even checked: diagnose the network (proxy, TLS inspection, egress rules) instead of editing `token` or `code`. Verify from the host with `curl -sS https://api.telegram.org/bot<token>/getMe`; a TCP connect that succeeds and then fails during the TLS handshake means the host is blocked, not that the credential is wrong.
+**Permanent** failures: three consecutive ones disable the row (`enabled = false`,
+`runtime_status = DISABLED_ERROR`, `disabled_by = 'system'`), because retrying a revoked token or a
+script that does not compile is pure waste. Since the lifecycle retries every 10 s, expect this
+within **20–30 seconds** of saving a bad configuration. **Fix the token or the code with `upsert_bot`
+and the bot is re-enabled automatically** — do not call `enable_disable_bot`.
 
 To check the code before saving it, call `validate_endpoint_code` with `handler: "JS"` and `dry_run: false` (a dry run would execute the script where `$BOT` does not exist).
 
@@ -173,8 +189,8 @@ $BOT.on("callback_query:data", async (ctx) => {
 
 0. You resolved `idapp` from `apps_list` rather than guessing it.
 1. `upsert_bot` returned success. If it returned a `warning`, create the missing AppVar with `appvar_upsert` first.
-2. Wait ~10 seconds, then `get_system_logs` filtering `idendpoint = <idbot>` and `event = bot_started`. Expect the bot username. If nothing comes back, re-query with `event = bot_token_error,bot_startup_error,bot_auto_disabled,bot_start_retry_scheduled` and read the message before changing anything.
-3. `list_bots` still shows the bot as `enabled: true` (a bot failing permanently gets auto-disabled; one failing on `CONNECTION_ERROR` stays enabled and keeps retrying).
+2. Wait ~10 seconds, then `get_system_logs` filtering `idendpoint = <idbot>` and `event = bot_started`. Expect the bot username. If nothing comes back, re-query with `event = bot_token_error,bot_startup_error,bot_auto_disabled,bot_start_retry_scheduled,bot_quarantined` and read the message before changing anything.
+3. `list_bots` shows `runtime_status: RUNNING`. `BACKOFF` or `QUARANTINED` means a recoverable failure and needs no action — check `next_retry_at`. `DISABLED_ERROR` means a permanent one: fix the token or code with `upsert_bot`, which re-enables the bot by itself.
 4. Send `/start` in Telegram and confirm the reply.
 
 Do not report the bot as working before step 4. If step 4 is impossible because Telegram is unreachable from this host, say exactly that — an unreachable platform is not a working bot, and it is not a bot defect either.

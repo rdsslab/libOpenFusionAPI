@@ -19,6 +19,7 @@ import { TasksInterval } from "./timer/tasks.js";
 import { defaultApiClient } from "./db/apiclient.js";
 
 import dbAPIs from "./db/sequelize.js";
+import { ensureBotRuntimeColumns } from "./db/ensureBotRuntimeColumns.js";
 import {
   defaultApps,
   getApplicationTreeByFilters,
@@ -333,9 +334,22 @@ export default class ServerAPI extends EventEmitter {
         this.backgroundTasks &&
         this.backgroundTasks.botLifecycleTask
       ) {
+        const task = this.backgroundTasks.botLifecycleTask;
+
+        // Un cambio en la fila es una acción explícita del operador y debe surtir efecto
+        // ya. Si el bot venía de un fallo, su cooldown en memoria haría que startBot lo
+        // rechazara con BOT_COOLDOWN y el arreglo no se aplicaría hasta vencer la espera.
+        const idbot = data?.data?.idbot;
+        if (idbot) {
+          task.manager.resetFailureState(idbot, "bot_row_changed");
+        } else {
+          // Sin idbot no se sabe cuál cambió; resetear todos es barato y seguro.
+          task.manager.resetAllFailureStates("bot_table_changed");
+        }
+
         // runOnce() es async pero el hook no necesita esperar el resultado.
         // El error se maneja internamente dentro de runOnce().
-        this.backgroundTasks.botLifecycleTask.runOnce().catch((err) => {
+        task.runOnce().catch((err) => {
           console.error("[ServerAPI._onBotChanged] Error in botLifecycleTask.runOnce:", err);
         });
       }
@@ -448,6 +462,15 @@ export default class ServerAPI extends EventEmitter {
           }
         }
       }
+    }
+
+    // Fuera del bloque `buildDB`: un despliegue que arranque sin BUILD_DB también
+    // necesita estas columnas, y sin ellas `getActiveBots()` falla en cada ciclo y
+    // ningún bot arranca. Es idempotente y solo mira una tabla.
+    try {
+      await ensureBotRuntimeColumns(log);
+    } catch (error) {
+      log("Error ensuring bot runtime columns:", error);
     }
 
     /*

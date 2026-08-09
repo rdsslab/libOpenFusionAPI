@@ -55,6 +55,16 @@ async function runAllTests() {
         args: ["bot_crud_test.js"],
       },
       {
+        label: "bot_failure_policy_test.js",
+        command: "node",
+        args: ["bot_failure_policy_test.js"],
+      },
+      {
+        label: "bot_resilience_test.js",
+        command: "node",
+        args: ["bot_resilience_test.js"],
+      },
+      {
         label: "backup_restore_test.js",
         command: "node",
         args: ["backup_restore_test.js"],
@@ -88,7 +98,7 @@ async function runAllTests() {
         label: "check_mcp_name_uniqueness",
         command: "node",
         args: [
-          "../scratch/check_mcp_name_uniqueness.js",
+          "check_mcp_name_uniqueness.js",
           "--server-key",
           "openfusion_system_remote_prd",
           "--app",

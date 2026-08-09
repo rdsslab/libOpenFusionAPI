@@ -808,7 +808,10 @@ export const Bot = dbsequelize.define(
       type: DataTypes.BOOLEAN,
       defaultValue: true,
       allowNull: false,
-      comment: "Whether the bot should be running",
+      comment:
+        "User intent: whether the bot SHOULD be running. Owned by the user; the runtime " +
+        "never clears it for a recoverable failure (network, DNS, 429, provider 5xx). " +
+        "Observed health lives in runtime_status.",
     },
     provider: {
       type: DataTypes.STRING(50),
@@ -863,6 +866,68 @@ export const Bot = dbsequelize.define(
     params: jsonField("params", {
       comment: "Additional bot parameters. Merged into the bot sandbox context alongside the app AppVars.",
     }),
+
+    // ── Estado observado del runtime (system-owned) ──────────────────────────
+    // Estas columnas las escribe el BotLifecycleTask, nunca el usuario. Existen para
+    // que `enabled` pueda seguir significando solo "el usuario quiere que corra" y para
+    // que el operador vea POR QUÉ un bot no está corriendo en lugar de deducirlo por su
+    // ausencia. Persistirlas (en vez de dejarlas en memoria) permite además que el
+    // diagnóstico sobreviva a un reinicio del proceso.
+    runtime_status: {
+      type: DataTypes.STRING(24),
+      allowNull: false,
+      defaultValue: "STOPPED",
+      comment:
+        "Observed runtime state: STOPPED | STARTING | RUNNING | BACKOFF | QUARANTINED | DISABLED_ERROR",
+    },
+    failure_count: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
+      comment: "Consecutive failures in the current streak. Reset once the bot stays up long enough.",
+    },
+    last_error_type: {
+      type: DataTypes.STRING(40),
+      allowNull: true,
+      comment: "Error type of the last failure (INVALID_TOKEN, CONNECTION_ERROR, CODE_ERROR, ...)",
+    },
+    last_error_message: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      comment: "Truncated message of the last failure",
+    },
+    last_failure_at: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      comment: "Timestamp of the last failure",
+    },
+    next_retry_at: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      comment: "When the next start attempt is due while in BACKOFF or QUARANTINED",
+    },
+    last_started_at: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      comment: "Timestamp of the last successful start",
+    },
+    last_healthy_at: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      comment: "Last start that stayed up past the stability window and cleared the failure streak",
+    },
+    disabled_by: {
+      type: DataTypes.STRING(8),
+      allowNull: true,
+      comment:
+        "Who cleared `enabled`: 'user' or 'system'. A system-disabled bot is re-enabled " +
+        "automatically once its token or code changes; a user-disabled one never is.",
+    },
+    disabled_reason: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      comment: "Human-readable reason for an automatic disable",
+    },
   },
   {
     freezeTableName: true,
@@ -879,6 +944,10 @@ export const Bot = dbsequelize.define(
       {
         fields: ["provider"],
         name: "idx_bot_provider",
+      },
+      {
+        fields: ["runtime_status"],
+        name: "idx_bot_runtime_status",
       },
     ],
     hooks: {

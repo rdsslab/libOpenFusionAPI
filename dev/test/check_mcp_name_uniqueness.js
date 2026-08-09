@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { normalizeToolKey } from "../../src/lib/server/mcp/toolNames.js";
 
 const DEFAULT_SERVER_KEY = "openfusion_system_remote_prd";
 const DEFAULT_APP_NAME = "system";
@@ -162,16 +163,24 @@ function listDuplicateToolNames(endpoints) {
     const name = String(mcp.name || "").trim();
     if (!name) continue;
 
-    if (!nameToEndpoints.has(name)) {
-      nameToEndpoints.set(name, []);
+    // Se agrupa por el nombre NORMALIZADO, no por el crudo: el registro de tools
+    // saneia el nombre y lo pasa a minúsculas antes de comprobar duplicados, así
+    // que `Foo-Bar` y `foo_bar` colisionan aunque como texto sean distintos. Con
+    // la comparación literal esas colisiones se escapaban y solo se veían como un
+    // console.warn del servidor descartando una de las dos tools.
+    const key = normalizeToolKey(name);
+
+    if (!nameToEndpoints.has(key)) {
+      nameToEndpoints.set(key, []);
     }
 
-    nameToEndpoints.get(name).push({
+    nameToEndpoints.get(key).push({
       idendpoint: ep.idendpoint,
       method: ep.method,
       resource: ep.resource,
       handler: ep.handler,
       access: ep.access,
+      declaredName: name,
     });
   }
 
@@ -195,6 +204,10 @@ async function main() {
         idapp: args.idapp,
         environment: args.environment,
         include_code: false,
+        // Imprescindible: el catálogo excluye el campo `mcp` por defecto. Sin esto
+        // llegaba siempre undefined, el filtro `mcp.enabled !== true` descartaba
+        // todos los endpoints y el test daba OK sin haber comprobado nada.
+        include_mcp: true,
         limit: 500,
         offset: 0,
       },
@@ -215,11 +228,11 @@ async function main() {
     process.exit(0);
   }
 
-  console.error(`Found ${duplicates.length} duplicate mcp.name values:`);
+  console.error(`Found ${duplicates.length} duplicate mcp.name values (compared after sanitizing):`);
   for (const dup of duplicates) {
     console.error(`\n- ${dup.name}`);
     for (const e of dup.entries) {
-      console.error(`  - ${e.method} ${e.resource} | idendpoint=${e.idendpoint} | handler=${e.handler} | access=${e.access}`);
+      console.error(`  - declared as "${e.declaredName}" | ${e.method} ${e.resource} | idendpoint=${e.idendpoint} | handler=${e.handler} | access=${e.access}`);
     }
   }
 

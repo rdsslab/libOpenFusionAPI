@@ -46,11 +46,19 @@ start({
 |---|---|
 | `bot_token_error` | Empty token or unresolved AppVar reference. Bot not started. |
 | `INVALID_TOKEN` | Telegram answered 401 to `getMe()`. Token wrong or revoked. |
+| `FORBIDDEN` | Telegram answered 403/404. The bot was blocked or deleted. |
+| `CODE_ERROR` | Script does not compile, or left no valid `$BOT`. |
 | `CONNECTION_ERROR` | Network failure reaching the Telegram API. |
-| `STARTUP_ERROR` | Script threw, timed out, or left no valid `$BOT`. |
+| `RATE_LIMITED` | Telegram answered 429. Its `retry_after` is honoured. |
+| `PROVIDER_ERROR` | Telegram answered 5xx. |
+| `STARTUP_ERROR` | Unclassified startup failure. |
 | `BOT_ERROR` | An update handler threw. The bot keeps running. |
 
-Three failures inside a 5-minute window set `enabled = false` on the bot row and apply a cooldown.
+Recoverable failures (`CONNECTION_ERROR`, `RATE_LIMITED`, `PROVIDER_ERROR`, `STARTUP_ERROR`) never
+disable the bot: it is retried with backoff and then quarantined with slow probing, indefinitely.
+Three consecutive permanent failures (`INVALID_TOKEN`, `FORBIDDEN`, `CODE_ERROR`) set
+`enabled = false` with `disabled_by = 'system'`; correcting the token or code via `upsert_bot`
+re-enables it automatically.
 
 ## Creating a bot
 

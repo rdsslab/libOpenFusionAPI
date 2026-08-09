@@ -129,6 +129,74 @@ async function checkBotTokenAppVar(data) {
   }
 }
 
+/**
+ * Accede al BotManager vivo para descartar el backoff en memoria de un bot.
+ *
+ * Habilitar o editar un bot es una petición explícita de reintento inmediato. Sin esto,
+ * el `cooldownUntil` que dejó el último fallo seguía vigente y `startBot` rechazaba el
+ * arranque con `BOT_COOLDOWN`, de modo que ni siquiera la intervención manual servía
+ * hasta que venciera la espera.
+ *
+ * @param {Object} params contexto de la función de sistema
+ * @param {string} idbot
+ * @param {string} reason
+ */
+function resetBotBackoff(params, idbot, reason) {
+  try {
+    const task =
+      params?.reply?.openfusionapi?.server?.backgroundTasks?.botLifecycleTask;
+    if (!task) return;
+    task.manager.resetFailureState(idbot, reason);
+    // Sincroniza de inmediato en lugar de esperar al ciclo de 10 s.
+    task.runOnce().catch((err) => {
+      console.error("[bots] runOnce after backoff reset failed:", err);
+    });
+  } catch (error) {
+    // Nunca debe tumbar la respuesta HTTP: es una optimización de latencia.
+    console.error("[bots] resetBotBackoff failed:", error);
+  }
+}
+
+/**
+ * Si el bot había sido apagado POR EL SISTEMA tras fallos permanentes y el usuario acaba
+ * de cambiar el token o el código, se re-habilita solo.
+ *
+ * Corregir la causa es el remedio natural; exigir además un toggle manual convierte un
+ * error ya resuelto en una tarea pendiente. Un bot apagado por el usuario
+ * (`disabled_by = 'user'`) nunca se re-habilita solo: esa decisión es suya.
+ *
+ * @param {Object} data payload del upsert, mutado en sitio
+ * @returns {Promise<string|undefined>} nota informativa para la respuesta
+ */
+async function reviveSystemDisabledBot(data) {
+  if (!data.idbot) return undefined;
+  // Un `enabled` explícito en el payload manda: no adivinar por encima del usuario.
+  if (data.enabled !== undefined) return undefined;
+
+  const existing = await getBotById(data.idbot);
+  if (!existing) return undefined;
+
+  const plain = existing.toJSON ? existing.toJSON() : existing;
+  if (plain.enabled || plain.disabled_by !== "system") return undefined;
+
+  const configChanged =
+    (data.token !== undefined && data.token !== plain.token) ||
+    (data.code !== undefined && data.code !== plain.code);
+  if (!configChanged) return undefined;
+
+  data.enabled = true;
+  data.disabled_by = null;
+  data.disabled_reason = null;
+  data.failure_count = 0;
+  data.runtime_status = "STOPPED";
+  data.next_retry_at = null;
+
+  return (
+    `Bot was auto-disabled by the system (${plain.disabled_reason || "permanent failure"}). ` +
+    `Its token/code changed, so it was re-enabled automatically and will start on the next cycle.`
+  );
+}
+
 export async function fnUpsertBot(params) {
   let r = { code: 200, data: undefined };
   try {
@@ -147,10 +215,15 @@ export async function fnUpsertBot(params) {
     // Sequelize upsert on SQLite may return created=null; infer from request.
     const requestedIdBot = data.idbot;
     const warning = await checkBotTokenAppVar(data);
+    const revived = await reviveSystemDisabledBot(data);
     const { result, created } = await upsertBot(data);
     const wasCreated = typeof created === "boolean" ? created : !requestedIdBot;
+    // Un cambio de configuración es una petición implícita de reintento: el hash de
+    // config del manager reiniciará el worker, pero solo si el cooldown no lo bloquea.
+    if (requestedIdBot) resetBotBackoff(params, requestedIdBot, "config_changed");
     r.data = { success: true, data: result, created: wasCreated };
     if (warning) r.data.warning = warning;
+    if (revived) r.data.info = revived;
   } catch (error) {
     console.error("[fnUpsertBot] error:", error);
     r.data = { success: false, error: error?.message || String(error) };
@@ -188,17 +261,23 @@ export async function fnEnableDisableBot(params) {
       r.data = { success: false, error: "Missing required field: enabled" };
       return r;
     }
+    const shouldEnable = enabled === true || enabled === "true";
     let success = false;
-    if (enabled === true || enabled === "true") {
+    if (shouldEnable) {
       success = await enableBot(idbot);
     } else {
-      success = await disableBot(idbot);
+      // `by: "user"` es lo que impide que el sistema lo vuelva a encender solo: un
+      // apagado deliberado del operador se respeta siempre.
+      success = await disableBot(idbot, { by: "user" });
     }
     if (!success) {
       r.code = 404;
       r.data = { success: false, error: "Bot not found" };
     } else {
-      r.data = { success: true, enabled: Boolean(enabled) };
+      // `Bot.update` en bloque no dispara el hook de invalidación, así que el reintento
+      // inmediato hay que pedirlo aquí de forma explícita.
+      if (shouldEnable) resetBotBackoff(params, idbot, "manual_enable");
+      r.data = { success: true, enabled: shouldEnable };
     }
   } catch (error) {
     console.error("[fnEnableDisableBot] error:", error);

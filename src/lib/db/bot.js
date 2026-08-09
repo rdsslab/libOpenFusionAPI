@@ -15,6 +15,29 @@ import { Bot, Application, AppVars } from "./models.js";
 import { Op } from "sequelize";
 import { v4 as uuidv4 } from "uuid";
 
+/**
+ * Columnas de estado observado del runtime. Las escribe el BotLifecycleTask, nunca el
+ * usuario: `enabled` sigue siendo intención y estas columnas son diagnóstico.
+ * Ver src/lib/server/bot-manager/failurePolicy.js.
+ */
+export const BOT_RUNTIME_ATTRIBUTES = Object.freeze([
+  "runtime_status",
+  "failure_count",
+  "last_error_type",
+  "last_error_message",
+  "last_failure_at",
+  "next_retry_at",
+  "last_started_at",
+  "last_healthy_at",
+  "disabled_by",
+  "disabled_reason",
+]);
+
+const BOT_RUNTIME_ATTRIBUTE_SET = new Set(BOT_RUNTIME_ATTRIBUTES);
+
+/** Tope del mensaje de error persistido: un stack completo no aporta en una columna de estado. */
+const MAX_ERROR_MESSAGE_LENGTH = 500;
+
 // ────────────────────────────────────────────────────────────
 // CREATE / UPDATE
 // ────────────────────────────────────────────────────────────
@@ -117,6 +140,9 @@ export const getBotCatalog = async (filters = {}) => {
       "enabled",
       "environment",
       "params",
+      // Estado observado del runtime: sin esto el operador solo ve que el bot no está
+      // corriendo, no por qué ni cuándo se vuelve a intentar.
+      ...BOT_RUNTIME_ATTRIBUTES,
       "createdAt",
       "updatedAt",
     ];
@@ -210,6 +236,15 @@ export const getActiveBots = async () => {
         token: plain.token,
         code: plain.code,
         params: plain.params,
+        // Se devuelven para que el ciclo de vida pueda rehidratar el backoff tras un
+        // reinicio del proceso: sin esto, al reiniciar se pierde `next_retry_at` y todos
+        // los bots en cuarentena vuelven a golpear al proveedor de inmediato.
+        runtime_status: plain.runtime_status,
+        failure_count: plain.failure_count,
+        last_error_type: plain.last_error_type,
+        next_retry_at: plain.next_retry_at,
+        last_started_at: plain.last_started_at,
+        last_healthy_at: plain.last_healthy_at,
         app: plain.app
           ? {
               idapp: plain.app.idapp,
@@ -231,16 +266,66 @@ export const getActiveBots = async () => {
 // ────────────────────────────────────────────────────────────
 
 /**
- * Deshabilita un bot (enabled = false) sin eliminarlo.
- * Llamado automáticamente por BotManager cuando un bot falla 3 veces consecutivas.
+ * Actualiza únicamente el estado observado del runtime de un bot.
+ *
+ * Solo acepta las columnas de BOT_RUNTIME_ATTRIBUTES: es la barrera que impide que la
+ * telemetría del ciclo de vida pise por accidente la configuración del usuario (token,
+ * code, enabled). Falla en silencio si el bot ya no existe, porque el ciclo de vida puede
+ * intentar persistir el estado de un bot recién borrado.
  *
  * @param {string} idbot
+ * @param {Object} patch subconjunto de BOT_RUNTIME_ATTRIBUTES
  * @returns {Promise<boolean>} true si se actualizó al menos 1 fila
  */
-export const disableBot = async (idbot) => {
+export const updateBotRuntimeState = async (idbot, patch = {}) => {
+  if (!idbot) return false;
+
+  const values = {};
+  for (const [key, value] of Object.entries(patch)) {
+    if (!BOT_RUNTIME_ATTRIBUTE_SET.has(key)) continue;
+    values[key] =
+      key === "last_error_message" && typeof value === "string"
+        ? value.slice(0, MAX_ERROR_MESSAGE_LENGTH)
+        : value;
+  }
+
+  if (Object.keys(values).length === 0) return false;
+
+  try {
+    const [updated] = await Bot.update(values, { where: { idbot } });
+    return updated > 0;
+  } catch (error) {
+    console.error("[bot.js] Error in updateBotRuntimeState:", error, values);
+    throw error;
+  }
+};
+
+/**
+ * Deshabilita un bot (enabled = false) sin eliminarlo.
+ *
+ * `by` distingue quién lo apagó y es lo que hace posible la recuperación autónoma: un bot
+ * apagado por el sistema (`system`) se vuelve a habilitar solo cuando el usuario corrige
+ * el token o el código, mientras que uno apagado por el usuario (`user`) nunca se
+ * re-habilita solo. El sistema solo llega aquí por fallos PERMANENTES —token revocado,
+ * código inválido—; un fallo de red jamás deshabilita, se reintenta indefinidamente.
+ *
+ * @param {string} idbot
+ * @param {Object} [options]
+ * @param {"user"|"system"} [options.by="user"]
+ * @param {string} [options.reason] motivo legible, solo para el auto-disable
+ * @returns {Promise<boolean>} true si se actualizó al menos 1 fila
+ */
+export const disableBot = async (idbot, { by = "user", reason = null } = {}) => {
   try {
     const [updated] = await Bot.update(
-      { enabled: false },
+      {
+        enabled: false,
+        disabled_by: by,
+        disabled_reason: reason,
+        ...(by === "system"
+          ? { runtime_status: "DISABLED_ERROR" }
+          : { runtime_status: "STOPPED", next_retry_at: null }),
+      },
       { where: { idbot } }
     );
     return updated > 0;
@@ -251,7 +336,11 @@ export const disableBot = async (idbot) => {
 };
 
 /**
- * Habilita un bot (enabled = true).
+ * Habilita un bot (enabled = true) y limpia el estado de fallo persistido.
+ *
+ * Habilitar es una acción explícita del operador: equivale a pedir un reintento ya, así
+ * que la racha de fallos y el `next_retry_at` se descartan. El backoff en memoria lo
+ * resetea `fnEnableDisableBot` a través del BotManager.
  *
  * @param {string} idbot
  * @returns {Promise<boolean>}
@@ -259,7 +348,14 @@ export const disableBot = async (idbot) => {
 export const enableBot = async (idbot) => {
   try {
     const [updated] = await Bot.update(
-      { enabled: true },
+      {
+        enabled: true,
+        disabled_by: null,
+        disabled_reason: null,
+        runtime_status: "STOPPED",
+        failure_count: 0,
+        next_retry_at: null,
+      },
       { where: { idbot } }
     );
     return updated > 0;

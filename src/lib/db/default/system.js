@@ -52,13 +52,50 @@ export const system_app = {
         "enabled": true,
         "name": "system_interval_tasks_delete_prd",
         "title": "Delete System Interval Task (PRD)",
-        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nDeletes an interval task in the system application on prd environment.",
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nPermanently deletes one or more scheduled interval tasks on the prd environment. Send `idtask` with a single task id or with an array of ids. Deleting a task removes the schedule only: the endpoint it was running is not touched. To stop a task without losing its configuration, call 'system_interval_tasks_upsert_prd' with `enabled: false` instead.",
         "operation_mode": "write",
         "requires_explicit_confirmation": true,
-        "side_effects": "May delete interval task scheduling state.",
-        "safe_alternative": "Use read-only tools to inspect current task state before deletion."
+        "side_effects": "Permanently removes the schedule rows: the affected tasks stop running and their configuration (interval, params, note) is lost. The endpoints themselves are not deleted.",
+        "safe_alternative": "Call 'system_interval_tasks_byidapp_prd' to confirm the exact `idtask` values, or disable the task with 'system_interval_tasks_upsert_prd' (`enabled: false`) to stop it reversibly."
       },
-      "json_schema": {},
+      "json_schema": {
+        "in": {
+          "enabled": true,
+          "schema": {
+            "title": "IntervalTaskDeleteRequest",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "idtask"
+            ],
+            "properties": {
+              "idtask": {
+                "description": "Task id to delete, or an array of task ids for a batch deletion. Obtain the values from 'system_interval_tasks_byidapp_prd'.",
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "integer"
+                    },
+                    "minItems": 1
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "out": {
+          "enabled": false,
+          "schema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": true
+          }
+        }
+      },
       "custom_data": {},
       "headers_test": {},
       "data_test": {
@@ -259,14 +296,19 @@ export const system_app = {
       },
       "cors": {},
       "mcp": {
-        "enabled": true,
+        "enabled": false,
         "name": "upsert_js_endpoint_handler",
         "title": "UPSERT JS Endpoint",
-        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nCreates or updates JS endpoints using a simplified payload. Send `js_code` and this wrapper maps it to endpoint_upsert with handler=JS.",
+        "description": "Thin wrapper over 'endpoint_upsert' that only renames fields (`js_code` → `code`) and forces handler=JS. It is intentionally NOT exposed as an MCP tool: it adds no capability over 'endpoint_upsert', it hides where the data really lands in the endpoint model, and it costs an extra internal request. Agents must call 'endpoint_upsert' with handler=JS directly. The HTTP endpoint stays enabled for existing clients.",
         "operation_mode": "write",
         "requires_explicit_confirmation": true,
         "side_effects": "May create, update, delete, restore, migrate, or invalidate application resources.",
-        "safe_alternative": "Use a read-only catalog/search/status tool first to verify target ids and scope."
+        "safe_alternative": "Use a read-only catalog/search/status tool first to verify target ids and scope.",
+        "notes": [
+          "Retired from MCP on 2026-08-08: redundant with 'endpoint_upsert'.",
+          "Field mapping this wrapper applied, for reference: `js_code` → `code`.",
+          "See the per-handler mapping table in the 'endpoint_upsert' description, or call 'handler_documentation' with handler=JS."
+        ]
       },
       "json_schema": {
         "in": {
@@ -522,7 +564,7 @@ export const system_app = {
       "handler": "JS",
       "access": 3,
       "title": "UPSERT JS Handler Endpoint",
-      "description": "Create or modify in OpenFusion API an endpoint that runs JavaScript (JS handler).",
+      "description": "Create or modify in OpenFusion API an endpoint that runs JavaScript (JS handler). [Not exposed via MCP: redundant with endpoint_upsert. Agents must use endpoint_upsert directly.]",
       "price_by_request": 1,
       "price_kb_request": 1,
       "price_kb_response": 1,
@@ -1443,14 +1485,19 @@ export const system_app = {
       },
       "cors": {},
       "mcp": {
-        "enabled": true,
+        "enabled": false,
         "name": "upsert_soap_endpoint_handler",
         "title": "UPSERT SOAP Endpoint",
-        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nCreates or updates SOAP endpoints using a simplified payload. Send `soap_config` and this wrapper maps it to endpoint_upsert with handler=SOAP.",
+        "description": "Thin wrapper over 'endpoint_upsert' that only renames fields (`soap_config` → `code` or `custom_data`) and forces handler=SOAP. It is intentionally NOT exposed as an MCP tool: it adds no capability over 'endpoint_upsert', it hides where the data really lands in the endpoint model, and it costs an extra internal request. Agents must call 'endpoint_upsert' with handler=SOAP directly. The HTTP endpoint stays enabled for existing clients.",
         "operation_mode": "write",
         "requires_explicit_confirmation": true,
         "side_effects": "May create, update, delete, restore, migrate, or invalidate application resources.",
-        "safe_alternative": "Use a read-only catalog/search/status tool first to verify target ids and scope."
+        "safe_alternative": "Use a read-only catalog/search/status tool first to verify target ids and scope.",
+        "notes": [
+          "Retired from MCP on 2026-08-08: redundant with 'endpoint_upsert'.",
+          "Field mapping this wrapper applied, for reference: `soap_config` → `code` or `custom_data`.",
+          "See the per-handler mapping table in the 'endpoint_upsert' description, or call 'handler_documentation' with handler=SOAP."
+        ]
       },
       "json_schema": {
         "in": {
@@ -1713,7 +1760,7 @@ export const system_app = {
       "handler": "JS",
       "access": 3,
       "title": "UPSERT SOAP Handler Endpoint",
-      "description": "Create or modify in OpenFusion API a SOAP handler endpoint.",
+      "description": "Create or modify in OpenFusion API a SOAP handler endpoint. [Not exposed via MCP: redundant with endpoint_upsert. Agents must use endpoint_upsert directly.]",
       "price_by_request": 1,
       "price_kb_request": 1,
       "price_kb_response": 1,
@@ -2642,14 +2689,19 @@ export const system_app = {
       },
       "cors": {},
       "mcp": {
-        "enabled": true,
+        "enabled": false,
         "name": "upsert_fetch_endpoint_handler",
         "title": "UPSERT FETCH Endpoint",
-        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nCreates or updates FETCH endpoints using a simplified payload. Send `target_url` and this wrapper maps it to endpoint_upsert with handler=FETCH.",
+        "description": "Thin wrapper over 'endpoint_upsert' that only renames fields (`target_url` → `code`) and forces handler=FETCH. It is intentionally NOT exposed as an MCP tool: it adds no capability over 'endpoint_upsert', it hides where the data really lands in the endpoint model, and it costs an extra internal request. Agents must call 'endpoint_upsert' with handler=FETCH directly. The HTTP endpoint stays enabled for existing clients.",
         "operation_mode": "write",
         "requires_explicit_confirmation": true,
         "side_effects": "May create, update, delete, restore, migrate, or invalidate application resources.",
-        "safe_alternative": "Use a read-only catalog/search/status tool first to verify target ids and scope."
+        "safe_alternative": "Use a read-only catalog/search/status tool first to verify target ids and scope.",
+        "notes": [
+          "Retired from MCP on 2026-08-08: redundant with 'endpoint_upsert'.",
+          "Field mapping this wrapper applied, for reference: `target_url` → `code`.",
+          "See the per-handler mapping table in the 'endpoint_upsert' description, or call 'handler_documentation' with handler=FETCH."
+        ]
       },
       "json_schema": {
         "in": {
@@ -2906,7 +2958,7 @@ export const system_app = {
       "handler": "JS",
       "access": 3,
       "title": "UPSERT FETCH Handler Endpoint",
-      "description": "Create or modify in OpenFusion API an endpoint that proxies to an external URL (FETCH handler).",
+      "description": "Create or modify in OpenFusion API an endpoint that proxies to an external URL (FETCH handler). [Not exposed via MCP: redundant with endpoint_upsert. Agents must use endpoint_upsert directly.]",
       "price_by_request": 1,
       "price_kb_request": 1,
       "price_kb_response": 1,
@@ -3372,7 +3424,8 @@ export const system_app = {
             "type": "object",
             "properties": {
               "idapp": {
-                "type": "string"
+                "type": "string",
+                "description": "UUID of the application whose endpoints you want to list. Obtain it from 'apps_catalog'."
               },
               "environment": {
                 "type": "string"
@@ -3396,11 +3449,13 @@ export const system_app = {
               },
               "limit": {
                 "type": "integer",
-                "minimum": 1
+                "minimum": 1,
+                "description": "Maximum number of endpoints to return. Omit to return them all; when you send it, the response is truncated silently, so page with `offset` before concluding an endpoint does not exist."
               },
               "offset": {
                 "type": "integer",
-                "minimum": 0
+                "minimum": 0,
+                "description": "Number of endpoints to skip before returning results. Use it together with `limit` to page through the catalog."
               }
             },
             "additionalProperties": false,
@@ -3494,8 +3549,8 @@ export const system_app = {
       "mcp": {
         "enabled": true,
         "name": "get_app_list_filters",
-        "title": "Get App with Endpoints by Filters",
-        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns a SINGLE application with its nested endpoints and AppVars, filtered by any combination of app name, idapp, enabled status, and endpoint-level filters (environment, method, handler, resource, enabled). Use this when you need app data AND endpoint data in one call with precise filters. For simpler cases prefer: 'apps_catalog' (app names only), 'app_endpoints' (all endpoints for an app), or 'search_endpoints' (keyword search across endpoints).",
+        "title": "List Apps with Nested Endpoints and Variables by Filters",
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns a LIST of applications — filtering by `idapp` or `app` narrows it to one, but the response is always an array — each one with its AppVars expanded (values included) and with the endpoints that match the endpoint-level filters (environment, method, handler, resource, enabled). All filters combine as AND conditions.\nThis is the HEAVIEST tool of the discovery family: it expands variables and endpoints for every matching application. Use it only when you genuinely need application data AND endpoint data in a single call. Otherwise prefer 'apps_catalog' (applications only), 'app_endpoints_catalog' (endpoints of one application) or 'search_endpoints' (keyword search).",
         "operation_mode": "read",
         "requires_explicit_confirmation": false,
         "side_effects": "No persistent write side effects expected.",
@@ -3700,14 +3755,19 @@ export const system_app = {
       },
       "cors": {},
       "mcp": {
-        "enabled": true,
+        "enabled": false,
         "name": "upsert_sql_bulk_i_endpoint_handler",
         "title": "UPSERT SQL_BULK_I Endpoint",
-        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nCreates or updates SQL_BULK_I endpoints using a simplified payload. Send `table_name` plus optional `bulk_config`, and this wrapper maps them to endpoint_upsert with handler=SQL_BULK_I.",
+        "description": "Thin wrapper over 'endpoint_upsert' that only renames fields (`table_name` → `code`, `bulk_config` → `custom_data`) and forces handler=SQL_BULK_I. It is intentionally NOT exposed as an MCP tool: it adds no capability over 'endpoint_upsert', it hides where the data really lands in the endpoint model, and it costs an extra internal request. Agents must call 'endpoint_upsert' with handler=SQL_BULK_I directly. The HTTP endpoint stays enabled for existing clients.",
         "operation_mode": "write",
         "requires_explicit_confirmation": true,
         "side_effects": "May create, update, delete, restore, migrate, or invalidate application resources.",
-        "safe_alternative": "Use a read-only catalog/search/status tool first to verify target ids and scope."
+        "safe_alternative": "Use a read-only catalog/search/status tool first to verify target ids and scope.",
+        "notes": [
+          "Retired from MCP on 2026-08-08: redundant with 'endpoint_upsert'.",
+          "Field mapping this wrapper applied, for reference: `table_name` → `code`, `bulk_config` → `custom_data`.",
+          "See the per-handler mapping table in the 'endpoint_upsert' description, or call 'handler_documentation' with handler=SQL_BULK_I."
+        ]
       },
       "json_schema": {
         "in": {
@@ -3968,7 +4028,7 @@ export const system_app = {
       "handler": "JS",
       "access": 3,
       "title": "UPSERT SQL_BULK_I Handler Endpoint",
-      "description": "Create or modify in OpenFusion API a SQL_BULK_I handler endpoint.",
+      "description": "Create or modify in OpenFusion API a SQL_BULK_I handler endpoint. [Not exposed via MCP: redundant with endpoint_upsert. Agents must use endpoint_upsert directly.]",
       "price_by_request": 1,
       "price_kb_request": 1,
       "price_kb_response": 1,
@@ -4923,11 +4983,11 @@ export const system_app = {
         "enabled": true,
         "name": "endpoint_upsert",
         "title": "Endpoint UPSERT",
-        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nCreates or updates an endpoint. For updates, retrieve the current endpoint state using `read_endpoint_data` first. Prefer handler-specific wrappers (such as `upsert_js_endpoint_handler`) over this generic endpoint.",
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nCreates or updates an endpoint. This is the single tool for creating endpoints of any handler type; there are no handler-specific alternatives.\nOperation mode: omit `idendpoint` for INSERT (the UUID is generated); send a valid `idendpoint` for UPDATE. Before an UPDATE, read the current state with 'read_endpoint_data' and modify it instead of rebuilding it from memory.\nOnly four fields are required: `idapp`, `resource`, `method` and `handler`. Every other field is optional and falls back to a stored default: `enabled`=true, `environment`=\"dev\", `timeout`=30, `access`=2, `title`=\"\", `description`=\"\", `price_by_request`/`price_kb_request`/`price_kb_response`=1, `keywords`=\"\", `code`=\"\", `cache_time`=0. On an INSERT you should still send `code` and `title` explicitly: an endpoint with an empty `code` does nothing.\nWhere the handler payload goes: `handler` decides the meaning of `code` and `custom_data`. JS -> `code` holds the JavaScript source. FUNCTION -> `code` holds the internal function name. SQL and HANA -> `code` holds the statement. MONGODB -> `code` holds the query script and `custom_data` the connection config. FETCH -> `code` holds the target URL. TEXT -> `code` holds the text body and `custom_data` carries `mimeType` and `fileName`. SQL_BULK_I -> `code` holds the destination table name and `custom_data` the bulk config. SOAP -> `code` or `custom_data` hold the SOAP config depending on its shape. Call 'handler_documentation' with the chosen handler before composing payloads for SQL_BULK_I, SOAP, HANA, MONGODB or MCP.\nAfter writing, verify the persisted structure with 'read_endpoint_data' and test the endpoint with 'execute_endpoint_test'.",
         "operation_mode": "write",
         "requires_explicit_confirmation": true,
-        "side_effects": "May create, update, delete, restore, migrate, or invalidate application resources.",
-        "safe_alternative": "Use a read-only catalog/search/status tool first to verify target ids and scope.",
+        "side_effects": "Creates or overwrites an endpoint definition and publishes it at its resource path. An UPDATE replaces the live behavior of an endpoint that other systems may already be calling; the previous version is recoverable through 'endpoint_change_history' and 'endpoint_restore_version'.",
+        "safe_alternative": "Call 'read_endpoint_data' first on an UPDATE to modify the current structure, and 'app_endpoints_catalog' to confirm the resource path is not already taken.",
         "outputSchema": {
           "type": "object",
           "additionalProperties": true
@@ -5099,20 +5159,9 @@ export const system_app = {
             "title": "Endpoint",
             "required": [
               "idapp",
-              "environment",
-              "timeout",
               "resource",
               "method",
-              "handler",
-              "access",
-              "title",
-              "description",
-              "price_by_request",
-              "price_kb_request",
-              "price_kb_response",
-              "keywords",
-              "code",
-              "cache_time"
+              "handler"
             ],
             "allOf": [
               {
@@ -5432,7 +5481,8 @@ export const system_app = {
             "type": "object",
             "properties": {
               "idapp": {
-                "type": "string"
+                "type": "string",
+                "description": "UUID of the application whose variables you want to list. Obtain it from 'apps_catalog'."
               },
               "environment": {
                 "type": "string"
@@ -5442,11 +5492,13 @@ export const system_app = {
               },
               "limit": {
                 "type": "integer",
-                "minimum": 1
+                "minimum": 1,
+                "description": "Maximum number of variables to return. Omit to return them all; when you send it, the response is truncated silently, so page with `offset` before concluding a variable does not exist."
               },
               "offset": {
                 "type": "integer",
-                "minimum": 0
+                "minimum": 0,
+                "description": "Number of variables to skip before returning results. Use it together with `limit` to page through the catalog."
               }
             },
             "additionalProperties": false,
@@ -5918,14 +5970,19 @@ export const system_app = {
       },
       "cors": {},
       "mcp": {
-        "enabled": true,
+        "enabled": false,
         "name": "upsert_sql_endpoint_handler",
         "title": "UPSERT SQL Endpoint",
-        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nCreate or modify in OpenFusion API an endpoint that executes SQL statements (CRUD) on SQL databases supported by Sequelize. Supports HTTP methods GET, POST, PUT, PATCH, DELETE, OPTIONS, and HEAD for the created endpoint. Runtime note: repeated query-string keys follow Fastify semantics and are preserved as arrays.",
+        "description": "Thin wrapper over 'endpoint_upsert' that only renames fields (`code` verbatim, `method` upper-cased) and forces handler=SQL. It is intentionally NOT exposed as an MCP tool: it adds no capability over 'endpoint_upsert', it hides where the data really lands in the endpoint model, and it costs an extra internal request. Agents must call 'endpoint_upsert' with handler=SQL directly. The HTTP endpoint stays enabled for existing clients.",
         "operation_mode": "write",
         "requires_explicit_confirmation": true,
         "side_effects": "May create, update, delete, restore, migrate, or invalidate application resources.",
-        "safe_alternative": "Use a read-only catalog/search/status tool first to verify target ids and scope."
+        "safe_alternative": "Use a read-only catalog/search/status tool first to verify target ids and scope.",
+        "notes": [
+          "Retired from MCP on 2026-08-08: redundant with 'endpoint_upsert'.",
+          "Field mapping this wrapper applied, for reference: `code` verbatim, `method` upper-cased.",
+          "See the per-handler mapping table in the 'endpoint_upsert' description, or call 'handler_documentation' with handler=SQL."
+        ]
       },
       "json_schema": {
         "in": {
@@ -6149,7 +6206,7 @@ export const system_app = {
       "handler": "JS",
       "access": 3,
       "title": "UPSERT SQL Handler Endpoint",
-      "description": "Create or modify in OpenFusion API an endpoint that executes SQL statements (CRUD) on SQL databases supported by Sequelize. Supports HTTP methods GET, POST, PUT, PATCH, DELETE, OPTIONS, and HEAD for the created endpoint.",
+      "description": "Create or modify in OpenFusion API an endpoint that executes SQL statements (CRUD) on SQL databases supported by Sequelize. Supports HTTP methods GET, POST, PUT, PATCH, DELETE, OPTIONS, and HEAD for the created endpoint. [Not exposed via MCP: redundant with endpoint_upsert. Agents must use endpoint_upsert directly.]",
       "price_by_request": 1,
       "price_kb_request": 1,
       "price_kb_response": 1,
@@ -6166,13 +6223,84 @@ export const system_app = {
         "enabled": true,
         "name": "system_interval_tasks_upsert_prd",
         "title": "Upsert System Interval Task (PRD)",
-        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nCreates or updates an interval task in the system application on prd environment.",
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nSchedules an existing endpoint to run on a fixed interval, on the prd environment. Only `idendpoint` is required; everything else has a default. Operation mode: omit `idtask` for INSERT (the id is generated automatically); send an existing `idtask` for UPDATE.\nIMPORTANT: `enabled` defaults to false, so a task created without `enabled: true` is stored but never runs. Use 'system_interval_tasks_byidapp_prd' to inspect the current tasks of the application before writing.",
         "operation_mode": "write",
         "requires_explicit_confirmation": true,
-        "side_effects": "May create, update, or modify interval task scheduling state.",
-        "safe_alternative": "Use read-only tools to inspect current task state before updating."
+        "side_effects": "Creates or reschedules a recurring execution: the target endpoint will start running unattended every `interval` seconds until the task is disabled or deleted.",
+        "safe_alternative": "Call 'system_interval_tasks_byidapp_prd' first to see the tasks already scheduled for the application and avoid duplicating one."
       },
-      "json_schema": {},
+      "json_schema": {
+        "in": {
+          "enabled": true,
+          "schema": {
+            "title": "IntervalTaskUpsertRequest",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "idendpoint"
+            ],
+            "properties": {
+              "idtask": {
+                "type": "integer",
+                "description": "Task id. Omit for INSERT (it is auto-generated); send it to UPDATE an existing task."
+              },
+              "idendpoint": {
+                "type": "string",
+                "format": "uuid",
+                "description": "UUID of the endpoint this task executes on every tick. Obtain it from 'app_endpoints_catalog' or 'search_endpoints'."
+              },
+              "iduser": {
+                "type": "integer",
+                "description": "Optional id of the user the execution is attributed to."
+              },
+              "enabled": {
+                "type": "boolean",
+                "default": false,
+                "description": "Whether the scheduler runs this task. Defaults to false, so send true explicitly if the task must start running."
+              },
+              "interval": {
+                "type": "integer",
+                "minimum": 1,
+                "default": 300,
+                "description": "Seconds between executions (default: 300)."
+              },
+              "datestart": {
+                "type": "string",
+                "format": "date-time",
+                "description": "Moment the task becomes eligible to run. Defaults to the creation timestamp."
+              },
+              "dateend": {
+                "type": "string",
+                "format": "date-time",
+                "description": "Optional moment after which the task stops running. Omit for no end date."
+              },
+              "exec_time_limit": {
+                "type": "integer",
+                "minimum": 1,
+                "default": 30,
+                "description": "Maximum seconds one execution may take before being cut off (default: 30)."
+              },
+              "params": {
+                "type": "object",
+                "additionalProperties": true,
+                "description": "Payload passed to the endpoint on every execution."
+              },
+              "note": {
+                "type": "string",
+                "description": "Free-text note describing what this task is for."
+              }
+            }
+          }
+        },
+        "out": {
+          "enabled": false,
+          "schema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": true
+          }
+        }
+      },
       "custom_data": {},
       "headers_test": {},
       "data_test": {
@@ -6436,7 +6564,7 @@ export const system_app = {
         "enabled": true,
         "name": "app_endpoints",
         "title": "List all endpoints of an app",
-        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns the COMPLETE list of all endpoints for one application identified by 'idapp', across all environments (dev, qa, prd) and regardless of enabled/disabled status. Use this tool when you need the full inventory of endpoints for an app. To search for a specific endpoint by keyword, use 'search_endpoints' instead. To discover the idapp use 'apps_list' or 'apps_catalog'. Use the optional 'attributes' array to request only specific fields and reduce the payload size.",
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns every endpoint of the application identified by `idapp`, across all environments (dev, qa, prd) and regardless of enabled state, with NO filters available.\nThis is the heaviest endpoint-listing tool: each row carries every column, including `code`, `mcp` and `json_schema`. Do not use it for discovery — 'app_endpoints_catalog' returns the same endpoints without those large fields and supports filtering by environment, method, handler and enabled state, and 'search_endpoints' finds one by keyword. Reach for this tool only when you deliberately need the full payload of many endpoints at once, and even then narrow it with the optional `attributes` array.\nTo discover the `idapp`, use 'apps_catalog'.",
         "operation_mode": "read",
         "requires_explicit_confirmation": false,
         "side_effects": "No persistent write side effects expected.",
@@ -6572,12 +6700,13 @@ export const system_app = {
       "mcp": {
         "enabled": true,
         "name": "cache_invalidate",
+        "destructive": false,
         "title": "Invalidate Endpoint Cache",
         "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nInvalidates endpoint cache entries by `idapp` (optionally `environment`) or by a specific `idendpoint`. Use this when endpoint definitions or app variables changed and you need fresh data on next request.",
         "operation_mode": "write",
         "requires_explicit_confirmation": true,
-        "side_effects": "May create, update, delete, restore, migrate, or invalidate application resources.",
-        "safe_alternative": "Use a read-only catalog/search/status tool first to verify target ids and scope."
+        "side_effects": "Drops cached endpoint entries so the next request rebuilds them from the database. No definition, variable or data is modified: the only visible effect is a slower first request after the invalidation.",
+        "safe_alternative": "Call 'cache_status' first to see what is currently cached and scope the invalidation to a single `idendpoint` instead of a whole application."
       },
       "json_schema": {
         "in": {
@@ -6678,14 +6807,19 @@ export const system_app = {
       },
       "cors": {},
       "mcp": {
-        "enabled": true,
+        "enabled": false,
         "name": "upsert_hana_endpoint_handler",
         "title": "UPSERT HANA Endpoint",
-        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nCreates or updates HANA endpoints using a simplified payload. Send `hana_code` and optional `hana_config`, and this wrapper maps them to endpoint_upsert with handler=HANA. Runtime note: repeated query-string keys follow Fastify semantics and are preserved as arrays.",
+        "description": "Thin wrapper over 'endpoint_upsert' that only renames fields (`hana_code` → `code`, `hana_config` → `custom_data`) and forces handler=HANA. It is intentionally NOT exposed as an MCP tool: it adds no capability over 'endpoint_upsert', it hides where the data really lands in the endpoint model, and it costs an extra internal request. Agents must call 'endpoint_upsert' with handler=HANA directly. The HTTP endpoint stays enabled for existing clients.",
         "operation_mode": "write",
         "requires_explicit_confirmation": true,
         "side_effects": "May create, update, delete, restore, migrate, or invalidate application resources.",
-        "safe_alternative": "Use a read-only catalog/search/status tool first to verify target ids and scope."
+        "safe_alternative": "Use a read-only catalog/search/status tool first to verify target ids and scope.",
+        "notes": [
+          "Retired from MCP on 2026-08-08: redundant with 'endpoint_upsert'.",
+          "Field mapping this wrapper applied, for reference: `hana_code` → `code`, `hana_config` → `custom_data`.",
+          "See the per-handler mapping table in the 'endpoint_upsert' description, or call 'handler_documentation' with handler=HANA."
+        ]
       },
       "json_schema": {
         "in": {
@@ -6945,7 +7079,7 @@ export const system_app = {
       "handler": "JS",
       "access": 3,
       "title": "UPSERT HANA Handler Endpoint",
-      "description": "Create or modify in OpenFusion API a HANA handler endpoint.",
+      "description": "Create or modify in OpenFusion API a HANA handler endpoint. [Not exposed via MCP: redundant with endpoint_upsert. Agents must use endpoint_upsert directly.]",
       "price_by_request": 1,
       "price_kb_request": 1,
       "price_kb_response": 1,
@@ -6972,11 +7106,11 @@ export const system_app = {
         "enabled": true,
         "name": "endpoint_migrate",
         "title": "Migrate Endpoint to Another Environment",
-        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nCopies one or more endpoints from their current environment to a target environment (dev, qa, or prd). The original endpoint is NOT deleted — this is a copy/promote operation, not a move. Each item in the array requires 'idendpoint' (UUID of the source endpoint) and 'target_env' (destination environment). Possible per-item outcomes: 'success' (migrated and new_idendpoint is returned), 'ignored' (source is already in target_env), 'already exists' (an endpoint with same app+resource+method already exists in target_env — treated as success, no duplicate is created), or 'error'. To obtain idendpoint values use 'app_endpoints' (full list) or 'search_endpoints' (by keyword). To verify the migration use 'app_endpoints' filtering by the target environment after calling this tool.",
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nCopies one or more endpoints from their current environment to a target environment (dev, qa, or prd). The original endpoint is NOT deleted — this is a copy/promote operation, not a move. Each item in the array requires 'idendpoint' (UUID of the source endpoint) and 'target_env' (destination environment). Possible per-item outcomes: 'success' (migrated and new_idendpoint is returned), 'ignored' (source is already in target_env), 'already exists' (an endpoint with same app+resource+method already exists in target_env — treated as success, no duplicate is created), or 'error'. To obtain idendpoint values use 'app_endpoints_catalog' (lightweight, filterable by environment) or 'search_endpoints' (by keyword). To verify the migration call 'app_endpoints_catalog' again filtering by the target environment.",
         "operation_mode": "write",
         "requires_explicit_confirmation": true,
-        "side_effects": "May create, update, delete, restore, migrate, or invalidate application resources.",
-        "safe_alternative": "Use a read-only catalog/search/status tool first to verify target ids and scope."
+        "side_effects": "Creates copies of the selected endpoints in the target environment. The source endpoints are left untouched, and an endpoint that already exists at the same app+resource+method in the target is reported as 'already exists' without creating a duplicate.",
+        "safe_alternative": "Call 'endpoint_versions_matrix' first to see which environments already differ and what would actually be promoted."
       },
       "json_schema": {
         "in": {
@@ -6997,7 +7131,7 @@ export const system_app = {
                 "idendpoint": {
                   "type": "string",
                   "format": "uuid",
-                  "description": "UUID of the source endpoint to migrate. Obtain from 'app_endpoints' or 'search_endpoints'."
+                  "description": "UUID of the source endpoint to migrate. Obtain it from 'app_endpoints_catalog' (when you know the application) or 'search_endpoints' (when you only have a name, path or keyword)."
                 },
                 "target_env": {
                   "type": "string",
@@ -7126,11 +7260,11 @@ export const system_app = {
         "enabled": true,
         "name": "appvar_migrate",
         "title": "Migrate AppVar to Another Environment",
-        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nCopies one or more application variables (AppVars) from their current environment to a target environment (dev, qa, or prd). The original AppVar is NOT deleted — this is a copy/promote operation, not a move. Each item in the array requires 'idappvar' (UUID of the source AppVar) and 'target_env' (destination environment). Possible per-item outcomes: 'success' (migrated and new_idappvar is returned), 'ignored' (source is already in target_env), 'already exists' (an AppVar with same app+name already exists in target_env — treated as success, variable replaced), or 'error'. The variable NAME is propagated verbatim from the source row, so migrating a legacy AppVar whose name does not match `^\\$_VAR_[A-Z0-9_]+$` fails with `code: \"INVALID_APPVAR_NAME\"` and a `suggestion` for that item; rename the source variable first (and every endpoint referencing it) before migrating. To obtain idappvar values use 'app_vars' (full list) or query AppVars by idapp. To verify the migration use 'app_vars' filtering by the target environment after calling this tool.",
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nCopies one or more application variables (AppVars) from their current environment to a target environment (dev, qa, or prd). The original AppVar is NOT deleted — this is a copy/promote operation, not a move. Each item in the array requires 'idappvar' (UUID of the source AppVar) and 'target_env' (destination environment). Possible per-item outcomes: 'success' (migrated and new_idappvar is returned), 'ignored' (source is already in target_env), 'already exists' (an AppVar with same app+name already exists in target_env — treated as success, variable replaced), or 'error'. The variable NAME is propagated verbatim from the source row, so migrating a legacy AppVar whose name does not match `^\\$_VAR_[A-Z0-9_]+$` fails with `code: \"INVALID_APPVAR_NAME\"` and a `suggestion` for that item; rename the source variable first (and every endpoint referencing it) before migrating. To obtain idappvar values use 'app_vars_catalog' (lightweight, no values) or 'app_vars' (full payload with values). To verify the migration call 'app_vars_catalog' filtering by the target environment.",
         "operation_mode": "write",
         "requires_explicit_confirmation": true,
-        "side_effects": "May create, update, delete, restore, migrate, or invalidate application resources.",
-        "safe_alternative": "Use a read-only catalog/search/status tool first to verify target ids and scope."
+        "side_effects": "Creates copies of the selected variables in the target environment. The source variables are left untouched, but a variable that already exists with the same name in the target IS REPLACED with the source value, which changes what the endpoints of that environment resolve.",
+        "safe_alternative": "Call 'app_vars_catalog' on the target environment first to see which names already exist and would be overwritten."
       },
       "json_schema": {
         "in": {
@@ -7280,7 +7414,7 @@ export const system_app = {
         "enabled": true,
         "name": "search_endpoints",
         "title": "Search Endpoints",
-        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nFull-text keyword search across endpoints. Searches title, description, resource, and keywords fields using a LIKE pattern. The 'query' parameter is optional — omitting it (or leaving other filters like idapp, environment, or handler) returns all matching endpoints. Optionally searches inside source code with 'search_code: true'. Returns a lightweight catalog (no source code by default). Max results: 200 (default 50, use 'offset' for pagination). To retrieve ALL endpoints of a specific app use 'app_endpoints' with the idapp.",
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nFull-text keyword search across endpoints. Matches `query` with a LIKE pattern against title, description, resource and keywords; add `search_code: true` to also match the source code. `query` is optional: omitting it and sending only filters (`idapp`, `environment`, `handler`, `enabled`) returns everything that matches those filters.\nUse this as the entry point when you only know a name, a path or a keyword. When you already know the application, 'app_endpoints_catalog' is the more direct route.\nThe response is a lightweight catalog: no source code and no `mcp` metadata unless you ask for them with `search_code` and `include_mcp`. Results are capped at 200 (default 50) and the cut is silent, so page with `offset` before concluding an endpoint does not exist.",
         "operation_mode": "read",
         "requires_explicit_confirmation": false,
         "side_effects": "No persistent write side effects expected.",
@@ -7324,6 +7458,11 @@ export const system_app = {
                 "type": "boolean",
                 "default": false,
                 "description": "If true, also search inside the source code field. Slower. Use only when you need to find endpoints by their implementation logic."
+              },
+              "include_mcp": {
+                "type": "boolean",
+                "default": false,
+                "description": "If true, include each endpoint's `mcp` metadata block (description, examples, notes) in the response. It is the largest field of the row and is excluded by default; enable it only when you need to inspect how an endpoint is exposed as an MCP tool."
               },
               "limit": {
                 "type": "integer",
@@ -7683,8 +7822,8 @@ export const system_app = {
         "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nCreates or updates the main Application record only. This is the first step in the recommended workflow: create the application, then create shared AppVars with 'appvar_upsert', then attach endpoints with 'endpoint_upsert'. Does NOT create endpoints or AppVars by itself. Operation mode: omit 'idapp' for INSERT; include a valid UUID in 'idapp' for UPDATE. The 'app' name is normalized to lowercase, must be unique, and must match [a-zA-Z0-9_~.-] (max 50 chars).",
         "operation_mode": "write",
         "requires_explicit_confirmation": true,
-        "side_effects": "May create, update, delete, restore, migrate, or invalidate application resources.",
-        "safe_alternative": "Use a read-only catalog/search/status tool first to verify target ids and scope.",
+        "side_effects": "Creates or updates the application record only. It does not create endpoints or variables, but renaming an existing application changes the URL prefix its endpoints are served under.",
+        "safe_alternative": "Call 'apps_catalog' first to check whether the name is already taken and to confirm the `idapp` you are updating.",
         "exampleRequest": {
           "app": "my_new_app",
           "enabled": true,
@@ -7700,8 +7839,7 @@ export const system_app = {
             "type": "object",
             "additionalProperties": false,
             "required": [
-              "app",
-              "enabled"
+              "app"
             ],
             "properties": {
               "idapp": {
@@ -7950,11 +8088,11 @@ export const system_app = {
         "enabled": true,
         "name": "appvar_upsert",
         "title": "Create or Update Application Variable",
-        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nCreates or updates a reusable application variable for a target `idapp` and `environment`. Use this after creating the application and before creating endpoints when configuration must be shared across multiple endpoints. Supported environments commonly used by agents are `dev`, `qa`, and `prd`. `value` is stored as a string in this contract. When an endpoint JSON payload needs an AppVar placeholder, embed it as the string `\"$_VAR_NAME\"`.",
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nCreates or updates a reusable application variable (AppVar) for a target `idapp` and `environment`. Use it after creating the application and before creating endpoints, when configuration must be shared across several endpoints or kept out of the endpoint source.\nNAME FORMAT IS MANDATORY: `name` must match `^\\$_VAR_[A-Z0-9_]+$` — the literal `$_VAR_` prefix followed by uppercase letters, digits and underscores, for example `$_VAR_TELEGRAM_TOKEN`. A name that does not match is rejected with HTTP 400 and `code: \"INVALID_APPVAR_NAME\"`; the response carries a corrected name in `details.suggestion`. The same string is what you embed to reference the variable, so a name without the prefix never resolves.\nOperation mode: omit `idvar` for INSERT; send an existing `idvar` to update. `environment` is one of `dev`, `qa` or `prd`, and a variable belongs to exactly one of them. `type` is optional and defaults to `json`. `value` is always stored as a string: serialize JSON before sending it.\nTo reference the variable afterwards, embed the exact name as a string in the endpoint payload or in a bot `token`, for example `\"$_VAR_NAME\"`. Confirm what the runtime will actually see with 'appvars_effective_resolve'.",
         "operation_mode": "write",
         "requires_explicit_confirmation": true,
-        "side_effects": "May create, update, delete, restore, migrate, or invalidate application resources.",
-        "safe_alternative": "Use a read-only catalog/search/status tool first to verify target ids and scope.",
+        "side_effects": "Creates or overwrites a shared configuration value. Every endpoint and bot that references this variable in the same environment picks up the new value, so an update can change the behavior of resources you are not editing.",
+        "safe_alternative": "Call 'app_vars_catalog' to check whether the variable already exists, and 'appvars_effective_resolve' afterwards to confirm the value the runtime resolves.",
         "exampleRequest": {
           "idapp": "00000000-0000-0000-0000-000000000001",
           "name": "$_VAR_MY_CONFIG_VALUE",
@@ -7997,7 +8135,12 @@ export const system_app = {
               "environment": {
                 "type": "string",
                 "maxLength": 10,
-                "description": "Target environment such as `dev`, `qa`, or `prd`."
+                "enum": [
+                  "dev",
+                  "qa",
+                  "prd"
+                ],
+                "description": "Target environment the variable belongs to. A variable is scoped to a single environment: to make the same name available in another one, create it again there or copy it with 'appvar_migrate'."
               },
               "value": {
                 "description": "Serialized value to store. Send JSON as a string when persisting structured data.",
@@ -8008,7 +8151,6 @@ export const system_app = {
             "required": [
               "idapp",
               "name",
-              "type",
               "environment"
             ]
           }
@@ -8390,8 +8532,8 @@ export const system_app = {
         "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nRestores an endpoint to a previous version using a specific 'idbackup'. This is a powerful one-click rollback tool. To find the correct idbackup, first call 'endpoint_change_history' with 'lightweight: true' to see the list of available backups and their timestamps.",
         "operation_mode": "write",
         "requires_explicit_confirmation": true,
-        "side_effects": "May create, update, delete, restore, migrate, or invalidate application resources.",
-        "safe_alternative": "Use a read-only catalog/search/status tool first to verify target ids and scope."
+        "side_effects": "Overwrites the current endpoint definition with the selected backup, so the live behavior reverts immediately. The restore is itself recorded as a new backup, so the version you replaced is still recoverable.",
+        "safe_alternative": "Call 'endpoint_change_history' with `lightweight: true` to confirm the exact `idbackup` and its timestamp before restoring."
       },
       "json_schema": {
         "in": {
@@ -8952,7 +9094,7 @@ export const system_app = {
               "idendpoint": {
                 "type": "string",
                 "format": "uuid",
-                "description": "UUID of the endpoint to summarize. Obtain from 'app_endpoints' or 'search_endpoints'."
+                "description": "UUID of the endpoint to summarize. Obtain it from 'app_endpoints_catalog' (when you know the application) or 'search_endpoints' (when you only have a name, path or keyword)."
               },
               "preview_lines": {
                 "type": "integer",
@@ -9060,14 +9202,19 @@ export const system_app = {
       },
       "cors": {},
       "mcp": {
-        "enabled": true,
+        "enabled": false,
         "name": "upsert_mongodb_endpoint_handler",
         "title": "UPSERT MONGODB Endpoint",
-        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nCreates or updates MONGODB endpoints using a simplified payload. Send `mongo_code` and `mongo_config`, and this wrapper maps them to endpoint_upsert with handler=MONGODB.",
+        "description": "Thin wrapper over 'endpoint_upsert' that only renames fields (`mongo_code` → `code`, `mongo_config` → `custom_data`) and forces handler=MONGODB. It is intentionally NOT exposed as an MCP tool: it adds no capability over 'endpoint_upsert', it hides where the data really lands in the endpoint model, and it costs an extra internal request. Agents must call 'endpoint_upsert' with handler=MONGODB directly. The HTTP endpoint stays enabled for existing clients.",
         "operation_mode": "write",
         "requires_explicit_confirmation": true,
         "side_effects": "May create, update, delete, restore, migrate, or invalidate application resources.",
-        "safe_alternative": "Use a read-only catalog/search/status tool first to verify target ids and scope."
+        "safe_alternative": "Use a read-only catalog/search/status tool first to verify target ids and scope.",
+        "notes": [
+          "Retired from MCP on 2026-08-08: redundant with 'endpoint_upsert'.",
+          "Field mapping this wrapper applied, for reference: `mongo_code` → `code`, `mongo_config` → `custom_data`.",
+          "See the per-handler mapping table in the 'endpoint_upsert' description, or call 'handler_documentation' with handler=MONGODB."
+        ]
       },
       "json_schema": {
         "in": {
@@ -9374,7 +9521,7 @@ export const system_app = {
       "handler": "JS",
       "access": 3,
       "title": "UPSERT MONGODB Handler Endpoint",
-      "description": "Create or modify in OpenFusion API a MONGODB handler endpoint.",
+      "description": "Create or modify in OpenFusion API a MONGODB handler endpoint. [Not exposed via MCP: redundant with endpoint_upsert. Agents must use endpoint_upsert directly.]",
       "price_by_request": 1,
       "price_kb_request": 1,
       "price_kb_response": 1,
@@ -9401,7 +9548,11 @@ export const system_app = {
         "enabled": false,
         "name": "user_login",
         "title": "User Login",
-        "description": "Login for user access.."
+        "description": "Not exposed via MCP: authenticating a user is a browser/session flow, not an agent operation. Agents authenticate with the API key configured in the MCP server.",
+        "operation_mode": "write",
+        "requires_explicit_confirmation": true,
+        "side_effects": "Issues an access token for a user account.",
+        "safe_alternative": "N/A"
       },
       "json_schema": {
         "in": {
@@ -9516,7 +9667,7 @@ export const system_app = {
         "enabled": true,
         "name": "apps_catalog",
         "title": "List Application Catalog (Lightweight)",
-        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns a lightweight list of applications: names, idapp, enabled status and description — without nested endpoints or AppVars. Use this to discover idapp values or check which apps exist. For a full payload including endpoints and variables use 'apps_list'. To get endpoints of a specific app use 'app_endpoints'.",
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns a lightweight list of applications: names, idapp, enabled status and description — without nested endpoints or AppVars. Use this to discover idapp values or check which apps exist. This is the recommended first step to discover applications. To list the endpoints of one application continue with 'app_endpoints_catalog'; escalate to 'apps_list' or 'get_app_list_filters' only when you need the raw application columns or nested data.",
         "operation_mode": "read",
         "requires_explicit_confirmation": false,
         "side_effects": "No persistent write side effects expected.",
@@ -9545,11 +9696,13 @@ export const system_app = {
               },
               "limit": {
                 "type": "integer",
-                "minimum": 1
+                "minimum": 1,
+                "description": "Maximum number of applications to return. Omit to return them all; when you send it, the response is truncated silently, so page with `offset` if you need the full list."
               },
               "offset": {
                 "type": "integer",
-                "minimum": 0
+                "minimum": 0,
+                "description": "Number of applications to skip before returning results. Use it together with `limit` to page through the catalog."
               }
             },
             "additionalProperties": false
@@ -9939,14 +10092,18 @@ export const system_app = {
       },
       "cors": {},
       "mcp": {
-        "enabled": true,
+        "enabled": false,
         "name": "get_app_list",
         "title": "Get Application List",
-        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nIt returns the list of registered applications, but does not return the endpoints associated with each app.",
+        "description": "Not exposed via MCP: this endpoint runs the very same function as 'apps_list' (fnGetApps -> getAllApps), so it was an exact duplicate under a second name. Its endpoint is disabled too. Use 'apps_catalog' for discovery or 'apps_list' when you need the raw application columns.",
         "operation_mode": "read",
         "requires_explicit_confirmation": false,
         "side_effects": "No persistent write side effects expected.",
-        "safe_alternative": "N/A"
+        "safe_alternative": "N/A",
+        "notes": [
+          "Retired on 2026-08-08: duplicate of 'apps_list' (same handler function, same response).",
+          "The accurate description this tool used to carry — 'returns the applications without their endpoints' — was moved to 'apps_list', where it actually belongs."
+        ]
       },
       "json_schema": {
         "in": {
@@ -10035,7 +10192,7 @@ export const system_app = {
         "enabled": true,
         "name": "app_data",
         "title": "Get Application data",
-        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns the main Application record for the provided `idapp`.",
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns the raw Application row for the provided `idapp`: all columns, including the signing key `jwt_key` and the `vars` / `params` blobs, so treat the response as sensitive. It does not include endpoints or expanded AppVars — use 'app_endpoints_catalog' and 'app_vars_catalog' for those.\nIf you only need the name, description or enabled state, 'apps_catalog' returns the same applications without the sensitive columns.",
         "operation_mode": "read",
         "requires_explicit_confirmation": false,
         "side_effects": "No persistent write side effects expected.",
@@ -10383,7 +10540,7 @@ export const system_app = {
         "enabled": true,
         "name": "endpoint_get_code",
         "title": "Get Endpoint Source Code",
-        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns ONLY the source code and basic metadata of a specific endpoint by 'idendpoint'. Much lighter than 'read_endpoint_data' — use this when you need to read or modify the logic of an existing endpoint without downloading the full configuration (json_schema, data_test, ctrl, etc.). Call 'read_endpoint_data' first to discover the idendpoint if you do not already have it.",
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns ONLY the source code and basic metadata of a specific endpoint, identified by `idendpoint`. Much lighter than 'read_endpoint_data' — use this when you need to read or modify the logic of an existing endpoint without downloading the full configuration (json_schema, data_test, ctrl, etc.).\nTo find the `idendpoint`: use 'app_endpoints_catalog' when you know the application, or 'search_endpoints' when you only have a name, path or keyword. Do NOT call 'read_endpoint_data' to discover it — that tool already requires the `idendpoint`; it is the next step when you need the full configuration rather than just the code.",
         "operation_mode": "read",
         "requires_explicit_confirmation": false,
         "side_effects": "No persistent write side effects expected.",
@@ -10519,11 +10676,11 @@ export const system_app = {
         "enabled": true,
         "name": "validate_endpoint_code",
         "title": "Validate Endpoint Code",
-        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics and pre-flight checks before saving endpoint code.\nAnalyzes the JS source of a handler (JS, MONGODB) for calls to outdated/renamed library APIs (e.g. uFetch.GET -> uFetch.get). Returns findings marked as autofixable or requiring manual review, plus the auto-fixed code when applicable. Set dry_run=true to also execute the code in the real sandbox and capture runtime deprecation warnings.",
-        "operation_mode": "read",
-        "requires_explicit_confirmation": false,
-        "side_effects": "No persistent write side effects expected. When dry_run=true, the code is actually executed and may perform real network/DB calls just like execute_endpoint_test.",
-        "safe_alternative": "N/A"
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nThe risk depends entirely on `dry_run`. With `dry_run: false` (the default) this is a pure static analysis of the source: nothing is executed and nothing is written, so it is safe to call freely. With `dry_run: true` the code IS EXECUTED in the real sandbox, with real network and database access, exactly like 'execute_endpoint_test' — any write the code performs actually happens. Only set `dry_run: true` with explicit user authorization and after reading what the code does.\nAnalyzes the JS source of a handler (JS, MONGODB) looking for calls to outdated or renamed library APIs (for example `uFetch.GET` -> `uFetch.get`). Returns the findings marked as autofixable or requiring manual review, plus the auto-fixed code when applicable; with `dry_run: true` it additionally captures the runtime deprecation warnings the execution produces.",
+        "operation_mode": "write",
+        "requires_explicit_confirmation": true,
+        "side_effects": "With `dry_run: false` there are no side effects: the code is only parsed. With `dry_run: true` the code runs for real and whatever it writes to databases, files or third-party services persists.",
+        "safe_alternative": "Call it with `dry_run: false` for the static analysis, which answers most questions without executing anything."
       },
       "json_schema": {
         "in": {
@@ -10673,11 +10830,11 @@ export const system_app = {
         "enabled": true,
         "name": "execute_endpoint_test",
         "title": "Execute Endpoint Test",
-        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nExecutes an endpoint via an internal HTTP call and returns the result (status_code, response_time_ms, response body). Ideal for agents to verify that an endpoint they just created or modified works correctly. Simplest usage: provide only 'idendpoint' — the tool auto-resolves app name, resource and method from the DB. Optionally override 'environment' (default: prd), provide 'payload' for request bodies, 'query_params' for GET, 'headers' for custom request headers, and 'bearer_token' for authenticated endpoints. Saved test metadata (`data_test` / `headers_test`) is used only when `use_data_test_fallback=true`. When testing by explicit 'app' + 'resource', always send 'method' if you also send 'payload'. The result also includes the resolved query params, payload, headers, payload source, warnings, and serialized request body actually sent, so agents can debug request forwarding without writing local scripts. Endpoints that require auth and have no public access will need a valid bearer_token.",
-        "operation_mode": "read",
-        "requires_explicit_confirmation": false,
-        "side_effects": "No persistent write side effects expected.",
-        "safe_alternative": "N/A"
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nRUNS THE ENDPOINT FOR REAL. This is not a simulation: the endpoint executes against its real databases and external services, so testing a POST, PUT, PATCH or DELETE endpoint inserts, updates or deletes real data, sends real messages and calls real third-party APIs. There is no rollback. Only GET and HEAD endpoints are safe to run unattended; for anything else confirm with the user first, and prefer a dev or qa environment when one exists.\nExecutes the endpoint via an internal HTTP call and returns status_code, response_time_ms and the response body — useful to verify an endpoint you just created or modified. Simplest usage: provide only `idendpoint` and the tool resolves app name, resource and method from the database. Optionally override `environment` (default: prd), send `payload` for request bodies, `query_params` for GET, `headers` for custom request headers, `bearer_token` for authenticated endpoints and `timeout_ms` to cap the wait. Saved test metadata (`data_test` / `headers_test`) is used only when `use_data_test_fallback` is true. When testing by explicit `app` + `resource`, always send `method` if you also send `payload`. The result includes the resolved query params, payload, headers, payload source, warnings and the serialized request body actually sent, so request forwarding can be debugged without writing local scripts. Endpoints that require auth and have no public access need a valid `bearer_token`.",
+        "operation_mode": "write",
+        "requires_explicit_confirmation": true,
+        "side_effects": "Executes the target endpoint with real effects: any write the endpoint performs (database rows, files, messages, third-party API calls) actually happens and cannot be undone from here. Read-only endpoints (GET/HEAD) have no persistent effect.",
+        "safe_alternative": "Inspect the logic first with 'endpoint_get_code', check the code statically with 'validate_endpoint_code' (`dry_run: false`), and run the test against a dev or qa `environment` before prd."
       },
       "json_schema": {
         "in": {
@@ -10940,8 +11097,8 @@ export const system_app = {
         "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nPermanently deletes an endpoint from the database and registry.",
         "operation_mode": "write",
         "requires_explicit_confirmation": true,
-        "side_effects": "May create, update, delete, restore, migrate, or invalidate application resources.",
-        "safe_alternative": "Use a read-only catalog/search/status tool first to verify target ids and scope."
+        "side_effects": "Permanently removes the endpoint from the database and from the routing registry. Its resource path stops responding immediately for every caller, and any interval task bound to it is removed with it.",
+        "safe_alternative": "Disable the endpoint instead by calling 'endpoint_upsert' with `enabled: false`, which stops it serving traffic while keeping the code and configuration recoverable."
       },
       "json_schema": {
         "in": {
@@ -11399,15 +11556,15 @@ export const system_app = {
         "enabled": true,
         "name": "apps_list",
         "title": "List Apps",
-        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns all applications with their application variables and related endpoints. This is a very heavy endpoint — use the optional 'attributes' array to request only specific fields or use 'apps_catalog' for a lightweight list.",
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns every registered application as a full database row: all columns, including `jwt_key`, `vars` and `params`. It does NOT return endpoints and it does NOT expand application variables — for endpoints use 'app_endpoints_catalog', and for variables use 'app_vars_catalog'.\nPrefer 'apps_catalog' for discovery: it returns the same applications with only the six useful columns and supports filtering and paging. Use this tool when you specifically need the raw columns, and narrow the payload with the optional `attributes` array.\nBe aware the response includes each application's signing key (`jwt_key`), so treat it as sensitive and request `attributes` when you do not need it.",
         "operation_mode": "read",
         "requires_explicit_confirmation": false,
         "side_effects": "No persistent write side effects expected.",
         "safe_alternative": "N/A",
         "exampleRequest": {},
         "notes": [
-          "This can be a large payload because it expands nested app variables and endpoints for every application.",
-          "Prefer `apps_catalog` for initial discovery and use this full list only when you explicitly need nested data for many applications at once."
+          "Despite the name, this is not a nested tree: it is one flat row per application.",
+          "Prefer `apps_catalog` for initial discovery, and `get_app_list_filters` when you do need applications together with their nested variables and endpoints."
         ]
       },
       "json_schema": {
@@ -11799,14 +11956,19 @@ export const system_app = {
       },
       "cors": {},
       "mcp": {
-        "enabled": true,
+        "enabled": false,
         "name": "upsert_text_endpoint_handler",
         "title": "UPSERT TEXT Endpoint",
-        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nCreates or updates TEXT endpoints using a simplified payload for plain text plus MIME metadata. Internally maps the input into endpoint_upsert with handler=TEXT.",
+        "description": "Thin wrapper over 'endpoint_upsert' that only renames fields (`text` → `code`, `mimeType`/`fileName` → `custom_data`) and forces handler=TEXT. It is intentionally NOT exposed as an MCP tool: it adds no capability over 'endpoint_upsert', it hides where the data really lands in the endpoint model, and it costs an extra internal request. Agents must call 'endpoint_upsert' with handler=TEXT directly. The HTTP endpoint stays enabled for existing clients.",
         "operation_mode": "write",
         "requires_explicit_confirmation": true,
         "side_effects": "May create, update, delete, restore, migrate, or invalidate application resources.",
-        "safe_alternative": "Use a read-only catalog/search/status tool first to verify target ids and scope."
+        "safe_alternative": "Use a read-only catalog/search/status tool first to verify target ids and scope.",
+        "notes": [
+          "Retired from MCP on 2026-08-08: redundant with 'endpoint_upsert'.",
+          "Field mapping this wrapper applied, for reference: `text` → `code`, `mimeType`/`fileName` → `custom_data`.",
+          "See the per-handler mapping table in the 'endpoint_upsert' description, or call 'handler_documentation' with handler=TEXT."
+        ]
       },
       "json_schema": {
         "in": {
@@ -12071,7 +12233,7 @@ export const system_app = {
       "handler": "JS",
       "access": 3,
       "title": "UPSERT TEXT Handler Endpoint",
-      "description": "Create or modify in OpenFusion API an endpoint that stores plain text content (TEXT handler).",
+      "description": "Create or modify in OpenFusion API an endpoint that stores plain text content (TEXT handler). [Not exposed via MCP: redundant with endpoint_upsert. Agents must use endpoint_upsert directly.]",
       "price_by_request": 1,
       "price_kb_request": 1,
       "price_kb_response": 1,
@@ -12088,13 +12250,40 @@ export const system_app = {
         "enabled": true,
         "name": "system_interval_tasks_byidapp_prd",
         "title": "Get System Interval Tasks By IdApp (PRD)",
-        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns interval tasks for a specific application (idapp) in the system application on prd environment.",
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nLists the scheduled interval tasks of one application on the prd environment. Send the target application UUID in `idapp`; obtain it from 'apps_catalog'. Each task links to the endpoint it runs through `idendpoint`. Note that in the response the task's own on/off flag is returned as `task_enabled` (not `enabled`), to avoid colliding with the endpoint's flag, and that the runtime fields (`last_run`, `next_run`, `status`, `failed_attempts`, `last_exec_time`, `last_response`) are read-only telemetry maintained by the scheduler.",
         "operation_mode": "read",
         "requires_explicit_confirmation": false,
         "side_effects": "No persistent write side effects expected.",
         "safe_alternative": "N/A"
       },
-      "json_schema": {},
+      "json_schema": {
+        "in": {
+          "enabled": true,
+          "schema": {
+            "title": "IntervalTasksByIdAppRequest",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "idapp"
+            ],
+            "properties": {
+              "idapp": {
+                "type": "string",
+                "format": "uuid",
+                "description": "UUID of the application whose interval tasks you want to list. Obtain it from 'apps_catalog'."
+              }
+            }
+          }
+        },
+        "out": {
+          "enabled": false,
+          "schema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": true
+          }
+        }
+      },
       "custom_data": {},
       "headers_test": {},
       "data_test": {
@@ -12180,9 +12369,11 @@ export const system_app = {
         "enabled": true,
         "name": "list_bots",
         "title": "List Bots",
-        "description": "Returns a list of messaging bots registered in the system. Supports filtering by application (idapp), environment (dev/qa/prd), provider (telegram, whatsapp, ms_teams), and enabled status. If `idbot` is provided, returns the single bot instead of a list. Only telegram bots are executed by the runtime today; other providers are stored for future use.\nIMPORTANT: `enabled: true` only means the row is marked to run. It does NOT mean the bot is running. Confirm real startup with `get_system_logs` filtering `idendpoint = <idbot>` and looking for a `bot_started` event.\nBefore creating or modifying a bot, call `get_bot_skill` first.",
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns a list of messaging bots registered in the system. Supports filtering by application (idapp), environment (dev/qa/prd), provider (telegram, whatsapp, ms_teams), and enabled status. If `idbot` is provided, returns the single bot instead of a list. Only telegram bots are executed by the runtime today; other providers are stored for future use.\nIMPORTANT: `enabled` is USER INTENT ('this bot should run'), not observed state. Read `runtime_status` for what is actually happening: STOPPED | STARTING | RUNNING | BACKOFF | QUARANTINED | DISABLED_ERROR.\n- RUNNING: the bot is up.\n- BACKOFF / QUARANTINED: it is failing for a RECOVERABLE reason (network, DNS, provider 429/5xx). It stays enabled and keeps being retried forever; `next_retry_at` says when. NO ACTION IS NEEDED - it recovers on its own once the cause clears. Never 'fix' this by toggling enabled.\n- DISABLED_ERROR: repeated PERMANENT failures (revoked token, code that does not compile). `enabled` is false and `disabled_by = 'system'`. Fix the cause with `upsert_bot` (new token or code) and the bot is re-enabled automatically - do NOT call `enable_disable_bot`.\nUse `last_error_type`, `last_error_message` and `failure_count` to diagnose, and `get_system_logs` with `idendpoint = <idbot>` for the event history (`bot_started`, `bot_start_retry_scheduled`, `bot_quarantined`, `bot_auto_disabled`, `bot_platform_outage_suspected`).\nBefore creating or modifying a bot, call `get_bot_skill` first.",
         "operation_mode": "read",
-        "requires_explicit_confirmation": false
+        "requires_explicit_confirmation": false,
+        "side_effects": "No persistent write side effects expected.",
+        "safe_alternative": "N/A"
       },
       "ctrl": {},
       "cors": {},
@@ -12292,9 +12483,11 @@ export const system_app = {
         "enabled": true,
         "name": "upsert_bot",
         "title": "Upsert Bot",
-        "description": "Creates or updates a messaging bot. Required fields: idapp, name, token, code. Optional fields: idbot, provider (default: telegram), description, environment, enabled, params. Only telegram bots are executed by the runtime today; other providers are stored for future use.\nPREREQUISITE: call `get_bot_skill` and then `get_bot_provider_skill` BEFORE using this tool. Do not compose `code` from the example payload alone — it will not work.\n`code` must register handlers on the pre-created `$BOT` instance (e.g. `$BOT.on(\"message:text\", ...)`). A script that registers no handler makes the worker fail with \"Code did not define a valid $BOT instance.\". Never call `new grammy.Bot(...)` and never call `$BOT.start()`.\n`token` should reference an application variable (any value starting with `$_`, e.g. `$_VAR_TELEGRAM_TOKEN`, created with `appvar_upsert` using that exact prefixed name for the bot's environment); a literal token is also accepted. This tool returns a `warning` field when the referenced variable does not exist yet.\nA 200 response only means the row was saved. Verify real startup with `get_system_logs` filtering `idendpoint = <idbot>` and expecting a `bot_started` event.",
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nCreates or updates a messaging bot. Required fields: idapp, name, token, code. Optional fields: idbot, provider (default: telegram), description, environment, enabled, params. Only telegram bots are executed by the runtime today; other providers are stored for future use.\nPREREQUISITE: call `get_bot_skill` and then `get_bot_provider_skill` BEFORE using this tool. Do not compose `code` from the example payload alone — it will not work.\n`code` must register handlers on the pre-created `$BOT` instance (e.g. `$BOT.on(\"message:text\", ...)`). A script that registers no handler makes the worker fail with \"Code did not define a valid $BOT instance.\". Never call `new grammy.Bot(...)` and never call `$BOT.start()`.\n`token` should reference an application variable (any value starting with `$_`, e.g. `$_VAR_TELEGRAM_TOKEN`, created with `appvar_upsert` using that exact prefixed name for the bot's environment); a literal token is also accepted. This tool returns a `warning` field when the referenced variable does not exist yet.\nA 200 response only means the row was saved. Verify real startup with `get_system_logs` filtering `idendpoint = <idbot>` and expecting a `bot_started` event.",
         "operation_mode": "write",
-        "requires_explicit_confirmation": true
+        "requires_explicit_confirmation": true,
+        "side_effects": "Creates or overwrites a bot definition. On the next lifecycle poll (within ~10s) the worker restarts with the new code and token, so an update interrupts and replaces a bot that may be serving users.",
+        "safe_alternative": "Call 'list_bots' first to confirm the `idbot` and the current configuration, and read 'get_bot_skill' plus 'get_bot_provider_skill' before composing `code`."
       },
       "ctrl": {},
       "cors": {},
@@ -12408,12 +12601,14 @@ export const system_app = {
         "enabled": true,
         "name": "delete_bot",
         "title": "Delete Bot",
-        "description": "Deletes a messaging bot by idbot. Provide idbot as a query parameter or in the request body. Deletion is permanent: the row is removed and the running worker is stopped on the next lifecycle poll (within ~10s). To stop a bot without losing its code and token, use `enable_disable_bot` with enabled=false instead. Background on bots: `get_bot_skill`.",
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nDeletes a messaging bot by idbot. Provide idbot as a query parameter or in the request body. Deletion is permanent: the row is removed and the running worker is stopped on the next lifecycle poll (within ~10s). To stop a bot without losing its code and token, use `enable_disable_bot` with enabled=false instead. Background on bots: `get_bot_skill`.",
         "operation_mode": "write",
         "requires_explicit_confirmation": true,
         "exampleRequest": {
           "idbot": "8454e48a-cbda-4f5a-94d2-c0a57429a5af"
-        }
+        },
+        "side_effects": "Permanently removes the bot row: its code, token reference and params are lost, and the running worker stops on the next lifecycle poll (within ~10s).",
+        "safe_alternative": "Use 'enable_disable_bot' with `enabled: false` to stop the bot while keeping its code and token recoverable."
       },
       "ctrl": {},
       "cors": {},
@@ -12464,13 +12659,15 @@ export const system_app = {
         "enabled": true,
         "name": "enable_disable_bot",
         "title": "Enable/Disable Bot",
-        "description": "Enables or disables a messaging bot. Requires idbot (query or body) and boolean enabled in the request body. Both fields are mandatory in every call — sending only `enabled` fails with 404 Bot not found. The change takes effect on the next lifecycle poll (within ~10s): enabling starts a worker, disabling stops it. Enabling does not guarantee the bot runs — verify with `get_system_logs` filtering `idendpoint = <idbot>` and expecting a `bot_started` event. If the bot was auto-disabled after repeated startup failures, read those logs and fix the cause before re-enabling; re-enabling blindly just burns another cooldown. Background on bots: `get_bot_skill`.",
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nSets the USER INTENT for a messaging bot. Requires idbot (query or body) and boolean enabled in the request body. Both fields are mandatory in every call — sending only `enabled` fails with 404 Bot not found. The change takes effect immediately: enabling clears any pending backoff and triggers a start attempt right away; disabling stops the worker on the next lifecycle poll (within ~10s).\nWHEN NOT TO USE THIS TOOL:\n- A bot in `runtime_status` BACKOFF or QUARANTINED is failing for a recoverable reason (network, DNS, provider 429/5xx). It is still enabled and is being retried automatically forever. Toggling it changes nothing useful — just wait, or fix the underlying network issue.\n- A bot in DISABLED_ERROR was disabled by the system after repeated PERMANENT failures (revoked token, code that does not compile). Fix the cause with `upsert_bot`; it is re-enabled automatically. Re-enabling without fixing the cause only repeats the same failures.\nDisabling through this tool marks `disabled_by = 'user'`, and a user-disabled bot is never re-enabled automatically. Verify the result with `list_bots` (`runtime_status`) or `get_system_logs` filtering `idendpoint = <idbot>` for a `bot_started` event. Background on bots: `get_bot_skill`.",
         "operation_mode": "write",
         "requires_explicit_confirmation": true,
         "exampleRequest": {
           "idbot": "8454e48a-cbda-4f5a-94d2-c0a57429a5af",
           "enabled": false
-        }
+        },
+        "side_effects": "Starts or stops the bot worker on the next lifecycle poll (within ~10s). Nothing is deleted: the code, token and params are preserved either way.",
+        "safe_alternative": "Call 'list_bots' to confirm the `idbot` and the current state before toggling it."
       },
       "ctrl": {},
       "cors": {},

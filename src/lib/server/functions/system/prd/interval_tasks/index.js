@@ -35,7 +35,15 @@ export async function fnUpsertIntervalTask(params) {
 export async function fndeleteIntervalTask(params) {
   let r = { code: 204, data: undefined };
   try {
-    r.data = await deleteIntervalTask(params.request.body);
+    // El body es `{ idtask }` con un id o un array de ids. Antes se pasaba el
+    // body entero como valor del `where`, lo que obligaba a enviar el id pelado
+    // y hacía imposible declarar un json_schema de objeto para la tool MCP.
+    // Se acepta el body crudo como respaldo para los clientes HTTP antiguos.
+    const body = params.request.body;
+    const idtask =
+      body && typeof body === "object" && !Array.isArray(body) ? body.idtask : body;
+
+    r.data = await deleteIntervalTask(idtask);
     r.code = 200;
   } catch (error) {
     r.data = error;

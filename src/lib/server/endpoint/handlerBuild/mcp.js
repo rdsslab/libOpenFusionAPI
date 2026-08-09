@@ -6,6 +6,7 @@ import { internal_url_endpoint } from "../../utils_path.js";
 import * as z from "zod";
 //import uFetch from "@rddslab/uFetch";
 import { URLAutoEnvironment } from "../../functionVars.js";
+import { sanitizeToolName, normalizeToolKey } from "../../mcp/toolNames.js";
 
 export const CreateMCPHandler = async (app_name, environment) => {
 
@@ -427,10 +428,6 @@ export const CreateMCPHandler = async (app_name, environment) => {
     }
   };
 
-  const normalizeToolKey = (name) => {
-    return sanitizeToolName(name ?? "", "").toLowerCase();
-  };
-
   const isZodSchemaLike = (value) => {
     return Boolean(value && typeof value === "object" && value._zod);
   };
@@ -586,6 +583,11 @@ export const CreateMCPHandler = async (app_name, environment) => {
 
     if (topLevelFields.length > 0 && !isEffectivelyNoArgTool) {
       notes.push(`Top-level input fields: ${topLevelFields.join(", ")}.`);
+      notes.push(
+        isStrictObjectSchema(inputSchema)
+          ? "Additional properties: not allowed; sending an undeclared field is rejected."
+          : "Additional properties: allowed or unspecified.",
+      );
     }
 
     notes.push("If schema marks a field as deprecated, avoid it for new integrations.");
@@ -618,6 +620,33 @@ export const CreateMCPHandler = async (app_name, environment) => {
     return notes.map((note) => `- ${note}`).join("\n  ");
   };
 
+  // `mcp.description` abre con un prefijo textual READ ONLY / WRITE OPERATION que
+  // repite lo que el bloque "MCP metadata" ya publica de forma estructurada
+  // (operation_mode, requires_explicit_confirmation, side_effects). El prefijo se
+  // conserva en el seed —es la afirmación que escribe una persona y la que valida
+  // el auditor de contrato— pero se retira al renderizar para no decir dos veces
+  // lo mismo. Solo se descarta el boilerplate exacto: una línea `Usage:` o
+  // `Precondition:` con contenido propio se respeta, porque ahí sí hay
+  // información que no está en ningún otro campo.
+  const GENERIC_MODE_PREFIX_LINES = new Set([
+    "READ ONLY: This tool does not modify persistent data.",
+    "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.",
+    "Usage: Safe for diagnostics, discovery, and analysis workflows.",
+    "Precondition: Confirm user intent before execution and provide exact target identifiers.",
+  ]);
+
+  const stripRedundantModePrefix = (description) => {
+    const lines = description.split("\n");
+    let start = 0;
+    while (start < lines.length && GENERIC_MODE_PREFIX_LINES.has(lines[start].trim())) {
+      start += 1;
+    }
+    // Si al quitar el prefijo no quedara nada, se devuelve el original: es
+    // preferible una descripción redundante a una vacía.
+    const remaining = lines.slice(start).join("\n").trim();
+    return remaining.length > 0 ? remaining : description;
+  };
+
   const buildAgentToolDescription = ({
     endpoint,
     safeToolName,
@@ -626,30 +655,28 @@ export const CreateMCPHandler = async (app_name, environment) => {
     exampleRequest,
     endpointUpsertDescriptionAddon,
   }) => {
-    const topLevelProperties = getTopLevelProperties(inputSchema);
     const requiredFields = getRequiredFields(inputSchema);
     const fallbackDescription = `Calls ${endpoint.method} ${endpoint.resource} for application ${app_name} in ${endpoint.environment}.`;
     const purpose = (effectiveDescription && effectiveDescription.trim().length > 0)
-      ? effectiveDescription.trim()
+      ? stripRedundantModePrefix(effectiveDescription.trim())
       : fallbackDescription;
     const accessLabel = endpoint.access == 0 ? "public" : "private";
-    const strictSchema = isStrictObjectSchema(inputSchema);
     const minimalPayload = toPrettyText(exampleRequest, "No example available.");
     const mcpMetadataDescription = buildMcpMetadataDescription(endpoint);
 
+    // No se repiten aquí los campos que el cliente MCP ya recibe por separado:
+    // el nombre de la tool es la clave con la que se invoca, y las propiedades de
+    // primer nivel y `additionalProperties` están en el inputSchema publicado.
+    // `Required fields` sí se mantiene porque es fácil pasarlo por alto en un
+    // schema grande y es lo que decide si una llamada se rechaza de entrada.
     const lines = [
       `Purpose: ${purpose}`,
       ...(mcpMetadataDescription ? [mcpMetadataDescription] : []),
-      `Tool name: ${safeToolName}`,
       `Access: ${accessLabel}`,
       `HTTP target: ${endpoint.method} ${endpoint.resource}`,
       `Environment: ${endpoint.environment}`,
       `Required fields: ${requiredFields.length > 0 ? requiredFields.join(", ") : "none"}`,
-      `Top-level input fields: ${topLevelProperties.length > 0 ? topLevelProperties.join(", ") : "none declared"}`,
-      `Additional properties: ${strictSchema ? "not allowed" : "allowed or unspecified"}`,
       `Minimal example payload: ${minimalPayload}`,
-//      "Agent guidance: do not duplicate in mcp.description the facts already present in mcp.title, mcp.meta, or json_schema.in; the tool renderer exposes those structured fields automatically.",
-//      "Agent guidance: send only fields defined by the input schema unless the schema explicitly allows additional properties.",
     ];
 
     if (hasStructuredRuntimeSpecificPayload(endpoint.handler)) {
@@ -661,7 +688,9 @@ export const CreateMCPHandler = async (app_name, environment) => {
     }
 
     if (isEndpointUpsertLikeTool(safeToolName)) {
-      lines.push("Agent guidance: fields under code/custom_data may use AppVar placeholders as strings (for example \"$_MY_VAR\"); runtime resolves them to effective application variable values.");
+      // El nombre debe llevar el prefijo `$_VAR_` (regex ^\$_VAR_[A-Z0-9_]+$); un
+      // ejemplo sin prefijo lo rechaza appvar_upsert con INVALID_APPVAR_NAME.
+      lines.push("Agent guidance: fields under code/custom_data may use AppVar placeholders as strings (for example \"$_VAR_MY_VAR\"); runtime resolves them to effective application variable values.");
     }
 
     if (endpoint.access != 0) {
@@ -701,16 +730,6 @@ export const CreateMCPHandler = async (app_name, environment) => {
       return "{}";
     }
     return toPrettyText(value);
-  };
-
-  const sanitizeToolName = (name, fallback = "tool") => {
-    const raw = (name ?? fallback).toString().trim();
-    const cleaned = raw
-      .replace(/\s+/g, "_")
-      .replace(/[^a-zA-Z0-9_.-]/g, "_")
-      .replace(/_+/g, "_")
-      .replace(/^[_\-.]+|[_\-.]+$/g, "");
-    return cleaned.length > 0 ? cleaned : fallback;
   };
 
   const normalizeSchemaForZod = (schema) => {
@@ -1058,6 +1077,40 @@ ${endpointUpsertHandlerGuide}
       toolName: safeToolName,
     });
 
+    // Las annotations son la única señal de riesgo que un cliente MCP puede leer
+    // sin interpretar prosa: son las que deciden si una tool puede autoaprobarse.
+    // Se derivan de los metadatos que el endpoint ya declara para que no haya dos
+    // fuentes de verdad; `mcp.destructive` permite matizar los casos en los que
+    // "write" no implica destruir nada (por ejemplo invalidar caché).
+    //
+    // NOTA: no se publica `outputSchema` a propósito. El SDK exige que toda tool
+    // que lo declare devuelva `structuredContent` (validateToolOutput en
+    // @modelcontextprotocol/sdk/server/mcp.js), y estas tools devuelven el cuerpo
+    // del endpoint como texto con su mimeType original —que puede ser markdown,
+    // XML o texto plano—. Declararlo haría fallar todas las llamadas con
+    // "Output validation error". La forma de la respuesta se documenta en el
+    // dump de `list_api_endpoints_<app>`.
+    const buildToolAnnotations = () => {
+      const isReadOnly = String(getMcpField(endpoint, "operation_mode") ?? "").trim() === "read";
+      if (isReadOnly) {
+        return { readOnlyHint: true };
+      }
+
+      const declaredDestructive = getMcpField(endpoint, "destructive");
+      const destructiveHint =
+        typeof declaredDestructive === "boolean"
+          ? declaredDestructive
+          : // Por defecto se asume destructivo, como en la especificación MCP: un
+            // upsert sobrescribe estado existente, no solo añade.
+            true;
+
+      return {
+        readOnlyHint: false,
+        destructiveHint,
+        idempotentHint: endpoint.method === "PUT",
+      };
+    };
+
     const registerEndpointTool = (registeredToolName, descriptionPrefix = "") => {
       _mcpConfig.tools.push({
         name: registeredToolName,
@@ -1069,6 +1122,7 @@ ${endpointUpsertHandlerGuide}
           description: `${descriptionPrefix}${agentToolDescription}`,
 
           inputSchema: zod_inputSchema,
+          annotations: buildToolAnnotations(),
         },
 
         handler: async (data, _context, currentHeaders) => {
@@ -1216,6 +1270,7 @@ _mcpConfig.tools.push({
     title: "List API endpoint catalog for " + app_name + " on " + environment + " environment",
     description: [
       `Purpose: return a lightweight endpoint catalog for application '${app_name}' on '${environment}' environment.`,
+      `Scope: limited to application '${app_name}' and environment '${environment}'. It cannot list any other application; for that use the 'app_endpoints_catalog' tool, which takes an idapp and supports filters and paging.`,
       "Required fields: none.",
       "Top-level input fields: none.",
       "Output: compact markdown table with MCP tool name, HTTP method, resource path, and handler.",
@@ -1240,6 +1295,7 @@ _mcpConfig.tools.push({
     title: "List API endpoints for " + app_name + " on " + environment + " environment",
     description: [
       `Purpose: return documentation for all API endpoints for application '${app_name}' on '${environment}' environment.`,
+      `Scope: limited to application '${app_name}' and environment '${environment}'. It cannot document any other application.`,
       "Required fields: none.",
       "Top-level input fields: none.",
       "Output: markdown text containing endpoint-by-endpoint API documentation, example payloads, schemas, and behavior notes.",

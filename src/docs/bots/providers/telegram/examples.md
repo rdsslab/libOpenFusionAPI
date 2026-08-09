@@ -135,4 +135,4 @@ The runtime resolves `$_VAR_TELEGRAM_TOKEN` against the AppVars of the bot's `en
 - Keep the top level of the script limited to registering handlers; it has a 10 s evaluation budget and no top-level `await`.
 - `$_RETURN_DATA_` is not read for bots. There is no HTTP response.
 - Verify a change in the logs (`get_system_logs` filtering `idendpoint = <idbot>`, event `bot_started`), not just in the tool response.
-- Three failures inside 5 minutes auto-disable the bot row, so confirm `enabled` after testing.
+- Confirm `runtime_status` after testing, not `enabled`. `BACKOFF`/`QUARANTINED` means a recoverable failure that retries on its own; `DISABLED_ERROR` means three permanent failures (bad token or code that does not compile) — fix the cause with `upsert_bot` and the bot re-enables itself.

@@ -432,6 +432,7 @@ export const bulkCreateEndpoints = (
  * @param {string} [filters.handler] - Filtrar por handler
  * @param {boolean} [filters.enabled] - Filtrar por estado
  * @param {boolean} [filters.search_code] - Incluir búsqueda dentro del campo code
+ * @param {boolean} [filters.include_mcp=false] - Incluir el campo `mcp` en la respuesta
  * @param {number} [filters.limit=50] - Máximo de resultados
  * @param {number} [filters.offset=0] - Offset para paginación
  * @returns {Promise<Array>}
@@ -444,6 +445,7 @@ export const searchEndpoints = async (filters = {}) => {
     handler,
     enabled,
     search_code = false,
+    include_mcp = false,
     limit = 50,
     offset = 0,
   } = filters;
@@ -475,25 +477,35 @@ export const searchEndpoints = async (filters = {}) => {
   const parsedLimit = Math.min(Number.isFinite(Number(limit)) ? Number(limit) : 50, 200);
   const parsedOffset = Number.isFinite(Number(offset)) && Number(offset) >= 0 ? Number(offset) : 0;
 
+  // El campo `mcp` (description, exampleRequest, exampleResponse, notes) es el
+  // más pesado de la fila. Se excluye por defecto, igual que en
+  // getEndpointCatalogByIdApp: incluirlo siempre hacía que esta búsqueda fuese
+  // más pesada por fila que el catálogo, justo lo contrario de lo que su
+  // descripción prometía.
+  const attributes = [
+    "idendpoint",
+    "idapp",
+    "enabled",
+    "environment",
+    "resource",
+    "method",
+    "handler",
+    "title",
+    "description",
+    "keywords",
+    "cache_time",
+    "access",
+    "updatedAt",
+  ];
+
+  if (include_mcp === true) {
+    attributes.push("mcp");
+  }
+
   try {
     return await Endpoint.findAll({
       where,
-      attributes: [
-        "idendpoint",
-        "idapp",
-        "enabled",
-        "environment",
-        "resource",
-        "method",
-        "handler",
-        "title",
-        "description",
-        "keywords",
-        "mcp",
-        "cache_time",
-        "access",
-        "updatedAt",
-      ],
+      attributes,
       order: [
         ["resource", "ASC"],
         ["environment", "ASC"],

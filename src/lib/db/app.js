@@ -14,7 +14,7 @@ import {
   upsertEndpoint,
 } from "./endpoint.js";
 import { getAppVarsByIdApp, upsertAppVar } from "./appvars.js";
-import { upsertBot } from "./bot.js";
+import { upsertBot, BOT_RUNTIME_ATTRIBUTES } from "./bot.js";
 import { upsertIntervalTask } from "./interval_task.js";
 import { upsertApiClient } from "./apiclient.js";
 import { upsertApiKey } from "./apikey.js";
@@ -690,6 +690,10 @@ export const restoreAppFromBackup = async (app) => {
             if (!b.idapp || b.idapp !== app.idapp) {
               b.idapp = app.idapp;
             }
+            // El estado de runtime es observado, no configuración: restaurar un
+            // `QUARANTINED` o un `next_retry_at` viejo haría que un bot recién
+            // restaurado arrancara con un backoff que ya no corresponde a nada.
+            for (const field of BOT_RUNTIME_ATTRIBUTES) delete b[field];
             return upsertBot(b);
           });
           await Promise.allSettled(promises_bots);

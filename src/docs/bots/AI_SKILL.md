@@ -122,7 +122,7 @@ Bot activity is written to the normal log table, so `get_system_logs` sees it:
 - `url` = `telegram://bot/<username>` (or `telegram://bot/<idbot>` before the username is known)
 - `client` = `telegram-api`
 
-Events to look for: `bot_started`, `bot_token_error`, `bot_startup_error`, `bot_runtime_error`, `bot_worker_crash`, `bot_auto_disabled`, `bot_restarting`, `bot_start_retry_scheduled`, `bot_start_deferred`, `bot_manage_error`.
+Events to look for: `bot_started`, `bot_token_error`, `bot_startup_error`, `bot_runtime_error`, `bot_worker_crash`, `bot_quarantined`, `bot_auto_disabled`, `bot_restarting`, `bot_start_retry_scheduled`, `bot_start_deferred`, `bot_manage_error`, `bot_platform_outage_suspected`, `bot_platform_outage_cleared`.
 
 `get_system_logs` accepts an **`event`** filter (one name, or a comma-separated list) that matches `message.event` in the database. Prefer it over fetching rows and inspecting `message` yourself:
 
@@ -139,16 +139,69 @@ Every start attempt gets its own `trace_id`, shared by the logs of that attempt 
 
 - The lifecycle task polls every 10 s: it starts bots that should be running, stops bots that no longer should, and restarts a bot whose configuration hash changed.
 - Startup validates the credential against the platform before accepting the bot as running.
-- Failures are split by whether retrying can possibly help:
 
-**Permanent failures** — bad token, invalid script, worker crash. **Three inside a 5-minute window auto-disable the bot row** (`enabled = false`) and apply a 5-minute cooldown.
+### `enabled` is intent; `runtime_status` is reality
 
-> The 5-minute window is a ceiling, not the expected duration. Because the lifecycle retries every 10 s, three consecutive failures normally happen in **about 20–30 seconds**. Expect an auto-disable within half a minute of a bad configuration, not five minutes — do not wait longer than that before reading the logs.
+These are two different columns and confusing them is the most common diagnostic mistake:
 
-**Transient failures** — today only `CONNECTION_ERROR`, i.e. the platform API is unreachable. These **never** auto-disable the bot. The row stays `enabled` and the runtime retries with escalating backoff (10 s → 30 s → 60 s → 2 min → 5 min, capped), so a network outage or a blocked host does not require manual re-enabling. Each scheduled retry writes `bot_start_retry_scheduled` with `attempt` and `retry_in_seconds`; while the bot waits, a single `bot_start_deferred` is logged per cooldown window rather than one per poll. A successful start clears the streak and resets the backoff.
+| Column | Owner | Meaning |
+|---|---|---|
+| `enabled` | the user | "this bot **should** run" |
+| `runtime_status` | the runtime | what is **actually** happening |
 
-- After a cooldown-triggered disable, `list_bots` shows `enabled: false` and the logs carry `bot_auto_disabled` with the reason. Read the logs and fix the cause before re-enabling — re-enabling blindly just burns another cooldown.
-- A bot that is `enabled: true` but repeatedly logging `bot_start_retry_scheduled` is not misconfigured: it is waiting for the platform to become reachable. Fix the network, not the bot.
+`runtime_status` is one of `STOPPED`, `STARTING`, `RUNNING`, `BACKOFF`, `QUARANTINED`,
+`DISABLED_ERROR`. `list_bots` also returns `failure_count`, `last_error_type`,
+`last_error_message`, `last_failure_at`, `next_retry_at`, `last_started_at`, `last_healthy_at`,
+`disabled_by` and `disabled_reason`. Read those before touching anything.
+
+### Failure policy
+
+Failures are classified by whether retrying can possibly help:
+
+**Recoverable** — network down, DNS failure, provider `429`, provider `5xx`, socket timeouts, and
+anything the runtime cannot classify. These **never** disable the bot. `enabled` stays `true` and the
+runtime retries forever:
+
+1. `BACKOFF` — exponential backoff with jitter, from 10 s up to a 5-minute ceiling. Each attempt
+   logs `bot_start_retry_scheduled` with `attempt`, `retry_in_seconds` and `next_retry_at`.
+2. `QUARANTINED` — after 8 consecutive recoverable failures (4 if unclassified) the bot moves to slow
+   probing: 15 min → 30 min → 60 min, **indefinitely**. One `bot_quarantined` event is logged.
+
+The probing never stops, so a bot recovers on its own whenever the cause clears — including at 3 AM
+with nobody watching. A `429` carrying `retry_after` is honoured instead of the computed backoff.
+
+**Permanent** — revoked token (`401`), `403`/`404` from the platform, code that does not compile, or
+code that never defines `$BOT`. Retrying cannot fix these, so after **3** consecutive permanent
+failures the row is disabled: `enabled = false`, `runtime_status = DISABLED_ERROR`,
+`disabled_by = 'system'`, plus a `bot_auto_disabled` event. Because the lifecycle retries every 10 s,
+expect this within ~30 seconds of saving a bad configuration.
+
+**A system-disabled bot re-enables itself.** Fix the cause with `upsert_bot` — a new token or new
+code — and the runtime clears the disable automatically. Do **not** call `enable_disable_bot` for
+this. A bot the *user* disabled (`disabled_by: 'user'`) is never re-enabled automatically.
+
+**Stability window.** A start is only considered consolidated after the bot stays up for 60 s; only
+then are `failure_count` and the backoff cleared and `last_healthy_at` stamped. A bot that starts and
+dies after 2 seconds in a loop therefore accumulates failures and ends up quarantined instead of
+restarting every 10 s forever.
+
+**Platform outages.** If at least 3 bots are configured and half or more are failing with recoverable
+errors at the same time, the runtime assumes a host/network incident: it logs a single
+`bot_platform_outage_suspected` instead of one event per bot, freezes quarantine escalation and pins
+every backoff at 5 minutes. The first bot that starts successfully proves the network is back — the
+runtime then logs `bot_platform_outage_cleared` and clears the backoff of every bot at once.
+
+### How to read a bot that is not running
+
+- `runtime_status: BACKOFF` or `QUARANTINED` → **nothing is misconfigured**. It is waiting for the
+  platform or the network. Check `next_retry_at` and `last_error_type`. Fix the network, not the bot.
+  Toggling `enabled` accomplishes nothing.
+- `runtime_status: DISABLED_ERROR` → read `disabled_reason` and `last_error_message`, fix the token
+  or the code with `upsert_bot`, and it comes back by itself.
+- `runtime_status: STOPPED` with `enabled: false` and `disabled_by: 'user'` → somebody turned it off
+  on purpose. Only `enable_disable_bot` brings it back.
+- `last_error_type: TOKEN_ERROR` → the `$_` application variable in `token` does not resolve for that
+  environment. Create it with `appvar_upsert`.
 
 ### Validating bot code before saving
 
