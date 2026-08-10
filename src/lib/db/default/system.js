@@ -12486,7 +12486,7 @@ export const system_app = {
         "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nCreates or updates a messaging bot. Required fields: idapp, name, token, code. Optional fields: idbot, provider (default: telegram), description, environment, enabled, params. Only telegram bots are executed by the runtime today; other providers are stored for future use.\nPREREQUISITE: call `get_bot_skill` and then `get_bot_provider_skill` BEFORE using this tool. Do not compose `code` from the example payload alone — it will not work.\n`code` must register handlers on the pre-created `$BOT` instance (e.g. `$BOT.on(\"message:text\", ...)`). A script that registers no handler makes the worker fail with \"Code did not define a valid $BOT instance.\". Never call `new grammy.Bot(...)` and never call `$BOT.start()`.\n`token` should reference an application variable (any value starting with `$_`, e.g. `$_VAR_TELEGRAM_TOKEN`, created with `appvar_upsert` using that exact prefixed name for the bot's environment); a literal token is also accepted. This tool returns a `warning` field when the referenced variable does not exist yet.\nA 200 response only means the row was saved. Verify real startup with `get_system_logs` filtering `idendpoint = <idbot>` and expecting a `bot_started` event.",
         "operation_mode": "write",
         "requires_explicit_confirmation": true,
-        "side_effects": "Creates or overwrites a bot definition. On the next lifecycle poll (within ~10s) the worker restarts with the new code and token, so an update interrupts and replaces a bot that may be serving users.",
+        "side_effects": "Creates or overwrites a bot definition. On the next lifecycle poll (within ~10s) the worker restarts with the new code and token, so an update interrupts and replaces a bot that may be serving users. The configuration being replaced is versioned first, so the previous state can be recovered with 'bot_change_history' plus 'bot_restore_version'.",
         "safe_alternative": "Call 'list_bots' first to confirm the `idbot` and the current configuration, and read 'get_bot_skill' plus 'get_bot_provider_skill' before composing `code`."
       },
       "ctrl": {},
@@ -12601,14 +12601,14 @@ export const system_app = {
         "enabled": true,
         "name": "delete_bot",
         "title": "Delete Bot",
-        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nDeletes a messaging bot by idbot. Provide idbot as a query parameter or in the request body. Deletion is permanent: the row is removed and the running worker is stopped on the next lifecycle poll (within ~10s). To stop a bot without losing its code and token, use `enable_disable_bot` with enabled=false instead. Background on bots: `get_bot_skill`.",
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nDeletes a messaging bot by idbot. Provide idbot as a query parameter or in the request body. The row is removed and the running worker is stopped on the next lifecycle poll (within ~10s). A snapshot is versioned right before the delete, so the bot can still be recreated with 'bot_change_history' plus 'bot_restore_version' — but the deletion itself takes the bot offline immediately. To stop a bot without removing it, use `enable_disable_bot` with enabled=false instead. Background on bots: `get_bot_skill`.",
         "operation_mode": "write",
         "requires_explicit_confirmation": true,
         "exampleRequest": {
           "idbot": "8454e48a-cbda-4f5a-94d2-c0a57429a5af"
         },
-        "side_effects": "Permanently removes the bot row: its code, token reference and params are lost, and the running worker stops on the next lifecycle poll (within ~10s).",
-        "safe_alternative": "Use 'enable_disable_bot' with `enabled: false` to stop the bot while keeping its code and token recoverable."
+        "side_effects": "Removes the bot row, so the running worker stops on the next lifecycle poll (within ~10s) and the bot no longer answers users. A full snapshot (code, token and params) is versioned immediately before the delete, so the bot can be recreated with the same idbot via 'bot_change_history' plus 'bot_restore_version'.",
+        "safe_alternative": "Use 'enable_disable_bot' with `enabled: false` to stop the bot without removing the row."
       },
       "ctrl": {},
       "cors": {},
@@ -12710,6 +12710,180 @@ export const system_app = {
           "form": {}
         },
         "headers": [{ "enabled": false, "key": "", "value": "", "internal_hash_row": "bot-status-h1" }],
+        "auth": { "basic": { "username": "", "password": "" }, "bearer": { "token": "" }, "selection": 0 }
+      }
+    },
+    {
+      "idendpoint": "7d5c1f3a-2b64-49e8-9a17-4c8e0b6d2f95",
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "environment": "prd",
+      "resource": "/bots/backup",
+      "method": "GET",
+      "handler": "FUNCTION",
+      "access": 2,
+      "enabled": true,
+      "rowkey": 996,
+      "title": "Bot change history",
+      "description": "Returns the ordered version history (backup list) of a bot, useful for audits and rollback analysis.",
+      "keywords": "bot,history,backup,audit,rollback",
+      "timeout": 30,
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "code": "fnGetBotBackupByIdBot",
+      "mcp": {
+        "enabled": true,
+        "name": "bot_change_history",
+        "title": "Bot Change History",
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns the ordered version history of a bot, newest first. A version is recorded on every `upsert_bot` and immediately before every `delete_bot`, and identical configurations are deduplicated, so each entry is a real change. Use 'lightweight: true' (the default, and what an agent should use) to get only idbackup, hash and createdAt. Use 'lightweight: false' only when you need to inspect the stored snapshot itself. To roll back to a specific version, copy its 'idbackup' and call 'bot_restore_version'. Background on bots: `get_bot_skill`.",
+        "operation_mode": "read",
+        "requires_explicit_confirmation": false,
+        "side_effects": "No persistent write side effects expected.",
+        "safe_alternative": "N/A",
+        "exampleRequest": {
+          "idbot": "8454e48a-cbda-4f5a-94d2-c0a57429a5af"
+        },
+        "notes": [
+          "The history survives deletion: a bot removed by mistake can be recreated in full by restoring its last version.",
+          "With 'lightweight: false' the response contains the complete bot snapshot, INCLUDING its provider token. Do not echo that payload back to the user or paste it into logs.",
+          "Observed runtime state (runtime_status, failure_count, …) is deliberately excluded from the snapshot: it is diagnostics, not configuration, and restoring a version never overwrites it."
+        ]
+      },
+      "ctrl": {},
+      "cors": {},
+      "custom_data": {},
+      "json_schema": {
+        "in": {
+          "enabled": true,
+          "schema": {
+            "title": "BotChangeHistoryRequest",
+            "type": "object",
+            "properties": {
+              "idbot": {
+                "type": "string",
+                "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                "description": "Bot UUID whose version history should be returned (query parameter or body)."
+              },
+              "lightweight": {
+                "type": "boolean",
+                "default": true,
+                "description": "If true (recommended), returns only idbackup, hash and createdAt, without the heavy full snapshot that carries the bot token."
+              }
+            },
+            "required": [
+              "idbot"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "out": {
+          "enabled": false
+        }
+      },
+      "headers_test": {},
+      "data_test": {
+        "query": [
+          {
+            "enabled": true,
+            "key": "idbot",
+            "value": "8454e48a-cbda-4f5a-94d2-c0a57429a5af",
+            "internal_hash_row": "bot-backup-q1",
+            "type": 1
+          }
+        ],
+        "body": {
+          "selection": 0,
+          "json": { "code": "" },
+          "xml": { "code": "" },
+          "text": { "value": "" },
+          "form": {}
+        },
+        "headers": [
+          {
+            "enabled": false,
+            "key": "",
+            "value": "",
+            "internal_hash_row": "bot-backup-h1",
+            "type": 1
+          }
+        ],
+        "auth": { "basic": { "username": "", "password": "" }, "bearer": { "token": "" }, "selection": 0 }
+      }
+    },
+    {
+      "idendpoint": "0a9e64b8-31d7-4f52-8c6b-9d2743fa1e07",
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "environment": "prd",
+      "resource": "/bots/restore",
+      "method": "POST",
+      "handler": "FUNCTION",
+      "access": 2,
+      "enabled": true,
+      "rowkey": 997,
+      "title": "Restore bot version",
+      "description": "Restores a bot to a previous version from its backup history.",
+      "keywords": "bot,restore,rollback,backup",
+      "timeout": 30,
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "code": "fnBotRestoreBackup",
+      "mcp": {
+        "enabled": true,
+        "name": "bot_restore_version",
+        "title": "Restore Bot Version",
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nRestores a bot to a previous version using a specific 'idbackup'. This is the one-click rollback for a bad code or token change, and it also recreates a bot that was deleted, with the same idbot. To find the right idbackup, first call 'bot_change_history' and read the timestamps. Background on bots: `get_bot_skill`.",
+        "operation_mode": "write",
+        "requires_explicit_confirmation": true,
+        "exampleRequest": {
+          "idbackup": 1
+        },
+        "side_effects": "Overwrites the live bot definition (code, token, params, enabled) with the stored snapshot and restarts its worker immediately. Observed runtime state is preserved. The restore is itself recorded as a new version, so the configuration you replaced is still recoverable.",
+        "safe_alternative": "Call 'bot_change_history' first to confirm the exact `idbackup` and its timestamp before restoring."
+      },
+      "ctrl": {},
+      "cors": {},
+      "custom_data": {},
+      "json_schema": {
+        "in": {
+          "enabled": true,
+          "schema": {
+            "title": "BotRestoreBackupRequest",
+            "type": "object",
+            "properties": {
+              "idbackup": {
+                "type": "integer",
+                "description": "The unique ID of the bot version to restore, as returned by 'bot_change_history'."
+              }
+            },
+            "required": [
+              "idbackup"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "out": {
+          "enabled": true,
+          "schema": {
+            "type": "object",
+            "properties": {
+              "success": { "type": "boolean" },
+              "idbot": { "type": "string", "format": "uuid" }
+            }
+          }
+        }
+      },
+      "headers_test": {},
+      "data_test": {
+        "query": [],
+        "body": {
+          "selection": 0,
+          "json": { "code": { "idbackup": 1 } },
+          "xml": { "code": "" },
+          "text": { "value": "" },
+          "form": {}
+        },
+        "headers": [],
         "auth": { "basic": { "username": "", "password": "" }, "bearer": { "token": "" }, "selection": 0 }
       }
     },

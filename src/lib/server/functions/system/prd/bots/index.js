@@ -5,7 +5,12 @@ import {
   deleteBot,
   enableBot,
   disableBot,
+  restoreBotFromBackup,
 } from "../../../../../db/bot.js";
+import {
+  getBotBackupByIdBot,
+  getBotBackupByIdBotLightweight,
+} from "../../../../../db/bot_backup.js";
 import { getAppVarsByIdApp } from "../../../../../db/appvars.js";
 import { readBotSkill, readBotProviderSkill } from "../../../../botDocs.js";
 
@@ -281,6 +286,71 @@ export async function fnEnableDisableBot(params) {
     }
   } catch (error) {
     console.error("[fnEnableDisableBot] error:", error);
+    r.data = { success: false, error: error?.message || String(error) };
+    r.code = 500;
+  }
+  return r;
+}
+
+/**
+ * Historial de versiones de la configuración de un bot.
+ *
+ * Por defecto responde en modo ligero: el snapshot completo contiene el token del bot,
+ * así que solo se devuelve cuando se pide `lightweight: false` explícitamente.
+ */
+export async function fnGetBotBackupByIdBot(params) {
+  let r = { code: 200, data: undefined };
+  try {
+    const query = params.request.query || {};
+    const body = params.request.body || {};
+    const idbot = query.idbot || body.idbot;
+
+    if (!idbot) {
+      r.code = 400;
+      r.data = { success: false, error: "Missing required field: idbot" };
+      return r;
+    }
+
+    const rawLightweight =
+      query.lightweight !== undefined ? query.lightweight : body.lightweight;
+    const lightweight =
+      rawLightweight === undefined
+        ? true
+        : rawLightweight === true || rawLightweight === "true";
+
+    r.data = lightweight
+      ? await getBotBackupByIdBotLightweight(idbot)
+      : await getBotBackupByIdBot(idbot);
+  } catch (error) {
+    console.error("[fnGetBotBackupByIdBot] error:", error);
+    r.data = { success: false, error: error?.message || String(error) };
+    r.code = 500;
+  }
+  return r;
+}
+
+/**
+ * Rollback de un bot a una versión concreta del historial.
+ */
+export async function fnBotRestoreBackup(params) {
+  let r = { code: 200, data: undefined };
+  try {
+    const idbackup =
+      params?.request?.query?.idbackup || params?.request?.body?.idbackup;
+
+    if (!idbackup) {
+      r.code = 400;
+      r.data = { success: false, error: "Missing required field: idbackup" };
+      return r;
+    }
+
+    const result = await restoreBotFromBackup(idbackup);
+    // Igual que en el upsert: restaurar es un cambio de configuración y por tanto una
+    // petición implícita de reintento, así que el worker debe reiniciarse ya.
+    resetBotBackoff(params, result.idbot, "config_changed");
+    r.data = result;
+  } catch (error) {
+    console.error("[fnBotRestoreBackup] error:", error);
     r.data = { success: false, error: error?.message || String(error) };
     r.code = 500;
   }

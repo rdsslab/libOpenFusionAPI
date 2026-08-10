@@ -65,6 +65,17 @@ export const upsertBot = async (data) => {
       data.idbot = uuidv4();
     }
     const [result, created] = await Bot.upsert(data, { returning: true });
+
+    // Cada cambio de configuración deja una versión en `ofapi_bot_bkp`. Un fallo aquí
+    // nunca debe tumbar el guardado del bot: el respaldo es una red de seguridad, no
+    // parte del contrato del upsert.
+    try {
+      const { createBotBackup } = await import("./bot_backup.js");
+      await createBotBackup({ data, idbot: result.idbot });
+    } catch (error) {
+      console.error("[bot.js] Error creating bot backup:", error);
+    }
+
     return { result, created };
   } catch (error) {
     console.error("[bot.js] Error in upsertBot:", error, data);
@@ -379,6 +390,16 @@ export const deleteBot = async (idbot) => {
   try {
     const bot = await Bot.findByPk(idbot);
     if (bot) {
+      // Snapshot antes de destruir: `ofapi_bot_bkp` no tiene FK contra `ofapi_bot`, así
+      // que el historial sobrevive al borrado y `bot_restore_version` puede recrear el
+      // bot entero (token incluido) si se eliminó por error.
+      try {
+        const { createBotBackup } = await import("./bot_backup.js");
+        await createBotBackup({ idbot, data: bot.toJSON() });
+      } catch (error) {
+        console.error("[bot.js] Error creating bot backup before delete:", error);
+      }
+
       await bot.destroy();
       return true;
     }
@@ -387,4 +408,45 @@ export const deleteBot = async (idbot) => {
     console.error("[bot.js] Error in deleteBot:", error);
     throw error;
   }
+};
+
+// ────────────────────────────────────────────────────────────
+// RESTORE
+// ────────────────────────────────────────────────────────────
+
+/**
+ * Restaura un bot a partir de una versión del historial (`ofapi_bot_bkp`).
+ *
+ * Si el bot fue borrado, el upsert lo vuelve a crear con el mismo `idbot`. El snapshot no
+ * contiene columnas de runtime, así que el estado de salud observado del bot vivo no se
+ * pisa. La propia restauración queda registrada como una versión más, de modo que la
+ * configuración que se reemplazó sigue siendo recuperable.
+ *
+ * @param {number|string} idbackup
+ * @returns {Promise<{success: boolean, idbot: string}>}
+ */
+export const restoreBotFromBackup = async (idbackup) => {
+  if (!idbackup) throw new Error("idbackup es obligatorio.");
+
+  const { getBotBackupById, createBotBackup } = await import("./bot_backup.js");
+
+  const backup = await getBotBackupById(idbackup);
+  if (!backup) {
+    throw new Error(`No se encontró el respaldo con ID ${idbackup}`);
+  }
+
+  const backupData = backup.toJSON ? backup.toJSON() : backup;
+  const botData = { ...backupData.data };
+  // El snapshot manda sobre cualquier idbot que traiga el payload guardado.
+  botData.idbot = backupData.idbot;
+
+  const [result] = await Bot.upsert(botData, { returning: true });
+
+  try {
+    await createBotBackup({ data: botData, idbot: result.idbot });
+  } catch (error) {
+    console.error("[bot.js] Error creating bot backup after restore:", error);
+  }
+
+  return { success: true, idbot: result.idbot };
 };

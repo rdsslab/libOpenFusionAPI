@@ -41,6 +41,7 @@ import {
   AppVars,
   Endpoint as EndpointBBDD,
   Bot,
+  BotBackup,
   LogEntry,
   IntervalTask,
   tblDemo,
@@ -471,6 +472,17 @@ export default class ServerAPI extends EventEmitter {
       await ensureBotRuntimeColumns(log);
     } catch (error) {
       log("Error ensuring bot runtime columns:", error);
+    }
+
+    // Misma razón que las columnas de runtime: sin BUILD_DB la tabla del historial de
+    // versiones de los bots no se crearía, y aunque el respaldo falla en silencio (nunca
+    // rompe un upsert), las tools bot_change_history / bot_restore_version quedarían
+    // muertas sin que nadie se entere. `sync()` sobre un solo modelo es un
+    // CREATE TABLE IF NOT EXISTS: idempotente y sin tocar nada más.
+    try {
+      await BotBackup.sync();
+    } catch (error) {
+      log("Error ensuring bot backup table:", error);
     }
 
     /*

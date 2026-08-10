@@ -958,6 +958,54 @@ export const Bot = dbsequelize.define(
   },
 );
 
+// ============================================
+// MODELO BotBackup
+//
+// Historial de versiones de la configuración de un bot (`ofapi_bot_bkp`).
+// Espejo de EndpointBackup: cada upsert (y cada borrado) de un bot deja un snapshot
+// deduplicado por hash. Ver src/lib/db/bot_backup.js.
+//
+// A propósito NO declara asociación ni FK contra Bot: el historial debe sobrevivir al
+// borrado del bot para poder recuperar uno eliminado por error.
+// ============================================
+export const BotBackup = dbsequelize.define(
+  ModelNames.BotBackup,
+  {
+    idbackup: {
+      type: DataTypes.BIGINT,
+      primaryKey: true,
+      autoIncrement: true,
+      allowNull: false,
+    },
+    idbot: {
+      type: DataTypes.UUID,
+      allowNull: false,
+      defaultValue: DataTypes.UUIDV4,
+    },
+    hash: {
+      type: DataTypes.CHAR(128),
+      allowNull: false,
+      comment: "Hash of the backup data for quick comparison",
+    },
+    data: jsonField("data", { comment: "Bot data backup" }),
+  },
+  {
+    freezeTableName: true,
+    timestamps: true,
+    indexes: [
+      {
+        // Es lo que hace idempotente el respaldo: guardar dos veces la misma
+        // configuración no crea una versión nueva.
+        unique: true,
+        fields: ["idbot", "hash"],
+        name: "unique_bot_hash",
+      },
+      { fields: ["idbot"] },
+    ],
+    hooks: {},
+  },
+);
+
 export const LogEntry = dbsequelize.define(
   ModelNames.LogEntry,
   {

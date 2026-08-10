@@ -65,6 +65,11 @@ async function runAllTests() {
         args: ["bot_resilience_test.js"],
       },
       {
+        label: "bot_backup_test.js",
+        command: "node",
+        args: ["bot_backup_test.js"],
+      },
+      {
         label: "backup_restore_test.js",
         command: "node",
         args: ["backup_restore_test.js"],

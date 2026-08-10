@@ -105,6 +105,17 @@ Everything in the shared JavaScript skill applies, **except** these points, whic
 
 Never report a bot as working because `upsert_bot` returned 200. That only confirms the row was saved. The bot is working when `bot_started` appears in the logs and the platform answers.
 
+### Undoing a change
+
+Every `upsert_bot` and every `delete_bot` writes a version of the bot's configuration to `ofapi_bot_bkp` first, so **you do not need to ask the user for a copy of the current `code` or `token` before rewriting a bot** — the previous state is already saved.
+
+- **`bot_change_history`** with an `idbot` lists the versions, newest first. Keep the default `lightweight: true`: the full snapshot carries the bot's token and you should not be echoing it around.
+- **`bot_restore_version`** with an `idbackup` rolls the bot back and restarts its worker. It also recreates a bot that was deleted, with the same `idbot`.
+
+The restore is itself recorded as a new version, so rolling back is not destructive either. Identical configurations are deduplicated, so the history only lists real changes.
+
+Two things the history does **not** do: it does not undo an app variable change (use `app_vars` / `appvar_upsert` for that), and it does not restore observed runtime state — health columns are deliberately excluded from the snapshot.
+
 ### Before blaming the bot: is the platform reachable?
 
 A `bot_startup_error` with `error_type: CONNECTION_ERROR` means the runtime could not reach the platform API at all — it never got far enough to validate the token. That is almost always network policy (corporate proxy, TLS inspection, egress firewall), not a problem with `code` or `token`, and editing either will not fix it. Confirm from the host before changing anything, e.g. `curl -sS https://api.telegram.org/bot<token>/getMe`. A TCP connection that opens and then dies during the TLS handshake is a blocked host, not a bad credential.

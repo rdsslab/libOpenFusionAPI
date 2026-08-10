@@ -90,4 +90,20 @@ src/docs/bots/
 
 ## Backup and restore
 
-Application backups carry their bots: `restoreAppFromBackup` restores `app.bots` through `upsertBot`, so a bot definition travels with its application (see `src/lib/db/app.js`).
+### Per-bot version history
+
+Every bot keeps its own change history in `ofapi_bot_bkp` (`src/lib/db/bot_backup.js`), the same strategy the `endpoint` model uses with `ofapi_endpoint_bkp`:
+
+- A version is written on every `upsertBot` and immediately **before** every `deleteBot`.
+- Versions are deduplicated by a sha256 hash of the snapshot, so saving the same configuration twice does not create a new row. There is no pruning: the history grows only when the configuration really changes.
+- The observed runtime state (`runtime_status`, `failure_count`, `last_error_*`, …) is stripped from the snapshot. It is diagnostics written by the `BotLifecycleTask`, not configuration — including it would create a version on every telemetry heartbeat and a restore would overwrite the bot's current health with a stale one.
+- The table has **no foreign key** against `ofapi_bot` on purpose: the history survives the deletion of the bot, so `restoreBotFromBackup` can recreate a deleted bot with the same `idbot`.
+- The snapshot stores the bot's `token`, which is why the history endpoints are admin-only (`access: 2`) and why `bot_change_history` is lightweight by default.
+
+Restoring re-runs the upsert, records the restore as one more version (so the configuration you replaced is still recoverable), and clears the manager backoff so the worker restarts right away.
+
+MCP tools: `bot_change_history` (list versions) and `bot_restore_version` (roll back to an `idbackup`). In the GUI, the bot editor has a **Backups** section that loads a version into the form so you can review it before saving.
+
+### Application backups
+
+Application backups also carry their bots: `restoreAppFromBackup` restores `app.bots` through `upsertBot`, so a bot definition travels with its application (see `src/lib/db/app.js`). Because it goes through `upsertBot`, each restored bot also gets a version in its own history.

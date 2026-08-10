@@ -10,6 +10,7 @@
     "primary_key": "idbot",
     "parent": "ofapi_application.idapp (ON DELETE CASCADE)",
     "db_layer": "src/lib/db/bot.js",
+    "backup_db_layer": "src/lib/db/bot_backup.js",
     "model": "src/lib/db/models.js"
   },
   "runtime": {
@@ -28,8 +29,8 @@
     "tools": ["handler_library_documentation"]
   },
   "crud_tools": {
-    "read": ["list_bots"],
-    "write": ["upsert_bot", "enable_disable_bot", "delete_bot"],
+    "read": ["list_bots", "bot_change_history"],
+    "write": ["upsert_bot", "enable_disable_bot", "delete_bot", "bot_restore_version"],
     "skill": ["get_bot_skill", "get_bot_provider_skill"]
   },
   "observability": {
