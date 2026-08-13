@@ -543,7 +543,6 @@ export const CreateMCPHandler = async (app_name, environment) => {
     outputSchemaWasInferred,
     varsDeprecated,
     overrideNotes,
-    legacyToolName,
     safeToolName,
   }) => {
     const requiredFields = getRequiredFields(inputSchema);
@@ -611,10 +610,6 @@ export const CreateMCPHandler = async (app_name, environment) => {
 
     if (Array.isArray(overrideNotes) && overrideNotes.length > 0) {
       notes.push(...overrideNotes);
-    }
-
-    if (legacyToolName !== safeToolName) {
-      notes.push(`Legacy alias \`${legacyToolName}\` remains registered for backward compatibility.`);
     }
 
     return notes.map((note) => `- ${note}`).join("\n  ");
@@ -929,10 +924,6 @@ export const CreateMCPHandler = async (app_name, environment) => {
 **MCP Tool Name (safe)**
 ${safeToolName}
 
-${legacyToolName !== safeToolName ? `**Legacy Alias**
-${legacyToolName}
-
-` : ""}
 
 ### Description
 ${effectiveDescription}
@@ -1030,7 +1021,6 @@ ${toPrettyText(exampleResponse)}
       outputSchemaWasInferred,
       varsDeprecated,
       overrideNotes: Array.isArray(mcpNotes) ? mcpNotes : (mcpNotes ? [mcpNotes] : null),
-      legacyToolName,
       safeToolName,
     })}
 
@@ -1201,11 +1191,14 @@ ${endpointUpsertHandlerGuide}
       });
     };
 
+    // No hay mecanismo de alias: `legacyToolName` sólo puede diferir de `safeToolName` en
+    // mayúsculas (ambos pasan por sanitizeToolName; safe añade el lowercase), y el dedupe
+    // por `normalizeToolKey` de más abajo descartaba igualmente el segundo registro. Se
+    // registraba un alias fantasma que nunca llegaba a tools/list mientras la
+    // documentación afirmaba a los agentes que seguía disponible. Renombrar una tool es
+    // hoy un cambio con ruptura: hay que actualizar `mcp.name` en el seed y todas las
+    // referencias en prosa en el mismo commit.
     registerEndpointTool(safeToolName);
-    if (legacyToolName !== safeToolName) {
-      registerEndpointTool(legacyToolName, "Legacy alias. ");
-    }
-
   }
 
   const md_resource = `

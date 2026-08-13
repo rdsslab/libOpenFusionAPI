@@ -80,6 +80,20 @@ const DOMAIN_IDENTIFIERS = new Set([
   "failed_attempts",
   "last_exec_time",
   "last_response",
+  // Configuración de las interval tasks. Las tools de lectura las citan al explicar la
+  // respuesta o el diagnóstico aunque no las declaren en su propio esquema de entrada.
+  "endpoint_enabled",
+  "app_enabled",
+  "schedule_mode",
+  "exec_time_limit",
+  "allow_concurrent",
+  "max_failed_attempts",
+  "history_limit",
+  // Columnas del historial de ejecuciones (ofapi_intervaltask_run).
+  "started_at",
+  "finished_at",
+  "duration_ms",
+  "http_status",
 ]);
 
 // Número de tools a partir del cual un mismo texto de `side_effects` deja de

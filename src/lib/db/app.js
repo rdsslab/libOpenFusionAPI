@@ -15,7 +15,10 @@ import {
 } from "./endpoint.js";
 import { getAppVarsByIdApp, upsertAppVar } from "./appvars.js";
 import { upsertBot, BOT_RUNTIME_ATTRIBUTES } from "./bot.js";
-import { upsertIntervalTask } from "./interval_task.js";
+import {
+  upsertIntervalTask,
+  INTERVAL_TASK_RUNTIME_ATTRIBUTES,
+} from "./interval_task.js";
 import { upsertApiClient } from "./apiclient.js";
 import { upsertApiKey } from "./apikey.js";
 import { default_apps } from "./default/index.js";
@@ -104,19 +107,33 @@ function replace_Old_FUNCTIONS_NAMES(code) {
  * Cada tarea se remapea al idendpoint real: upsertEndpoint puede reutilizar
  * el idendpoint de un endpoint existente con el mismo
  * (idapp + environment + resource + method), por lo que el idendpoint del
- * backup no necesariamente es el que quedó en base de datos.
+ * backup no necesariamente es el que quedó en base de datos. Lo mismo aplica al
+ * `idkey`, que se reapunta con el mapa devuelto por restoreApiKeys.
+ *
+ * `idtask` es autoincremental, así que restaurar el del backup pisaría la tarea que
+ * ocupara ese id en el destino —el mismo riesgo que ya se resolvió para ApiKey.idkey—.
+ * La fila destino se resuelve en dos pasos: se acepta el `idtask` del backup sólo si esa
+ * fila existe Y apunta al mismo endpoint (el caso normal, restaurar sobre la misma
+ * instancia), y si no se busca por (idendpoint + note). No se cae a una clave natural más
+ * laxa a propósito: emparejar de más fusionaría dos tareas distintas del mismo endpoint,
+ * así que ante la duda se inserta dejando que la base asigne un idtask nuevo.
+ *
+ * La telemetría del scheduler (INTERVAL_TASK_RUNTIME_ATTRIBUTES) se descarta: es estado
+ * observado, no configuración.
  *
  * @param {Array} tasks - tareas provenientes del backup (app.tasks)
  * @param {Map<string, string>} idendpoint_map - idendpoint del backup -> idendpoint real
+ * @param {Map<number, number>} idkey_map - idkey del backup -> idkey real
  * @returns {Promise<Array>}
  */
-async function restoreIntervalTasks(tasks, idendpoint_map) {
+async function restoreIntervalTasks(tasks, idendpoint_map, idkey_map = new Map()) {
   if (!Array.isArray(tasks) || tasks.length === 0) {
     return [];
   }
 
   const pending = [];
   const skipped = [];
+  const orphan_keys = [];
 
   for (const t of tasks) {
     const target = idendpoint_map.get(t.idendpoint) || t.idendpoint;
@@ -138,7 +155,60 @@ async function restoreIntervalTasks(tasks, idendpoint_map) {
       }
     }
 
-    pending.push(upsertIntervalTask({ ...t, idendpoint: target }));
+    const data = { ...t, idendpoint: target };
+
+    for (const field of INTERVAL_TASK_RUNTIME_ATTRIBUTES) delete data[field];
+
+    if (t.idkey != null) {
+      const target_key = idkey_map.get(Number(t.idkey));
+
+      if (target_key != null) {
+        data.idkey = target_key;
+      } else {
+        // Mejor sin credencial (la tarea falla con "Missing credentials" y se ve en el
+        // historial) que apuntando a la key de otra app.
+        const exists = await ApiKey.findByPk(t.idkey, { attributes: ["idkey"] });
+
+        if (!exists) {
+          data.idkey = null;
+          orphan_keys.push({ idtask: t.idtask, idkey: t.idkey });
+        }
+      }
+    }
+
+    let existing = null;
+
+    if (t.idtask != null) {
+      const byId = await IntervalTask.findByPk(t.idtask, {
+        attributes: ["idtask", "idendpoint"],
+      });
+      // Sólo vale si apunta al mismo endpoint: en otra instancia ese id puede ser la
+      // tarea de otra aplicación.
+      if (byId && byId.idendpoint === target) existing = byId;
+    }
+
+    if (!existing) {
+      existing = await IntervalTask.findOne({
+        where: { idendpoint: target, note: t.note ?? null },
+        attributes: ["idtask"],
+      });
+    }
+
+    if (existing) {
+      data.idtask = existing.idtask;
+    } else {
+      // Deja que la base asigne el idtask para no pisar una tarea ajena
+      delete data.idtask;
+    }
+
+    pending.push(upsertIntervalTask(data));
+  }
+
+  if (orphan_keys.length > 0) {
+    console.warn(
+      `[restoreIntervalTasks] ${orphan_keys.length} task(s) restored without idkey: the api key was not part of the backup and does not exist in this instance`,
+      orphan_keys
+    );
   }
 
   if (skipped.length > 0) {
@@ -156,6 +226,66 @@ async function restoreIntervalTasks(tasks, idendpoint_map) {
         `[restoreIntervalTasks] Error restoring task ${index}:`,
         r.reason
       );
+    }
+  });
+
+  return results;
+}
+
+/**
+ * Restaura los bots de mensajería que vienen al nivel raíz del backup (app.bots).
+ *
+ * `upsertBot` resuelve sólo por `idbot`, así que restaurar en una instancia donde el bot
+ * lógico ya existe con otro UUID creaba una segunda fila y el BotLifecycleTask podía
+ * arrancar las dos contra el mismo token del provider. La fila destino se resuelve antes
+ * por (idapp + environment + name), que es lo estable entre instancias.
+ *
+ * El estado de runtime es observado, no configuración: restaurar un `QUARANTINED` o un
+ * `next_retry_at` viejo haría que un bot recién restaurado arrancara con un backoff que ya
+ * no corresponde a nada.
+ *
+ * Solo upsertea los bots que vienen en el backup; los que existen en base de datos y no
+ * vienen NO se eliminan.
+ *
+ * @param {Array} bots - bots provenientes del backup (app.bots)
+ * @param {string} idapp - idapp destino
+ * @returns {Promise<Array>}
+ */
+async function restoreBots(bots, idapp) {
+  if (!Array.isArray(bots) || bots.length === 0) {
+    return [];
+  }
+
+  const pending = [];
+
+  for (const bot of bots) {
+    const data = { ...bot, idapp };
+
+    for (const field of BOT_RUNTIME_ATTRIBUTES) delete data[field];
+
+    if (data.name) {
+      const existing = await Bot.findOne({
+        where: {
+          idapp,
+          environment: data.environment || "prd",
+          name: data.name,
+        },
+        attributes: ["idbot"],
+      });
+
+      if (existing) {
+        data.idbot = existing.idbot;
+      }
+    }
+
+    pending.push(upsertBot(data));
+  }
+
+  const results = await Promise.allSettled(pending);
+
+  results.forEach((r, index) => {
+    if (r.status === "rejected") {
+      console.error(`[restoreBots] Error restoring bot ${index}:`, r.reason);
     }
   });
 
@@ -234,17 +364,23 @@ async function restoreApiClients(clients) {
  * Solo upsertea las keys que vienen en el backup; las que existen en base de
  * datos y no vienen NO se eliminan.
  *
+ * Como el idkey destino casi nunca coincide con el del backup, se devuelve el mapeo:
+ * las interval tasks lo necesitan para reapuntar su `idkey` (el Bearer con el que el
+ * scheduler llama al endpoint). Sin ese mapeo la tarea quedaba autenticándose con la key
+ * que por casualidad ocupara ese id en el destino.
+ *
  * @param {Array} keys - api keys provenientes del backup (app.keys)
  * @param {string} idapp - idapp destino
  * @param {Map<string, string>} idclient_map - idclient del backup -> idclient real
- * @returns {Promise<Array>}
+ * @returns {Promise<Map<number, number>>} idkey del backup -> idkey real
  */
 async function restoreApiKeys(keys, idapp, idclient_map) {
+  const idkey_map = new Map();
+
   if (!Array.isArray(keys) || keys.length === 0) {
-    return [];
+    return idkey_map;
   }
 
-  const results = [];
   const skipped = [];
 
   for (const k of keys) {
@@ -283,7 +419,12 @@ async function restoreApiKeys(keys, idapp, idclient_map) {
         delete data.idkey;
       }
 
-      results.push(await upsertApiKey(data));
+      const res = await upsertApiKey(data);
+      const real_idkey = res?.result?.idkey ?? data.idkey;
+
+      if (k.idkey != null && real_idkey != null) {
+        idkey_map.set(Number(k.idkey), Number(real_idkey));
+      }
     } catch (error) {
       console.error(
         `[restoreApiKeys] Error restoring key ${k?.idkey} for client ${target_client}:`,
@@ -299,7 +440,7 @@ async function restoreApiKeys(keys, idapp, idclient_map) {
     );
   }
 
-  return results;
+  return idkey_map;
 }
 
 function safeParseJson(value) {
@@ -684,27 +825,18 @@ export const restoreAppFromBackup = async (app) => {
           );
         }
 
-        if (Array.isArray(app.bots) && app.bots.length > 0) {
-          // Restore messaging bots (provider defaults to telegram if not present)
-          let promises_bots = app.bots.map((b) => {
-            if (!b.idapp || b.idapp !== app.idapp) {
-              b.idapp = app.idapp;
-            }
-            // El estado de runtime es observado, no configuración: restaurar un
-            // `QUARANTINED` o un `next_retry_at` viejo haría que un bot recién
-            // restaurado arrancara con un backoff que ya no corresponde a nada.
-            for (const field of BOT_RUNTIME_ATTRIBUTES) delete b[field];
-            return upsertBot(b);
-          });
-          await Promise.allSettled(promises_bots);
-        }
+        await restoreBots(app.bots, app.idapp);
 
         // Restaurar los usuarios externos y sus api keys. Los clientes van
         // primero por la FK idclient de las api keys.
         const idclient_map = await restoreApiClients(app.clients);
 
+        // idkey del backup -> idkey real. Se declara fuera del if para que las
+        // interval tasks puedan consultarlo aunque el backup no traiga keys.
+        let idkey_map = new Map();
+
         if (Array.isArray(app.keys) && app.keys.length > 0) {
-          await restoreApiKeys(app.keys, app.idapp, idclient_map);
+          idkey_map = await restoreApiKeys(app.keys, app.idapp, idclient_map);
         }
 
         // idendpoint del backup -> idendpoint real luego del upsert.
@@ -833,7 +965,7 @@ export const restoreAppFromBackup = async (app) => {
         // FK idendpoint. Las tareas que existan en BD pero no estén en el
         // backup NO se eliminan; solo se upsertean las que vienen en él.
         if (Array.isArray(app.tasks) && app.tasks.length > 0) {
-          await restoreIntervalTasks(app.tasks, idendpoint_map);
+          await restoreIntervalTasks(app.tasks, idendpoint_map, idkey_map);
         }
       }
 

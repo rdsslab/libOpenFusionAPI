@@ -2,7 +2,12 @@ import {
   getIntervalTask,
   upsertIntervalTask,
   deleteIntervalTask,
+  runNowIntervalTask,
+  resetIntervalTaskAttempts,
 } from "../../../../../db/interval_task.js";
+import { getIntervalTaskRuns } from "../../../../../db/interval_task_run.js";
+import { validateCron } from "../../../../../timer/schedule.js";
+import { readIntervalTaskSkill } from "../../../../intervalTaskDocs.js";
 
 export async function fnGetIntervalTasksByIdApp(params) {
   let r = { code: 200, data: undefined };
@@ -23,8 +28,105 @@ export async function fnGetIntervalTasksByIdApp(params) {
 export async function fnUpsertIntervalTask(params) {
   let r = { data: undefined, code: 204 };
   try {
-    r.data = await upsertIntervalTask(params.request.body);
+    const body = params.request.body || {};
+
+    // `idendpoint` sólo es obligatorio al crear: en un UPDATE parcial se conserva el de la
+    // fila. No puede expresarse en el json_schema porque el normalizador de MCP descarta
+    // `if`/`then`, así que la condición vive aquí.
+    if (body.idtask === undefined || body.idtask === null) {
+      if (!body.idendpoint) {
+        r.data = {
+          error: "idendpoint is required to create an interval task",
+          code: "MISSING_IDENDPOINT",
+        };
+        r.code = 400;
+        return r;
+      }
+    }
+
+    // Una expresión cron inválida dejaría la tarea sin próxima ejecución y sin ningún
+    // aviso: se rechaza al guardar, no al ejecutar.
+    if (body.schedule_mode === "cron") {
+      if (!body.cron) {
+        r.data = { error: "cron is required when schedule_mode is 'cron'" };
+        r.code = 400;
+        return r;
+      }
+
+      const check = validateCron(body.cron, body.timezone);
+      if (!check.valid) {
+        r.data = { error: `Invalid cron expression: ${check.error}` };
+        r.code = 400;
+        return r;
+      }
+    }
+
+    r.data = await upsertIntervalTask(body);
     r.code = 200;
+  } catch (error) {
+    if (error?.code === "INTERVAL_TASK_NOT_FOUND") {
+      r.data = { error: error.message, code: error.code };
+      r.code = 404;
+      return r;
+    }
+
+    r.data = error;
+    r.code = 500;
+  }
+  return r;
+}
+
+export async function fnGetIntervalTaskSkill(params) {
+  let r = { code: 204, data: undefined };
+  try {
+    r.data = await readIntervalTaskSkill();
+    r.code = 200;
+  } catch (error) {
+    console.error("[fnGetIntervalTaskSkill] error:", error);
+    r.data = { error: error?.message || String(error) };
+    r.code = 500;
+  }
+  return r;
+}
+
+export async function fnGetIntervalTaskRuns(params) {
+  let r = { code: 200, data: undefined };
+  try {
+    const query = params.request.query || {};
+    r.data = await getIntervalTaskRuns(query.idtask, { limit: query.limit });
+    r.code = 200;
+  } catch (error) {
+    console.log(error);
+
+    r.data = error;
+    r.code = 500;
+  }
+  return r;
+}
+
+export async function fnRunIntervalTaskNow(params) {
+  let r = { code: 200, data: undefined };
+  try {
+    const body = params.request.body || {};
+    const result = await runNowIntervalTask(body.idtask);
+
+    r.data = result;
+    r.code = result.success ? 200 : 400;
+  } catch (error) {
+    r.data = error;
+    r.code = 500;
+  }
+  return r;
+}
+
+export async function fnResetIntervalTaskAttempts(params) {
+  let r = { code: 200, data: undefined };
+  try {
+    const body = params.request.body || {};
+    const result = await resetIntervalTaskAttempts(body.idtask);
+
+    r.data = result;
+    r.code = result.success ? 200 : 400;
   } catch (error) {
     r.data = error;
     r.code = 500;

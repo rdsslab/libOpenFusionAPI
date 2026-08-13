@@ -20,6 +20,7 @@ import { defaultApiClient } from "./db/apiclient.js";
 
 import dbAPIs from "./db/sequelize.js";
 import { ensureBotRuntimeColumns } from "./db/ensureBotRuntimeColumns.js";
+import { ensureIntervalTaskColumns } from "./db/ensureIntervalTaskColumns.js";
 import {
   defaultApps,
   getApplicationTreeByFilters,
@@ -44,6 +45,7 @@ import {
   BotBackup,
   LogEntry,
   IntervalTask,
+  IntervalTaskRun,
   tblDemo,
   modelHooks
 } from "./db/models.js";
@@ -164,6 +166,12 @@ export default class ServerAPI extends EventEmitter {
     );
 
     this.TasksInterval = new TasksInterval();
+
+    // El worker de tareas programadas publica el inicio y el final de cada ejecución;
+    // se reenvían por el mismo canal /server/events que consume el GUI.
+    this.TasksInterval.onIntervalTaskEvent = (payload) => {
+      this._emitEndpointEvent("interval_task", payload);
+    };
 
     this.dbHookCacheInvalidation = new DbHookCacheInvalidationService({
       endpoints: this.endpoints,
@@ -483,6 +491,20 @@ export default class ServerAPI extends EventEmitter {
       await BotBackup.sync();
     } catch (error) {
       log("Error ensuring bot backup table:", error);
+    }
+
+    // Mismo criterio para las tareas programadas: sin estas columnas el worker de
+    // intervalos falla en cada ciclo y ninguna tarea vuelve a ejecutarse.
+    try {
+      await ensureIntervalTaskColumns(log);
+    } catch (error) {
+      log("Error ensuring interval task columns:", error);
+    }
+
+    try {
+      await IntervalTaskRun.sync();
+    } catch (error) {
+      log("Error ensuring interval task run table:", error);
     }
 
     /*

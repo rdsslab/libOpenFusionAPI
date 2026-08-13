@@ -155,10 +155,32 @@ async function createProbeEndpoints(token, idapp) {
   return { publicEndpointId };
 }
 
+// Busca la clave en cualquier nivel: desde que $_EXCEPTION_ puede devolver `data.public`,
+// una fuga ya no tiene por qué estar en la raíz del cuerpo.
+function findLeakedKey(value, keys, depth = 0) {
+  if (!value || typeof value !== "object" || depth > 6) return null;
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findLeakedKey(item, keys, depth + 1);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  for (const [key, child] of Object.entries(value)) {
+    if (keys.includes(key)) return key;
+    const found = findLeakedKey(child, keys, depth + 1);
+    if (found) return found;
+  }
+
+  return null;
+}
+
 function assertNoStackLeak(response, message) {
   assert.equal(typeof response.data, "object", `${message}: expected JSON body.`);
-  assert.ok(!("stack" in response.data), `${message}: stack trace leaked.`);
-  assert.ok(!("trace" in response.data), `${message}: trace leaked.`);
+  const leaked = findLeakedKey(response.data, ["stack", "trace"]);
+  assert.ok(!leaked, `${message}: '${leaked}' leaked in the response body.`);
 }
 
 async function loadPackageJson() {

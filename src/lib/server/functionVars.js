@@ -50,6 +50,7 @@ import { createLog } from "../db/log.js";
 import uFetch from "@rdsslab/uFetch";
 import jwt from "jsonwebtoken";
 import { getCorrectedNowSeconds } from "./timeSync.js";
+import { PUBLIC_ERROR_DATA } from "./errorPayload.js";
 import xmlFormatter from "xml-formatter";
 import xml2js from "xml2js";
 import dnsPromises from "dns/promises";
@@ -164,9 +165,96 @@ export function GenTokenJWT(data, startAt, endAt, key = JWTKEY) {
   );
 }
 
-export const jsException = (message, data, http_statusCode = 500) => {
-  let status = isValidHttpStatusCode(http_statusCode) ? http_statusCode : 500;
-  throw { message, data, date: new Date(), statusCode: status };
+/** Endpoints a los que ya se les avisó de la firma obsoleta, para no inundar la consola. */
+const deprecatedThrowWarned = new Set();
+
+/** Identifica el endpoint en el aviso de obsolescencia. */
+function describeEndpointForWarning(request) {
+  const params = request?.openfusionapi?.handler?.params;
+
+  if (!params) return request?.url || "unknown endpoint";
+
+  return `[${params.method || "?"}] /api/${params.app || "?"}${params.resource || ""}/${params.environment || "?"}`;
+}
+
+function warnDeprecatedThrowSignature(fnName, request) {
+  const endpoint = describeEndpointForWarning(request);
+  const key = `${fnName}::${endpoint}`;
+
+  if (deprecatedThrowWarned.has(key)) return;
+  deprecatedThrowWarned.add(key);
+
+  console.warn(
+    `DeprecationWarning: ${endpoint} llama a ${fnName}() con argumentos posicionales. ` +
+      `Usa ${fnName}({ message, statusCode, data: { log, public } }); ` +
+      `solo lo que va en data.public se devuelve al cliente.`,
+  );
+}
+
+/**
+ * Separa el contexto de log del detalle público.
+ *
+ * Un `data` sin `log` ni `public` se trata entero como log: es el comportamiento
+ * histórico y el seguro, así que migrar una llamada a la forma de objeto sin pensar en la
+ * separación no expone nada por accidente.
+ */
+function splitErrorData(data) {
+  const isEnvelope =
+    data &&
+    typeof data === "object" &&
+    !Array.isArray(data) &&
+    (Object.prototype.hasOwnProperty.call(data, "log") ||
+      Object.prototype.hasOwnProperty.call(data, "public"));
+
+  if (isEnvelope) return { log: data.log, publicData: data.public };
+
+  return { log: data, publicData: undefined };
+}
+
+/**
+ * Interrumpe la ejecución del endpoint con un error controlado.
+ *
+ * Forma recomendada:
+ *   jsException({ message, statusCode, data: { log: {...}, public: {...} } })
+ *
+ * Forma obsoleta (se mantiene por compatibilidad; todo su `data` es contexto de log):
+ *   jsException(message, data, statusCode)
+ *
+ * @param {string|{message: string, statusCode?: number, data?: any}} messageOrOptions
+ * @param {any} [data] solo en la forma obsoleta
+ * @param {number} [http_statusCode] solo en la forma obsoleta
+ * @param {{request?: any, fnName?: string}} [context] para el aviso de obsolescencia
+ */
+export const jsException = (
+  messageOrOptions,
+  data,
+  http_statusCode = 500,
+  context = {},
+) => {
+  const usesObjectSignature =
+    messageOrOptions &&
+    typeof messageOrOptions === "object" &&
+    !Array.isArray(messageOrOptions);
+
+  if (!usesObjectSignature) {
+    warnDeprecatedThrowSignature(context.fnName || "$_EXCEPTION_", context.request);
+  }
+
+  const options = usesObjectSignature
+    ? messageOrOptions
+    : { message: messageOrOptions, data, statusCode: http_statusCode };
+
+  const requested = options.statusCode ?? options.http_statusCode ?? 500;
+  const status = isValidHttpStatusCode(requested) ? requested : 500;
+  const { log, publicData } = splitErrorData(options.data);
+
+  throw {
+    message: options.message,
+    data: log,
+    date: new Date(),
+    statusCode: status,
+    [PUBLIC_ERROR_DATA]: publicData,
+  };
 };
 
 const ENV_SUFFIX_REGEX = /\/(auto|env)$/;
@@ -418,11 +506,28 @@ export const listFunctionsVars = (request, reply, environment) => {
     server: reply ? reply?.openfusionapi?.server : undefined,
     genToken: request && reply ? GenToken : undefined,
 
-    throw: (message, http_statusCode = 500, data = null) => {
-      let status = isValidHttpStatusCode(http_statusCode)
-        ? http_statusCode
-        : 500;
-      throw { message, data, date: new Date(), statusCode: status };
+    // Forma recomendada: ofapi.throw({ message, statusCode, data: { log, public } }).
+    // La posicional se mantiene por compatibilidad, con su orden histórico
+    // (message, statusCode, data), distinto al de $_EXCEPTION_: justamente por eso la
+    // forma de objeto es la única que conviene usar de aquí en adelante.
+    throw: (messageOrOptions, http_statusCode = 500, data = null) => {
+      const usesObjectSignature =
+        messageOrOptions &&
+        typeof messageOrOptions === "object" &&
+        !Array.isArray(messageOrOptions);
+
+      if (usesObjectSignature) {
+        jsException(messageOrOptions, undefined, undefined, {
+          request,
+          fnName: "ofapi.throw",
+        });
+        return;
+      }
+
+      jsException(messageOrOptions, data, http_statusCode, {
+        request,
+        fnName: "ofapi.throw",
+      });
     },
 
     log: (message, data = null, level = "info") => {
@@ -1034,30 +1139,39 @@ $_RETURN_DATA_ = cats;
       `,
     },
     $_EXCEPTION_: {
-      fn: request && reply ? jsException : undefined,
-      description: "Interrupts the program flow and throws an exception with a specific message and status code.",
+      // Se pasa el request para poder nombrar el endpoint que todavía usa la firma
+      // posicional en el aviso de obsolescencia.
+      fn:
+        request && reply
+          ? (messageOrOptions, data, http_statusCode = 500) =>
+              jsException(messageOrOptions, data, http_statusCode, {
+                request,
+                fnName: "$_EXCEPTION_",
+              })
+          : undefined,
+      description:
+        "Interrupts the program flow and throws an exception with a specific message and status code.",
       web: own_repo,
+      notes: [
+        "`options.message` <string, required> is the only text returned to the client.",
+        "`options.statusCode` <integer, default 500> is the HTTP status of the response.",
+        "`options.data.log` <any> is persisted in the log and NEVER sent to the client: put here bodies, credentials or application variables.",
+        "`options.data.public` <any> is added to the HTTP response as `data`: put here only what the caller needs in order to fix the problem.",
+        "A `data` object without `log`/`public` keys is treated entirely as `log`, which is the safe default.",
+        "The positional form `$_EXCEPTION_(message, data, statusCode)` is DEPRECATED. It still works and keeps the old behaviour (the whole `data` is log-only), but prints a deprecation warning naming the endpoint that uses it.",
+      ],
+      agentGuidance: [
+        "If the caller can fix the error (invalid field, business rule), say so in `message` and put the offending values in `data.public`.",
+        "Never put application variables, tokens or full request bodies in `data.public`; that material belongs in `data.log`.",
+      ],
       params: [
         {
-          name: "message",
-          description: "The error message to display.",
+          name: "options",
+          description:
+            "Object with the error definition: { message, statusCode, data: { log, public } }.",
           required: true,
-          type: "string",
-          default: "",
-        },
-        {
-          name: "data",
-          description: "Additional context data for the error.",
-          required: false,
-          type: "any",
+          type: "object",
           default: null,
-        },
-        {
-          name: "statusCode",
-          description: "HTTP Status Code for the response.",
-          required: false,
-          type: "integer",
-          default: 500,
         },
       ],
       return: {
@@ -1065,26 +1179,44 @@ $_RETURN_DATA_ = cats;
         description: "Throws an exception object that stops execution.",
         object: [
           {
-            name: "message",
-            description: "The error message.",
+            name: "error",
+            description: "The error message, in the HTTP response body.",
+            type: "string",
+          },
+          {
+            name: "trace_id",
+            description: "Trace identifier of the request, in the HTTP response body.",
             type: "string",
           },
           {
             name: "data",
-            description: "Context data.",
+            description:
+              "Only present when `options.data.public` was provided; it is that value, truncated if very large.",
             type: "any",
-          },
-          {
-            name: "statusCode",
-            description: "HTTP Status Code.",
-            type: "integer",
           },
         ],
       },
       example: `// simple usage
-$_EXCEPTION_("Invalid input parameter");
+$_EXCEPTION_({ message: "Invalid input parameter", statusCode: 400 });
 
-// with data and status code
+// context for the log only (nothing of this reaches the client)
+$_EXCEPTION_({
+  message: "User not found",
+  statusCode: 404,
+  data: { log: { userId: 123, body: request.body } },
+});
+
+// tell the caller what to fix, keeping the sensitive context private
+$_EXCEPTION_({
+  message: "El correo del colaborador no es válido.",
+  statusCode: 422,
+  data: {
+    log: { body: request.body },
+    public: { campo: "Correo", valor: "davi88-@hotmail.com" },
+  },
+});
+
+// DEPRECATED positional form: the whole \`data\` is log-only
 $_EXCEPTION_("User not found", { userId: 123 }, 404);`,
     },
     jwt: {
@@ -2105,11 +2237,20 @@ const body = request.body || {};
 // }
 
 if (!body.provider?.model) {
-  $_EXCEPTION_('The request body must include provider.model.', { body }, 400);
+  // El body puede llevar claves de API: va en data.log, que nunca sale al cliente.
+  $_EXCEPTION_({
+    message: 'The request body must include provider.model.',
+    statusCode: 400,
+    data: { log: { body }, public: { missing: 'provider.model' } },
+  });
 }
 
 if (!(body.prompts ?? body.prompt ?? body.messages)) {
-  $_EXCEPTION_('The request body must include prompts, prompt, or messages.', { body }, 400);
+  $_EXCEPTION_({
+    message: 'The request body must include prompts, prompt, or messages.',
+    statusCode: 400,
+    data: { log: { body }, public: { missing: 'prompts | prompt | messages' } },
+  });
 }
 
 const result = await askAIWithTools({

@@ -278,14 +278,24 @@ const body = request.body || {};
 const prompts = body.prompts ?? body.prompt ?? body.messages;
 
 if (!prompts) {
-  $_EXCEPTION_("The request body must include prompts, prompt, or messages.", { body }, 400);
+  // `data.log` queda solo en el log; `data.public` es lo único que ve quien llama.
+  $_EXCEPTION_({
+    message: "The request body must include prompts, prompt, or messages.",
+    statusCode: 400,
+    data: { log: { body }, public: { missing: "prompts | prompt | messages" } },
+  });
 }
 
 const ai = $_APP_VARS_["$_VAR_AI_DEFAULTS"];
 const mcpServers = $_APP_VARS_["$_VAR_MCP_SERVERS_DEFAULT"] ?? [];
 
 if (!ai || typeof ai !== "object") {
-  $_EXCEPTION_("Application variable $_VAR_AI_DEFAULTS is required and must be an object.", { appVars: $_APP_VARS_ }, 500);
+  // Las variables de aplicación llevan credenciales: jamás en `public`.
+  $_EXCEPTION_({
+    message: "Application variable $_VAR_AI_DEFAULTS is required and must be an object.",
+    statusCode: 500,
+    data: { log: { appVars: $_APP_VARS_ } },
+  });
 }
 
 const result = await askIAWithMCP({

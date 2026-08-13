@@ -919,7 +919,9 @@ export async function fnEndpointGetCode(params) {
  *   - payload: body JSON a enviar (para POST/PUT)
  *   - query_params: objeto con query string params (para GET)
  *   - bearer_token: token de autorización opcional
- *   - timeout_ms: timeout en ms (default 10000)
+ *   - timeout_ms: timeout en ms (default y máximo 600000). El techo real lo impone el
+ *     `timeout` de la fila del endpoint /api/endpoint/test, que customFunction.js usa para
+ *     abortar esta misma función: ambos valores deben moverse juntos.
  *
  * MCP tool: execute_endpoint_test
  */
@@ -1051,7 +1053,7 @@ export async function fnEndpointTest(params) {
       headers: input_headers = {},
       use_data_test_fallback = false,
       bearer_token = null,
-      timeout_ms = 10000,
+      timeout_ms = 600000,
     } = body;
 
     const warnings = [];

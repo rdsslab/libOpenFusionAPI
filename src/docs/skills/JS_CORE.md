@@ -49,8 +49,11 @@ The following rules apply to **every** JavaScript block executed by OpenFusionAP
    - Store every secret (tokens, credentials, connection strings) as an Application Variable. Never hardcode secrets in the source.
 
 2. **Exception Handling (`$_EXCEPTION_`)**:
-   - To throw structured errors and interrupt execution flow, call:
-     `$_EXCEPTION_("Error message details", { extraData }, statusCode)`
+   - To throw structured errors and interrupt execution flow, call it with a single options object:
+     `$_EXCEPTION_({ message: "Error message details", statusCode, data: { log: { … }, public: { … } } })`
+   - `data.log` is written to the log and **never** reaches the client: that is where request bodies, credentials and Application Variables belong.
+   - `data.public` is the only part returned to the caller (as `data`, next to `error` and `trace_id`). Put there what the caller needs in order to fix the problem — the offending field and value — and nothing else.
+   - The positional form `$_EXCEPTION_("message", { data }, statusCode)` is **deprecated**: it still works and keeps the old behaviour (the whole `data` stays log-only, nothing is returned), but it logs a deprecation warning naming the endpoint. If you find it in existing code, warn the user and migrate it.
 
 3. **Internal API Calls (`uFetchAutoEnv` / `uFetch`)**:
    - Use `uFetchAutoEnv` for calling other endpoints within the same application.

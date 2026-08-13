@@ -8,7 +8,9 @@ import {
   AppVars,
   ApiClient,
   ApiKey,
+  Bot,
 } from "../../src/lib/db/models.js";
+import { BOT_RUNTIME_ATTRIBUTES } from "../../src/lib/db/bot.js";
 
 function deepClone(obj) {
   return JSON.parse(JSON.stringify(obj));
@@ -273,6 +275,165 @@ async function runTests() {
     (c) => c.idclient === probeClient.idclient
   );
   assert.ok(clientAfter, "Key owner should still be present after restore");
+
+  // 6. Scheduler telemetry must not travel back into the database.
+  // `status: 1` (running) restored as-is dejaba la tarea colgada hasta que la liberara el
+  // reaper, y un failed_attempts cercano al tope la deshabilitaba al primer fallo.
+  console.log("[STEP 6/8] Interval task runtime telemetry is not restored...");
+  const dirtyBackup = deepClone(afterBackup);
+  const dirtyTask = dirtyBackup.tasks.find(
+    (t) => t.note === "new task from backup"
+  );
+  assert.ok(dirtyTask, "Task from step 3 should be present in the re-export");
+
+  const restoredTaskId = dirtyTask.idtask;
+  const taskBeforeDirty = await IntervalTask.findByPk(restoredTaskId);
+  const statusBefore = taskBeforeDirty.status;
+  const attemptsBefore = taskBeforeDirty.failed_attempts;
+
+  dirtyTask.status = 1;
+  dirtyTask.failed_attempts = 9;
+  dirtyTask.last_exec_time = 123456;
+  dirtyTask.last_response = { leaked: "runtime payload" };
+  dirtyTask.note = "new task from backup";
+  dirtyTask.interval = 601;
+
+  await restoreAppFromBackup(dirtyBackup);
+
+  const taskAfterDirty = await IntervalTask.findByPk(restoredTaskId);
+  assert.ok(taskAfterDirty, "Task should still exist after restoring dirty telemetry");
+  assert.notStrictEqual(
+    taskAfterDirty.status,
+    1,
+    "Restore must not bring back the running status from the payload"
+  );
+  assert.strictEqual(
+    taskAfterDirty.status,
+    statusBefore,
+    "The scheduler's observed status must survive a restore untouched"
+  );
+  assert.strictEqual(
+    taskAfterDirty.failed_attempts,
+    attemptsBefore,
+    "The failure counter must survive a restore untouched"
+  );
+  assert.strictEqual(
+    Number(taskAfterDirty.interval),
+    601,
+    "Configuration in the backup should still be applied"
+  );
+
+  // 7. A task is matched by (idendpoint, note), not by its autoincremental id, so a
+  // backup taken on another instance cannot overwrite an unrelated task here.
+  console.log("[STEP 7/8] Interval task identity is resolved by natural key...");
+  const foreignBackup = deepClone(afterBackup);
+  const foreignTask = foreignBackup.tasks.find(
+    (t) => t.note === "new task from backup"
+  );
+  const FOREIGN_IDTASK = 987654321;
+  foreignTask.idtask = FOREIGN_IDTASK;
+  foreignTask.interval = 602;
+
+  await restoreAppFromBackup(foreignBackup);
+
+  const foreignRow = await IntervalTask.findByPk(FOREIGN_IDTASK);
+  assert.strictEqual(
+    foreignRow,
+    null,
+    "Restore must not create a row with the idtask coming from the backup"
+  );
+  const matchedRow = await IntervalTask.findByPk(restoredTaskId);
+  assert.strictEqual(
+    Number(matchedRow.interval),
+    602,
+    "The task with the same (idendpoint, note) should have been updated instead"
+  );
+
+  // 8. Bots round-trip: configuration survives, observed runtime state does not.
+  console.log("[STEP 8/8] Bot round-trip through backup and restore...");
+  const BOT_NAME = `backup_restore_test_bot_${Date.now()}`;
+  const probeBot = await Bot.create({
+    idapp: TEST_APP_ID,
+    name: BOT_NAME,
+    description: "original description",
+    provider: "telegram",
+    environment: "dev",
+    token: "tok_bot_backup_restore_test",
+    code: "// original bot code",
+    enabled: false,
+    runtime_status: "QUARANTINED",
+    failure_count: 7,
+    disabled_reason: "should not travel back",
+  });
+
+  const botBackup = await getAppBackupById(TEST_APP_ID);
+  const exportedBot = botBackup.bots.find((b) => b.name === BOT_NAME);
+  assert.ok(exportedBot, "Bot should be included in the app backup");
+  assert.strictEqual(
+    exportedBot.token,
+    "tok_bot_backup_restore_test",
+    "Bot token should travel in the backup"
+  );
+  assert.strictEqual(
+    exportedBot.code,
+    "// original bot code",
+    "Bot code should travel in the backup"
+  );
+
+  const botRestorePayload = deepClone(botBackup);
+  const botToRestore = botRestorePayload.bots.find((b) => b.name === BOT_NAME);
+  botToRestore.description = "MODIFIED BY BACKUP RESTORE TEST";
+  botToRestore.code = "// restored bot code";
+  // Un backup de otra instancia trae otro idbot para el mismo bot lógico: sin la clave
+  // natural (idapp + environment + name) se creaba una segunda fila y el lifecycle podía
+  // arrancar las dos contra el mismo token del provider.
+  botToRestore.idbot = uuidv4();
+  botToRestore.runtime_status = "RUNNING";
+  botToRestore.failure_count = 99;
+
+  await restoreAppFromBackup(botRestorePayload);
+
+  const botsWithName = await Bot.findAll({
+    where: { idapp: TEST_APP_ID, environment: "dev", name: BOT_NAME },
+  });
+  assert.strictEqual(
+    botsWithName.length,
+    1,
+    "Restoring a bot under a new idbot must not duplicate the row"
+  );
+
+  const botAfter = botsWithName[0];
+  assert.strictEqual(
+    botAfter.idbot,
+    probeBot.idbot,
+    "The existing bot should have been matched by (idapp, environment, name)"
+  );
+  assert.strictEqual(
+    botAfter.description,
+    "MODIFIED BY BACKUP RESTORE TEST",
+    "Bot configuration should be replaced by backup data"
+  );
+  assert.strictEqual(
+    botAfter.code,
+    "// restored bot code",
+    "Bot code should be replaced by backup data"
+  );
+  assert.strictEqual(
+    botAfter.failure_count,
+    7,
+    "Restore must not overwrite the observed runtime state"
+  );
+  assert.strictEqual(
+    botAfter.runtime_status,
+    "QUARANTINED",
+    "Restore must not overwrite the observed runtime status"
+  );
+  assert.ok(
+    BOT_RUNTIME_ATTRIBUTES.includes("runtime_status"),
+    "runtime_status should be declared as a runtime attribute"
+  );
+
+  await Bot.destroy({ where: { idbot: probeBot.idbot } });
 
   // Cleanup: restore original values from the unmodified backup
   console.log("[CLEANUP] Restoring original values...");

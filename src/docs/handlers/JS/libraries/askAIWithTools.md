@@ -91,11 +91,20 @@ const body = request.body || {};
 // }
 
 if (!body.provider?.model) {
-  $_EXCEPTION_('The request body must include provider.model.', { body }, 400);
+  // El body puede llevar claves de API: va en data.log, que nunca sale al cliente.
+  $_EXCEPTION_({
+    message: 'The request body must include provider.model.',
+    statusCode: 400,
+    data: { log: { body }, public: { missing: 'provider.model' } },
+  });
 }
 
 if (!(body.prompts ?? body.prompt ?? body.messages)) {
-  $_EXCEPTION_('The request body must include prompts, prompt, or messages.', { body }, 400);
+  $_EXCEPTION_({
+    message: 'The request body must include prompts, prompt, or messages.',
+    statusCode: 400,
+    data: { log: { body }, public: { missing: 'prompts | prompt | messages' } },
+  });
 }
 
 const result = await askAIWithTools({

@@ -9,17 +9,19 @@ Recommended prerequisite workflow:
 2. Optionally create reusable application variables for `dev`, `qa`, and `prd`.
 3. Then create endpoints inside that application, choosing the handler and HTTP method for each endpoint.
 
-Recurring automation is also supported. After creating an endpoint, you can schedule recurrent executions with interval tasks managed by system routes/tools:
+Recurring automation is also supported. After creating an endpoint, you can schedule recurrent executions with interval tasks:
 
-- `GET /interval_tasks/byidapp` to list tasks by application (`idapp`).
-- `POST /interval_tasks/upsert` to create or update a task.
-- `DELETE /interval_tasks/delete` to remove one or more tasks.
+| Route | Method | MCP tool |
+|---|---|---|
+| `/interval_tasks/byidapp` | GET | `list_interval_tasks` |
+| `/interval_tasks/runs` | GET | `get_interval_task_runs` |
+| `/interval_tasks/skill` | GET | `get_interval_task_skill` |
+| `/interval_tasks/upsert` | POST | `upsert_interval_task` |
+| `/interval_tasks/run_now` | POST | `run_interval_task_now` |
+| `/interval_tasks/reset_attempts` | POST | `reset_interval_task_attempts` |
+| `/interval_tasks/delete` | DELETE | `delete_interval_task` |
 
-From the runtime implementation:
-
-- Tasks are stored with fields such as `idendpoint`, `interval` (seconds), `datestart`, `dateend`, `next_run`, `status`, `params`, and `failed_attempts`.
-- The worker periodically scans eligible tasks and invokes the target endpoint URL automatically.
-- Failed attempts are tracked and tasks stop being selected after the configured failure threshold in processing filters.
+A task schedules an existing endpoint and holds no code of its own. The full contract — scheduling modes, execution windows, the `params` payload shape, ApiKey authentication, timeouts, backoff and the diagnostics runbook — lives in [../interval_tasks/AI_SKILL.md](../interval_tasks/AI_SKILL.md) so that there is a single source of truth; this manual only points at it.
 
 ---
 

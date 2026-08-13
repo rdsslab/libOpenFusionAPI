@@ -132,6 +132,7 @@ export async function fnAgentOnboardingGuide(params) {
         interval_tasks_byidapp: "/interval_tasks/byidapp",
         interval_tasks_upsert: "/interval_tasks/upsert",
         interval_tasks_delete: "/interval_tasks/delete",
+        interval_tasks_runs: "/interval_tasks/runs",
       },
       trace_id,
     };

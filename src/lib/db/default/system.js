@@ -50,13 +50,14 @@ export const system_app = {
       "cors": {},
       "mcp": {
         "enabled": true,
-        "name": "system_interval_tasks_delete_prd",
-        "title": "Delete System Interval Task (PRD)",
-        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nPermanently deletes one or more scheduled interval tasks on the prd environment. Send `idtask` with a single task id or with an array of ids. Deleting a task removes the schedule only: the endpoint it was running is not touched. To stop a task without losing its configuration, call 'system_interval_tasks_upsert_prd' with `enabled: false` instead.",
+        "name": "delete_interval_task",
+        "title": "Delete Interval Task",
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nPermanently deletes one or more scheduled interval tasks. Send `idtask` with a single task id or with an array of ids. Deleting a task removes the schedule only: the endpoint it was running is not touched and stays callable by hand.\nThis is rarely the right tool. To stop a task while keeping its configuration, call 'upsert_interval_task' with `{idtask, enabled: false}` instead; deletion loses the interval or cron expression, the payload and the note, and they cannot be recovered from here.\nResponse: a boolean, true when at least one row was removed and false when no task matched the given ids.",
         "operation_mode": "write",
         "requires_explicit_confirmation": true,
-        "side_effects": "Permanently removes the schedule rows: the affected tasks stop running and their configuration (interval, params, note) is lost. The endpoints themselves are not deleted.",
-        "safe_alternative": "Call 'system_interval_tasks_byidapp_prd' to confirm the exact `idtask` values, or disable the task with 'system_interval_tasks_upsert_prd' (`enabled: false`) to stop it reversibly."
+        "destructive": true,
+        "side_effects": "Permanently removes the schedule rows: the affected tasks stop running and their configuration (interval, cron, params, note) is lost. The endpoints themselves are not deleted, and the execution history rows survive but become unreachable.",
+        "safe_alternative": "Call 'list_interval_tasks' to confirm the exact `idtask` values, or disable the task with 'upsert_interval_task' (`enabled: false`) to stop it reversibly."
       },
       "json_schema": {
         "in": {
@@ -70,7 +71,7 @@ export const system_app = {
             ],
             "properties": {
               "idtask": {
-                "description": "Task id to delete, or an array of task ids for a batch deletion. Obtain the values from 'system_interval_tasks_byidapp_prd'.",
+                "description": "Task id to delete, or an array of task ids for a batch deletion. Obtain the values from 'list_interval_tasks'.",
                 "anyOf": [
                   {
                     "type": "integer"
@@ -1375,6 +1376,18 @@ export const system_app = {
                   "interval_tasks_delete": {
                     "type": "string"
                   },
+                  "interval_tasks_runs": {
+                    "type": "string"
+                  },
+                  "interval_tasks_run_now": {
+                    "type": "string"
+                  },
+                  "interval_tasks_reset_attempts": {
+                    "type": "string"
+                  },
+                  "interval_task_skill": {
+                    "type": "string"
+                  },
                   "mcp_readme": {
                     "type": "string"
                   },
@@ -1411,8 +1424,12 @@ export const system_app = {
                 "get_system_logs": "/api/system/logs",
                 "apps_list": "/api/system/api/apps-list",
                 "bot_skill": "/bots/skill",
+                "interval_task_skill": "/interval_tasks/skill",
                 "interval_tasks_byidapp": "/interval_tasks/byidapp",
+                "interval_tasks_runs": "/interval_tasks/runs",
                 "interval_tasks_upsert": "/interval_tasks/upsert",
+                "interval_tasks_run_now": "/interval_tasks/run_now",
+                "interval_tasks_reset_attempts": "/interval_tasks/reset_attempts",
                 "interval_tasks_delete": "/interval_tasks/delete"
               }
             }
@@ -1435,7 +1452,7 @@ export const system_app = {
       "price_kb_request": 0,
       "price_kb_response": 0,
       "keywords": "onboarding,guide,agent,AI,best practices",
-      "code": "const trace_id = request?.headers?.['ofapi-trace-id'] || '';\n$_RETURN_DATA_ = {\n  summary: '1. Always inspect each tool description and input schema first; treat the system catalog as source of truth. 2. Every resource belongs to an application: start with apps_list to resolve the target idapp before creating endpoints, application variables or bots. 3. For endpoint creation/updates, choose handler first and match payload shape to that handler. 4. Read current endpoint data before updates and patch incrementally. 5. Validate JSON Schema with validate_json_schema_for_mcp before publishing. 6. Use trace_id in logs to follow one execution path end to end. 7. OpenFusionAPI supports recurring interval tasks for endpoint automation; use the interval_tasks tools to inspect tasks (read-only) and, only with explicit user authorization, create/update/delete schedules. 8. OpenFusionAPI also runs long-lived messaging bots (Telegram today). Bots are NOT endpoints: they live in their own ofapi_bot table and are managed with list_bots, upsert_bot, enable_disable_bot and delete_bot. If the user asks for a bot, call get_bot_skill FIRST and then get_bot_provider_skill; never try to build a bot with endpoint_upsert.',\n  links: {\n    handler_documentation: '/api/handler/documentation',\n    handler_skill: '/api/handler/skill',\n    endpoint_upsert: '/api/endpoint',\n    get_system_logs: '/api/system/logs',\n    apps_list: '/api/system/api/apps-list',\n    bot_skill: '/bots/skill',\n    interval_tasks_byidapp: '/interval_tasks/byidapp',\n    interval_tasks_upsert: '/interval_tasks/upsert',\n    interval_tasks_delete: '/interval_tasks/delete'\n  },\n  trace_id\n};",
+      "code": "const trace_id = request?.headers?.['ofapi-trace-id'] || '';\n$_RETURN_DATA_ = {\n  summary: '1. Always inspect each tool description and input schema first; treat the system catalog as source of truth. 2. Every resource belongs to an application: start with apps_list to resolve the target idapp before creating endpoints, application variables or bots. 3. For endpoint creation/updates, choose handler first and match payload shape to that handler. 4. Read current endpoint data before updates and patch incrementally. 5. Validate JSON Schema with validate_json_schema_for_mcp before publishing. 6. Use trace_id in logs to follow one execution path end to end. 7. OpenFusionAPI supports recurring interval tasks: a task schedules an EXISTING endpoint to run unattended and holds no code of its own, so it is never created with endpoint_upsert. If the user asks to schedule an endpoint or to diagnose a task that is not running, call get_interval_task_skill FIRST; then inspect with list_interval_tasks and get_interval_task_runs (read-only) and, only with explicit user authorization, write with upsert_interval_task, run_interval_task_now, reset_interval_task_attempts or delete_interval_task. 8. OpenFusionAPI also runs long-lived messaging bots (Telegram today). Bots are NOT endpoints: they live in their own ofapi_bot table and are managed with list_bots, upsert_bot, enable_disable_bot and delete_bot. If the user asks for a bot, call get_bot_skill FIRST and then get_bot_provider_skill; never try to build a bot with endpoint_upsert.',\n  links: {\n    handler_documentation: '/api/handler/documentation',\n    handler_skill: '/api/handler/skill',\n    endpoint_upsert: '/api/endpoint',\n    get_system_logs: '/api/system/logs',\n    apps_list: '/api/system/api/apps-list',\n    bot_skill: '/bots/skill',\n    interval_task_skill: '/interval_tasks/skill',\n    interval_tasks_byidapp: '/interval_tasks/byidapp',\n    interval_tasks_runs: '/interval_tasks/runs',\n    interval_tasks_upsert: '/interval_tasks/upsert',\n    interval_tasks_run_now: '/interval_tasks/run_now',\n    interval_tasks_reset_attempts: '/interval_tasks/reset_attempts',\n    interval_tasks_delete: '/interval_tasks/delete'\n  },\n  trace_id\n};",
       "cache_time": 3600,
       "createdAt": "2026-05-19T00:00:00.000Z",
       "updatedAt": "2026-05-19T00:00:00.000Z"
@@ -6221,13 +6238,32 @@ export const system_app = {
       "cors": {},
       "mcp": {
         "enabled": true,
-        "name": "system_interval_tasks_upsert_prd",
-        "title": "Upsert System Interval Task (PRD)",
-        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nSchedules an existing endpoint to run on a fixed interval, on the prd environment. Only `idendpoint` is required; everything else has a default. Operation mode: omit `idtask` for INSERT (the id is generated automatically); send an existing `idtask` for UPDATE.\nIMPORTANT: `enabled` defaults to false, so a task created without `enabled: true` is stored but never runs. Use 'system_interval_tasks_byidapp_prd' to inspect the current tasks of the application before writing.",
+        "name": "upsert_interval_task",
+        "title": "Upsert Interval Task",
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nSchedules an EXISTING endpoint to run unattended. The task holds no code of its own: the logic stays in the endpoint, which remains callable by hand. Call 'get_interval_task_skill' first if you have not scheduled a task before.\nScheduling: `schedule_mode` is `interval` (every `interval` seconds, the default) or `cron` (a 5 or 6 field expression in `cron`, interpreted in `timezone`). Either mode can be narrowed to an execution window with `window_start`, `window_end` and `window_days`, and bounded in time with `datestart` and `dateend`.\nOperation mode: omit `idtask` for INSERT (the id is generated automatically); send an existing `idtask` for UPDATE. An UPDATE is a PARTIAL merge over the stored row: fields you do not send keep their current value, an explicit null clears the field, and `params` is the one field replaced whole rather than merged key by key. An `idtask` that does not exist is rejected with 404 instead of creating a task with that id.\nIMPORTANT: `enabled` defaults to false, so a task created without `enabled: true` is stored but never runs. That is the recommended way to create one: store it disabled, force one execution with 'run_interval_task_now', check the outcome with 'get_interval_task_runs', and only then enable it.\nErrors: 400 with `code: \"MISSING_IDENDPOINT\"` when creating without `idendpoint`; 400 `cron is required when schedule_mode is 'cron'` when the expression is missing, and 400 `Invalid cron expression: <reason>` when it does not parse; 404 with `code: \"INTERVAL_TASK_NOT_FOUND\"` when the `idtask` does not exist. Response: `{result, created}`, where `created` is true only on INSERT.",
         "operation_mode": "write",
         "requires_explicit_confirmation": true,
-        "side_effects": "Creates or reschedules a recurring execution: the target endpoint will start running unattended every `interval` seconds until the task is disabled or deleted.",
-        "safe_alternative": "Call 'system_interval_tasks_byidapp_prd' first to see the tasks already scheduled for the application and avoid duplicating one."
+        "destructive": false,
+        "side_effects": "Creates or reschedules a recurring execution: the target endpoint will start running unattended on the configured schedule until the task is disabled or deleted. Changing the schedule recomputes the next execution immediately.",
+        "safe_alternative": "Call 'list_interval_tasks' first to see the tasks already scheduled for the application and avoid duplicating one.",
+        "exampleRequest": {
+          "idendpoint": "b1c2d3e4-f5a6-7890-abcd-ef1234567894",
+          "schedule_mode": "cron",
+          "cron": "0 7 * * 1-5",
+          "timezone": "America/Guayaquil",
+          "params": {
+            "data": { "mode": "daily" },
+            "headers": { "x-source": "scheduler" }
+          },
+          "exec_time_limit": 120,
+          "note": "Daily sales summary, weekdays at 07:00",
+          "enabled": false
+        },
+        "notes": [
+          "Recommended workflow: resolve the endpoint with 'app_endpoints_catalog', review the existing schedules with 'list_interval_tasks', create the task disabled, force one run with 'run_interval_task_now', verify it with 'get_interval_task_runs', and finally send `{idtask, enabled: true}`.",
+          "To stop a task without losing its configuration send `{idtask, enabled: false}`; reserve 'delete_interval_task' for schedules that are no longer needed at all.",
+          "Nothing about `idkey` is validated at save time: a wrong or disabled key surfaces only as a failed run recorded by 'get_interval_task_runs'."
+        ]
       },
       "json_schema": {
         "in": {
@@ -6236,18 +6272,15 @@ export const system_app = {
             "title": "IntervalTaskUpsertRequest",
             "type": "object",
             "additionalProperties": false,
-            "required": [
-              "idendpoint"
-            ],
             "properties": {
               "idtask": {
                 "type": "integer",
-                "description": "Task id. Omit for INSERT (it is auto-generated); send it to UPDATE an existing task."
+                "description": "Task id. Omit for INSERT (it is auto-generated); send it to UPDATE an existing task. Obtain it from 'list_interval_tasks'."
               },
               "idendpoint": {
                 "type": "string",
                 "format": "uuid",
-                "description": "UUID of the endpoint this task executes on every tick. Obtain it from 'app_endpoints_catalog' or 'search_endpoints'."
+                "description": "UUID of the endpoint this task executes on every tick. Mandatory on INSERT (rejected with 400 when `idtask` is omitted and this is missing); optional on UPDATE, where omitting it keeps the current endpoint. Obtain it from 'app_endpoints_catalog' or 'search_endpoints'."
               },
               "iduser": {
                 "type": "integer",
@@ -6256,38 +6289,91 @@ export const system_app = {
               "enabled": {
                 "type": "boolean",
                 "default": false,
-                "description": "Whether the scheduler runs this task. Defaults to false, so send true explicitly if the task must start running."
+                "description": "Whether the scheduler runs this task. Defaults to false on INSERT, so send true explicitly if the task must start running. Send false to pause a task without losing its configuration."
               },
               "interval": {
                 "type": "integer",
                 "minimum": 1,
                 "default": 300,
-                "description": "Seconds between executions (default: 300)."
+                "description": "Seconds between executions when schedule_mode is 'interval' (default: 300). In 'cron' mode the schedule comes from `cron` and this value is ignored except as the base of the retry backoff."
               },
               "datestart": {
                 "type": "string",
                 "format": "date-time",
-                "description": "Moment the task becomes eligible to run. Defaults to the creation timestamp."
+                "description": "Moment the task becomes eligible to run. Defaults to the creation timestamp; send null for no start bound."
               },
               "dateend": {
                 "type": "string",
                 "format": "date-time",
-                "description": "Optional moment after which the task stops running. Omit for no end date."
+                "description": "Optional moment after which the task stops running. Omit for no end date; send null on an UPDATE to clear an existing one."
               },
               "exec_time_limit": {
                 "type": "integer",
                 "minimum": 1,
                 "default": 30,
-                "description": "Maximum seconds one execution may take before being cut off (default: 30)."
+                "description": "Maximum seconds one execution may take. The request is aborted when it is exceeded and the run is recorded with status 4 (timeout). Raise it for endpoints that process batches."
               },
               "params": {
                 "type": "object",
                 "additionalProperties": true,
-                "description": "Payload passed to the endpoint on every execution."
+                "description": "Payload passed to the endpoint on every execution. Preferred shape: {\"data\": {...}, \"headers\": {...}} — `data` travels as query string on GET/HEAD/DELETE and as JSON body on POST/PUT/PATCH, and `headers` adds extra request headers. WATCH OUT: an object without a `data` key is sent whole as `data` for backwards compatibility, so sending only {\"headers\": {...}} would deliver the headers object as the payload and add no header; always include `data` when you also send `headers`. On an UPDATE this field is replaced whole, not merged key by key."
+              },
+              "allow_concurrent": {
+                "type": "boolean",
+                "default": false,
+                "description": "When false (default) the task is skipped while a previous execution is still running. Set true only if overlapping runs are safe."
+              },
+              "idkey": {
+                "type": "integer",
+                "description": "Id of the ApiKey sent as Bearer token. Required for endpoints with access > 0 outside the `system` app, and the key must belong to the SAME application as the endpoint and be enabled and within its validity dates; system endpoints use the internal token automatically. Nothing is validated at save time: a wrong key surfaces as a failed run with 'Missing credentials' or a 401. Obtain the id from 'list_api_keys'."
+              },
+              "schedule_mode": {
+                "type": "string",
+                "enum": [
+                  "interval",
+                  "cron"
+                ],
+                "default": "interval",
+                "description": "`interval` repeats every `interval` seconds; `cron` follows the `cron` expression."
+              },
+              "cron": {
+                "type": "string",
+                "description": "Cron expression (5 or 6 fields) used when schedule_mode is 'cron'. Rejected at save time if missing or invalid."
+              },
+              "timezone": {
+                "type": "string",
+                "description": "IANA timezone (e.g. 'America/Guayaquil') applied to the cron expression and the execution window. Defaults to the server timezone. An invalid name is not rejected: it degrades silently and the task stops firing, so re-read the stored value with 'list_interval_tasks' after writing."
+              },
+              "window_start": {
+                "type": "string",
+                "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+                "description": "Start of the execution window as 'HH:MM' in 24-hour form. Outside the window the task is rescheduled to the next opening instead of run."
+              },
+              "window_end": {
+                "type": "string",
+                "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+                "description": "End of the execution window as 'HH:MM' in 24-hour form. A start greater than the end spans midnight; a start equal to the end means no restriction."
+              },
+              "window_days": {
+                "type": "string",
+                "pattern": "^[1-7](,[1-7])*$",
+                "description": "Allowed weekdays, comma separated, 1=Monday to 7=Sunday (e.g. '1,2,3,4,5'). Omit to allow every day."
+              },
+              "max_failed_attempts": {
+                "type": "integer",
+                "minimum": 1,
+                "default": 10,
+                "description": "Consecutive failures tolerated before the task is disabled automatically. Retries are spaced with exponential backoff up to one hour. Clear the counter with 'reset_interval_task_attempts' after fixing the cause."
+              },
+              "history_limit": {
+                "type": "integer",
+                "minimum": 0,
+                "default": 50,
+                "description": "Executions kept in the history table for this task. 0 disables history, and then 'get_interval_task_runs' always returns an empty list."
               },
               "note": {
                 "type": "string",
-                "description": "Free-text note describing what this task is for."
+                "description": "Free-text note describing what this task is for. It is also the field used to match this task against an existing one when restoring an application backup, so keep it stable and descriptive."
               }
             }
           }
@@ -10830,7 +10916,7 @@ export const system_app = {
         "enabled": true,
         "name": "execute_endpoint_test",
         "title": "Execute Endpoint Test",
-        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nRUNS THE ENDPOINT FOR REAL. This is not a simulation: the endpoint executes against its real databases and external services, so testing a POST, PUT, PATCH or DELETE endpoint inserts, updates or deletes real data, sends real messages and calls real third-party APIs. There is no rollback. Only GET and HEAD endpoints are safe to run unattended; for anything else confirm with the user first, and prefer a dev or qa environment when one exists.\nExecutes the endpoint via an internal HTTP call and returns status_code, response_time_ms and the response body — useful to verify an endpoint you just created or modified. Simplest usage: provide only `idendpoint` and the tool resolves app name, resource and method from the database. Optionally override `environment` (default: prd), send `payload` for request bodies, `query_params` for GET, `headers` for custom request headers, `bearer_token` for authenticated endpoints and `timeout_ms` to cap the wait. Saved test metadata (`data_test` / `headers_test`) is used only when `use_data_test_fallback` is true. When testing by explicit `app` + `resource`, always send `method` if you also send `payload`. The result includes the resolved query params, payload, headers, payload source, warnings and the serialized request body actually sent, so request forwarding can be debugged without writing local scripts. Endpoints that require auth and have no public access need a valid `bearer_token`.",
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nRUNS THE ENDPOINT FOR REAL. This is not a simulation: the endpoint executes against its real databases and external services, so testing a POST, PUT, PATCH or DELETE endpoint inserts, updates or deletes real data, sends real messages and calls real third-party APIs. There is no rollback. Only GET and HEAD endpoints are safe to run unattended; for anything else confirm with the user first, and prefer a dev or qa environment when one exists.\nExecutes the endpoint via an internal HTTP call and returns status_code, response_time_ms and the response body — useful to verify an endpoint you just created or modified. Simplest usage: provide only `idendpoint` and the tool resolves app name, resource and method from the database. Optionally override `environment` (default: prd), send `payload` for request bodies, `query_params` for GET, `headers` for custom request headers, `bearer_token` for authenticated endpoints and `timeout_ms` to cap the wait. The wait defaults to 600000 ms (10 minutes) so long batch endpoints can be tested end to end; that is also the maximum, and a test that reaches it returns HTTP 504. Lower `timeout_ms` when you do not want to hold the connection open that long. Saved test metadata (`data_test` / `headers_test`) is used only when `use_data_test_fallback` is true. When testing by explicit `app` + `resource`, always send `method` if you also send `payload`. The result includes the resolved query params, payload, headers, payload source, warnings and the serialized request body actually sent, so request forwarding can be debugged without writing local scripts. Endpoints that require auth and have no public access need a valid `bearer_token`.",
         "operation_mode": "write",
         "requires_explicit_confirmation": true,
         "side_effects": "Executes the target endpoint with real effects: any write the endpoint performs (database rows, files, messages, third-party API calls) actually happens and cannot be undone from here. Read-only endpoints (GET/HEAD) have no persistent effect.",
@@ -10933,9 +11019,9 @@ export const system_app = {
               "timeout_ms": {
                 "type": "integer",
                 "minimum": 500,
-                "maximum": 30000,
-                "default": 10000,
-                "description": "Request timeout in milliseconds."
+                "maximum": 600000,
+                "default": 600000,
+                "description": "Request timeout in milliseconds (default and maximum: 600000, i.e. 10 minutes). Lower it when you want the test to give up early; a test that hits the limit returns HTTP 504."
               }
             }
           }
@@ -11061,7 +11147,7 @@ export const system_app = {
       "enabled": true,
       "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
       "environment": "prd",
-      "timeout": 30,
+      "timeout": 600,
       "resource": "/api/endpoint/test",
       "method": "POST",
       "handler": "FUNCTION",
@@ -12248,13 +12334,18 @@ export const system_app = {
       "cors": {},
       "mcp": {
         "enabled": true,
-        "name": "system_interval_tasks_byidapp_prd",
-        "title": "Get System Interval Tasks By IdApp (PRD)",
-        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nLists the scheduled interval tasks of one application on the prd environment. Send the target application UUID in `idapp`; obtain it from 'apps_catalog'. Each task links to the endpoint it runs through `idendpoint`. Note that in the response the task's own on/off flag is returned as `task_enabled` (not `enabled`), to avoid colliding with the endpoint's flag, and that the runtime fields (`last_run`, `next_run`, `status`, `failed_attempts`, `last_exec_time`, `last_response`) are read-only telemetry maintained by the scheduler.",
+        "name": "list_interval_tasks",
+        "title": "List Interval Tasks",
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows. This is the starting point for anything to do with scheduled endpoints: it is the only way to obtain an `idtask`, and every write tool of this family needs one.\nLists the scheduled interval tasks of one application, joined with the endpoint each one runs. Send the target application UUID in `idapp`; obtain it from 'apps_catalog'. Tasks are always listed per application; there is no server-wide listing.\nThe response is a flat projection per task with its configuration (`interval`, `schedule_mode`, `cron`, `timezone`, the window fields, `params`, `idkey`, `exec_time_limit`, `note`), the endpoint it targets (`method`, `resource`, `environment`, `access` and the resolved `url`) and the scheduler telemetry.\nNaming: the task's own on/off flag is returned as `task_enabled`, because `enabled` there belongs to the endpoint (`endpoint_enabled`) and to the application (`app_enabled`). The telemetry fields (`last_run`, `next_run`, `status`, `failed_attempts`, `last_exec_time`, `last_response`) are read-only: the scheduler owns them and 'upsert_interval_task' ignores them. `status` is 0 waiting, 1 running, 2 completed, 3 error, 4 timeout.",
         "operation_mode": "read",
         "requires_explicit_confirmation": false,
         "side_effects": "No persistent write side effects expected.",
-        "safe_alternative": "N/A"
+        "safe_alternative": "N/A",
+        "notes": [
+          "A task only runs when `app_enabled`, `endpoint_enabled` and `task_enabled` are all true, `datestart` has passed, `dateend` has not, and `failed_attempts` is still below `max_failed_attempts`. Check them in that order when a task never fires.",
+          "`failed_attempts` at or above `max_failed_attempts` means the backoff disabled the task; read the errors with 'get_interval_task_runs' and clear the counter with 'reset_interval_task_attempts'.",
+          "Call 'get_interval_task_skill' for the full contract, including the execution window rules and the diagnostics runbook."
+        ]
       },
       "json_schema": {
         "in": {
@@ -12347,6 +12438,331 @@ export const system_app = {
       "cache_time": 0,
       "createdAt": "2025-11-21T22:04:52.726Z",
       "updatedAt": "2026-07-13T17:27:59.812Z"
+    },
+    {
+      "ctrl": {},
+      "cors": {},
+      "mcp": {
+        "enabled": true,
+        "name": "get_interval_task_runs",
+        "title": "Get Interval Task Runs",
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows. This is the tool that explains WHY a scheduled task is failing; 'list_interval_tasks' only shows the current state.\nReturns the execution history of one interval task, newest first. Each row carries `started_at`, `finished_at`, `duration_ms`, `status` (2 completed, 3 error, 4 timeout), `http_status`, `error` and the `response` body. Obtain `idtask` from 'list_interval_tasks'.\nRetention is per task and governed by its `history_limit`: older runs are pruned automatically, and a task with `history_limit: 0` keeps no history at all, so this tool returns an empty list even though the task is running. An empty list therefore means either no history kept or the task has never run — check `last_run` in 'list_interval_tasks' to tell them apart.\nLarge payloads are not stored verbatim: a response over 4096 characters is replaced by `{truncated: true, size, preview}`, and `error` is capped at 2000 characters.",
+        "operation_mode": "read",
+        "requires_explicit_confirmation": false,
+        "side_effects": "No persistent write side effects expected.",
+        "safe_alternative": "N/A",
+        "notes": [
+          "Runs recorded with status 4 mean the execution exceeded the task's `exec_time_limit` and was aborted; raise that limit with 'upsert_interval_task' or make the endpoint asynchronous.",
+          "An `error` reading 'Missing credentials' or an `http_status` of 401/403 points at `idkey`: the api key is absent, disabled, expired, or belongs to another application."
+        ]
+      },
+      "json_schema": {
+        "in": {
+          "enabled": true,
+          "schema": {
+            "title": "IntervalTaskRunsRequest",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "idtask"
+            ],
+            "properties": {
+              "idtask": {
+                "type": "integer",
+                "description": "Id of the interval task whose executions you want to list. Obtain it from 'list_interval_tasks'."
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 500,
+                "default": 100,
+                "description": "Maximum number of executions to return (newest first). Values outside 1-500 are clamped rather than rejected."
+              }
+            }
+          }
+        },
+        "out": {
+          "enabled": false,
+          "schema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": true
+          }
+        }
+      },
+      "custom_data": {},
+      "headers_test": {},
+      "data_test": {
+        "query": [
+          {
+            "enabled": false,
+            "key": "",
+            "value": "",
+            "internal_hash_row": "c5c647b00670bea65a11ab75bf3c77407cc89d1e12a5a013b5fa8146d30f9368"
+          }
+        ],
+        "body": {
+          "selection": 0,
+          "json": {
+            "code": {}
+          },
+          "xml": {
+            "code": ""
+          },
+          "text": {
+            "value": ""
+          },
+          "form": {}
+        },
+        "headers": [
+          {
+            "enabled": false,
+            "key": "",
+            "value": "",
+            "internal_hash_row": "c5c647b00670bea65a11ab75bf3c77407cc89d1e12a5a013b5fa8146d30f9368"
+          }
+        ],
+        "auth": {
+          "basic": {
+            "username": "",
+            "password": ""
+          },
+          "bearer": {
+            "token": ""
+          },
+          "selection": 0
+        }
+      },
+      "idendpoint": "1cdb1958-d502-4fed-9ad1-dfb0181d9c7f",
+      "rowkey": 998,
+      "enabled": true,
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "environment": "prd",
+      "timeout": 30,
+      "resource": "/interval_tasks/runs",
+      "method": "GET",
+      "handler": "FUNCTION",
+      "access": 2,
+      "title": "Get interval task runs",
+      "description": "Execution history of an interval task in system/prd.",
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "keywords": "interval_tasks,runs,history,system,prd",
+      "code": "fnGetIntervalTaskRuns",
+      "cache_time": 0,
+      "createdAt": "2026-08-12T12:00:00.000Z",
+      "updatedAt": "2026-08-12T12:00:00.000Z"
+    },
+    {
+      "ctrl": {},
+      "cors": {},
+      "mcp": {
+        "enabled": true,
+        "name": "run_interval_task_now",
+        "title": "Run Interval Task Now",
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nForces one execution of an interval task on the scheduler's next cycle, which polls every 10 seconds. It does so by setting the task's next execution to now and clearing its consecutive failure counter; it does not run the endpoint synchronously, so this tool returns before the execution finishes.\nRUNS THE ENDPOINT FOR REAL: whatever the endpoint writes, sends or calls actually happens, exactly as on a scheduled run. Use it to verify a task you just created, then read the outcome with 'get_interval_task_runs'.\nThis does not change the schedule: after the forced run the task returns to its normal `interval` or `cron` cadence. It also does not re-enable a disabled task — use 'reset_interval_task_attempts' for that.\nErrors: 400 when the task does not exist, or when it is already running and `allow_concurrent` is false. Response: `{success, message}`.",
+        "operation_mode": "write",
+        "requires_explicit_confirmation": true,
+        "destructive": false,
+        "side_effects": "Triggers one immediate unattended execution of the target endpoint, with all the real effects that endpoint has, and resets the task's consecutive failure counter to zero.",
+        "safe_alternative": "Call 'list_interval_tasks' first to confirm the task, its target endpoint and its current status."
+      },
+      "json_schema": {
+        "in": {
+          "enabled": true,
+          "schema": {
+            "title": "IntervalTaskRunNowRequest",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "idtask"
+            ],
+            "properties": {
+              "idtask": {
+                "type": "integer",
+                "description": "Id of the interval task to execute on the next cycle."
+              }
+            }
+          }
+        },
+        "out": {
+          "enabled": false,
+          "schema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": true
+          }
+        }
+      },
+      "custom_data": {},
+      "headers_test": {},
+      "data_test": {
+        "query": [
+          {
+            "enabled": false,
+            "key": "",
+            "value": "",
+            "internal_hash_row": "c5c647b00670bea65a11ab75bf3c77407cc89d1e12a5a013b5fa8146d30f9368"
+          }
+        ],
+        "body": {
+          "selection": 0,
+          "json": {
+            "code": {}
+          },
+          "xml": {
+            "code": ""
+          },
+          "text": {
+            "value": ""
+          },
+          "form": {}
+        },
+        "headers": [
+          {
+            "enabled": false,
+            "key": "",
+            "value": "",
+            "internal_hash_row": "c5c647b00670bea65a11ab75bf3c77407cc89d1e12a5a013b5fa8146d30f9368"
+          }
+        ],
+        "auth": {
+          "basic": {
+            "username": "",
+            "password": ""
+          },
+          "bearer": {
+            "token": ""
+          },
+          "selection": 0
+        }
+      },
+      "idendpoint": "d749852a-959d-4740-9b1c-50d3d00f5265",
+      "rowkey": 999,
+      "enabled": true,
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "environment": "prd",
+      "timeout": 30,
+      "resource": "/interval_tasks/run_now",
+      "method": "POST",
+      "handler": "FUNCTION",
+      "access": 2,
+      "title": "Run interval task now",
+      "description": "Schedules an interval task to run on the next scheduler cycle.",
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "keywords": "interval_tasks,run,now,system,prd",
+      "code": "fnRunIntervalTaskNow",
+      "cache_time": 0,
+      "createdAt": "2026-08-12T12:00:00.000Z",
+      "updatedAt": "2026-08-12T12:00:00.000Z"
+    },
+    {
+      "ctrl": {},
+      "cors": {},
+      "mcp": {
+        "enabled": true,
+        "name": "reset_interval_task_attempts",
+        "title": "Reset Interval Task Attempts",
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nRecovers an interval task that the scheduler stopped on its own. Failures retry with exponential backoff and, once `failed_attempts` reaches `max_failed_attempts`, the task is disabled automatically with a `disabled_reason`. This tool clears the counter, sets the task back to enabled and waiting, and recomputes its next execution.\nUse it AFTER fixing whatever made the task fail, never as a way to silence it: if the cause is still there the task simply fails again and disables itself. Read the actual errors first with 'get_interval_task_runs'.\nIt does not force an immediate execution — the task resumes on its normal schedule. Use 'run_interval_task_now' if you want to verify the fix right away.\nErrors: 400 when the task does not exist. Response: `{success, message}`.",
+        "operation_mode": "write",
+        "requires_explicit_confirmation": true,
+        "destructive": false,
+        "side_effects": "Re-enables a task that the scheduler had stopped, so the endpoint starts running unattended again on its schedule, and resets the consecutive failure counter to zero.",
+        "safe_alternative": "Call 'get_interval_task_runs' first to read the errors that disabled the task, and 'list_interval_tasks' to confirm `failed_attempts` and `last_response`."
+      },
+      "json_schema": {
+        "in": {
+          "enabled": true,
+          "schema": {
+            "title": "IntervalTaskResetAttemptsRequest",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "idtask"
+            ],
+            "properties": {
+              "idtask": {
+                "type": "integer",
+                "description": "Id of the interval task whose failure counter should be cleared."
+              }
+            }
+          }
+        },
+        "out": {
+          "enabled": false,
+          "schema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": true
+          }
+        }
+      },
+      "custom_data": {},
+      "headers_test": {},
+      "data_test": {
+        "query": [
+          {
+            "enabled": false,
+            "key": "",
+            "value": "",
+            "internal_hash_row": "c5c647b00670bea65a11ab75bf3c77407cc89d1e12a5a013b5fa8146d30f9368"
+          }
+        ],
+        "body": {
+          "selection": 0,
+          "json": {
+            "code": {}
+          },
+          "xml": {
+            "code": ""
+          },
+          "text": {
+            "value": ""
+          },
+          "form": {}
+        },
+        "headers": [
+          {
+            "enabled": false,
+            "key": "",
+            "value": "",
+            "internal_hash_row": "c5c647b00670bea65a11ab75bf3c77407cc89d1e12a5a013b5fa8146d30f9368"
+          }
+        ],
+        "auth": {
+          "basic": {
+            "username": "",
+            "password": ""
+          },
+          "bearer": {
+            "token": ""
+          },
+          "selection": 0
+        }
+      },
+      "idendpoint": "5fd4f18b-91b6-4dd5-bd47-158aefb7067a",
+      "rowkey": 1000,
+      "enabled": true,
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "environment": "prd",
+      "timeout": 30,
+      "resource": "/interval_tasks/reset_attempts",
+      "method": "POST",
+      "handler": "FUNCTION",
+      "access": 2,
+      "title": "Reset interval task attempts",
+      "description": "Clears the failure counter of an interval task and re-enables it.",
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "keywords": "interval_tasks,reset,attempts,system,prd",
+      "code": "fnResetIntervalTaskAttempts",
+      "cache_time": 0,
+      "createdAt": "2026-08-12T12:00:00.000Z",
+      "updatedAt": "2026-08-12T12:00:00.000Z"
     },
     {
       "idendpoint": "bc3017d5-ae7d-482f-bd6b-913141963280",
@@ -12884,6 +13300,58 @@ export const system_app = {
           "form": {}
         },
         "headers": [],
+        "auth": { "basic": { "username": "", "password": "" }, "bearer": { "token": "" }, "selection": 0 }
+      }
+    },
+    {
+      "idendpoint": "5d2a8f14-6c73-4e91-b0af-91c47d3b8e26",
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "environment": "prd",
+      "resource": "/interval_tasks/skill",
+      "method": "GET",
+      "handler": "FUNCTION",
+      "access": 0,
+      "enabled": true,
+      "title": "Interval Tasks AI Skill",
+      "description": "Returns the AI agent skill for scheduling, diagnosing and repairing recurring interval tasks (ofapi_intervaltask table), including the scheduling modes, the payload contract and the diagnostics runbook.",
+      "keywords": "interval,task,schedule,cron,skill,mcp,ai,agent,docs",
+      "timeout": 30,
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "cache_time": 3600,
+      "code": "fnGetIntervalTaskSkill",
+      "mcp": {
+        "enabled": true,
+        "name": "get_interval_task_skill",
+        "title": "Get Interval Tasks AI Skill",
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Call this FIRST whenever the user asks to schedule an endpoint, or to diagnose or repair a recurring task that is not running as expected.\nAn interval task is a row of the dedicated `ofapi_intervaltask` table that makes the scheduler call an EXISTING endpoint unattended; it holds no code of its own, so it is never created with 'endpoint_upsert'. Returns the data model and which columns are configuration versus scheduler telemetry, the two scheduling modes (fixed `interval` and `cron` with IANA timezone and execution window), the `params` payload contract, the ApiKey rules behind `idkey`, the timeout, backoff and auto-disable behaviour, the run history, and a diagnostics runbook that maps each common symptom to the tool that resolves it. Afterwards use 'list_interval_tasks' to inspect and 'upsert_interval_task' to write.",
+        "operation_mode": "read",
+        "requires_explicit_confirmation": false,
+        "side_effects": "No persistent write side effects expected.",
+        "safe_alternative": "N/A",
+        "exampleRequest": {}
+      },
+      "ctrl": {},
+      "cors": {},
+      "custom_data": {},
+      "json_schema": {
+        "in": {
+          "enabled": true,
+          "schema": {
+            "type": "object",
+            "title": "GetIntervalTaskSkill",
+            "properties": {},
+            "additionalProperties": false
+          }
+        },
+        "out": { "enabled": false }
+      },
+      "headers_test": {},
+      "data_test": {
+        "query": [],
+        "body": { "selection": 0, "json": {}, "xml": { "code": "" }, "text": { "value": "" }, "form": {} },
+        "headers": [{ "enabled": false, "key": "", "value": "", "internal_hash_row": "interval-task-skill-h1" }],
         "auth": { "basic": { "username": "", "password": "" }, "bearer": { "token": "" }, "selection": 0 }
       }
     },

@@ -1,18 +1,120 @@
 import { Op } from "sequelize";
 import Sequelize from "sequelize";
 import { IntervalTask, Application, Endpoint } from "./models.js";
+import {
+  TASK_STATUS,
+  computeNextRun,
+  computeBackoffNextRun,
+  shouldDisableForFailures,
+} from "../timer/schedule.js";
 
+/**
+ * Columnas de estado observado del scheduler. Las escribe el worker, nunca el usuario:
+ * `enabled`, `interval` o `cron` son intención y estas columnas son diagnóstico.
+ * Espejo de BOT_RUNTIME_ATTRIBUTES en `bot.js`. Se ignoran al hacer upsert y se descartan
+ * al restaurar un backup: restaurar un `status: 1` (running) dejaría la tarea colgada hasta
+ * que la libere el reaper, y un `failed_attempts` cercano al tope la deshabilitaría al
+ * primer fallo.
+ */
+export const INTERVAL_TASK_RUNTIME_ATTRIBUTES = [
+  "status",
+  "failed_attempts",
+  "last_run",
+  "next_run",
+  "last_exec_time",
+  "last_response",
+];
+
+/** Campos cuyo cambio invalida el `next_run` ya calculado. */
+const SCHEDULE_FIELDS = [
+  "interval",
+  "schedule_mode",
+  "cron",
+  "timezone",
+  "window_start",
+  "window_end",
+  "window_days",
+  "datestart",
+];
+
+/**
+ * `IntervalTask.upsert(data)` construye la instancia con `Model.build()`, así que los campos
+ * ausentes del payload no se conservan: se reescriben con el default del modelo. Sin este
+ * merge, actualizar una tarea enviando sólo `{idtask, note}` devolvía `interval` a 300 y
+ * apagaba la tarea. Un UPDATE es por tanto parcial: sólo se tocan las claves presentes,
+ * distinguiendo `undefined` (no enviada, se conserva) de `null` (enviada vacía, se limpia).
+ */
 export const upsertIntervalTask = async (data) => {
   try {
-    const [result, created] = await IntervalTask.upsert(data, {
+    let payload = { ...data };
+    let previous = null;
+
+    if (payload.idtask !== undefined && payload.idtask !== null) {
+      previous = await getIntervalTaskById(payload.idtask);
+
+      if (!previous) {
+        // Sin esto Sequelize insertaría una fila con el idtask forzado, pisando el
+        // autoincremental y, en una BD ajena, la tarea de otra app.
+        const error = new Error(
+          `Interval task ${payload.idtask} does not exist. Omit 'idtask' to create a new task.`,
+        );
+        error.code = "INTERVAL_TASK_NOT_FOUND";
+        throw error;
+      }
+
+      const stored = previous.get({ plain: true });
+
+      for (const field of INTERVAL_TASK_RUNTIME_ATTRIBUTES) delete payload[field];
+
+      // `params` se reemplaza entero a propósito: un merge profundo haría imposible borrar
+      // una clave del payload que viaja al endpoint.
+      const merged = { ...stored };
+      for (const [key, value] of Object.entries(payload)) {
+        if (value !== undefined) merged[key] = value;
+      }
+
+      // Si cambió la programación, el next_run guardado ya no corresponde a nada: se
+      // recalcula para que el cambio surta efecto sin esperar al ciclo viejo.
+      const scheduleChanged = SCHEDULE_FIELDS.some(
+        (field) => payload[field] !== undefined && payload[field] !== stored[field],
+      );
+
+      if (scheduleChanged) {
+        merged.next_run = computeNextRun(merged, { from: new Date(), anchor: null });
+      }
+
+      payload = merged;
+    }
+
+    const [result, created] = await IntervalTask.upsert(payload, {
       returning: true,
     });
     return { result, created };
   } catch (error) {
-    console.error("Error retrieving:", error, data);
+    // El idtask inexistente es un error de entrada, no una falla: se propaga como 404 sin
+    // ensuciar el log con un stack.
+    if (error?.code !== "INTERVAL_TASK_NOT_FOUND") {
+      console.error("Error retrieving:", error, data);
+    }
     throw error; // c4ca4238-a0b9-2382-0dcc-509a6f75849b
   }
 };
+
+/**
+ * Los campos JSON se leen con `raw: true`, que salta el getter del modelo: en los
+ * dialectos donde el JSON se guarda como TEXT (sqlite, mssql) llegan como cadena. Sin
+ * esto el worker recibía `params` como string y nunca enviaba los datos al endpoint.
+ */
+function parseJSONField(value, fallback = {}) {
+  if (value === null || value === undefined) return fallback;
+  if (typeof value !== "string") return value;
+
+  try {
+    return JSON.parse(value);
+  } catch (error) {
+    return value;
+  }
+}
 
 // READ
 export const getIntervalTaskById = async (idtask) => {
@@ -55,6 +157,16 @@ export const getIntervalTask = async (filter = {}) => {
         "last_exec_time",
         "last_response",
         "note",
+        "allow_concurrent",
+        "idkey",
+        "schedule_mode",
+        "cron",
+        "timezone",
+        "window_start",
+        "window_end",
+        "window_days",
+        "max_failed_attempts",
+        "history_limit",
       ],
       where: filter.tasks, // 🔹 Agregado el filtro aquí
       include: [
@@ -66,6 +178,7 @@ export const getIntervalTask = async (filter = {}) => {
             ["method", "method"],
             ["resource", "resource"],
             ["environment", "environment"],
+            ["access", "access"],
           ],
           where: filter.endpoint, // 🔹 Agregado el filtro aquí
           required: true,
@@ -98,6 +211,7 @@ export const getIntervalTask = async (filter = {}) => {
         method: item["ofapi_endpoint.method"],
         resource: item["ofapi_endpoint.resource"],
         environment: item["ofapi_endpoint.environment"],
+        access: item["ofapi_endpoint.access"],
 
         idtask: item.idtask,
         iduser: item.iduser,
@@ -107,13 +221,24 @@ export const getIntervalTask = async (filter = {}) => {
         dateend: item.dateend,
         next_run: item.next_run,
         last_run: item.last_run,
-        params: item.params,
+        params: parseJSONField(item.params),
         exec_time_limit: item.exec_time_limit,
         failed_attempts: item.failed_attempts,
         status: item.status,
         last_exec_time: item.last_exec_time,
-        last_response: item.last_response,
+        last_response: parseJSONField(item.last_response, null),
         note: item.note,
+
+        allow_concurrent: item.allow_concurrent,
+        idkey: item.idkey,
+        schedule_mode: item.schedule_mode,
+        cron: item.cron,
+        timezone: item.timezone,
+        window_start: item.window_start,
+        window_end: item.window_end,
+        window_days: item.window_days,
+        max_failed_attempts: item.max_failed_attempts,
+        history_limit: item.history_limit,
       };
 
       new_item.url = `/api/${new_item.app}${new_item.resource}/${new_item.environment}`;
@@ -129,19 +254,41 @@ export const getIntervalTask = async (filter = {}) => {
 };
 
 export const getIntervalTaskProcess = async () => {
-  const MAX_FAILED_ATTEMPTS = 3;
+  const now = new Date();
 
   let filter = {
     endpoint: { enabled: true },
     app: { enabled: true },
     tasks: {
       enabled: true,
-      failed_attempts: { [Op.lt]: MAX_FAILED_ATTEMPTS },
-      datestart: { [Op.lte]: new Date() },
-      dateend: { [Op.gte]: new Date() },
-      [Op.or]: [
-        { next_run: { [Op.lte]: new Date() } },
-        { next_run: { [Op.is]: null } },
+      // `datestart <= now` y `dateend >= now` descartaban en silencio las tareas con esas
+      // fechas en NULL: en SQL una comparación contra NULL nunca es verdadera, aunque
+      // ambas columnas son opcionales y se documentan como "omitir para no acotar".
+      [Op.and]: [
+        {
+          [Op.or]: [
+            { datestart: { [Op.lte]: now } },
+            { datestart: { [Op.is]: null } },
+          ],
+        },
+        {
+          [Op.or]: [
+            { dateend: { [Op.gte]: now } },
+            { dateend: { [Op.is]: null } },
+          ],
+        },
+        {
+          [Op.or]: [
+            { next_run: { [Op.lte]: now } },
+            { next_run: { [Op.is]: null } },
+          ],
+        },
+        // El tope de fallos dejó de ser 3 fijo: cada tarea define el suyo.
+        Sequelize.where(
+          Sequelize.col("failed_attempts"),
+          Op.lt,
+          Sequelize.col("max_failed_attempts"),
+        ),
       ],
     },
   };
@@ -215,69 +362,84 @@ export const updateIntervalTaskStatus = async (
   time_execution_ms
 ) => {
   try {
-    time_execution_ms = Math.floor(time_execution_ms);
+    // Se llama sin este argumento al marcar "en ejecución"; sin la guarda quedaba NaN.
+    const exec_ms = Number.isFinite(Number(time_execution_ms))
+      ? Math.floor(Number(time_execution_ms))
+      : 0;
 
     const task = await IntervalTask.findOne({
       where: { idtask: idtask },
     });
 
     if (!task) {
-      throw new Error(
-        `No se encontró la tarea con idtask: ${current_task.idtask}`
-      );
+      throw new Error(`No se encontró la tarea con idtask: ${idtask}`);
     }
 
     let data_update = {};
 
     const now = new Date();
-    const nextRun = new Date(now.getTime() + task.interval * 1000); // Convertir interval de segundos a milisegundos
 
     switch (new_status) {
-      case 0:
+      case TASK_STATUS.WAITING:
         // En espera
         data_update = {
           last_run: now,
-          next_run: nextRun,
+          next_run: computeNextRun(task, { from: now }),
           status: new_status,
-          attempts: 0,
+          failed_attempts: 0,
           last_response: null,
         };
 
         break;
-      case 1:
-        // En ejecución
+      case TASK_STATUS.RUNNING:
+        // En ejecución. `next_run` se ancla al horario previsto (ver schedule.js), de
+        // modo que la duración de esta corrida no desplace toda la serie.
         data_update = {
           last_run: now,
-          next_run: nextRun,
+          next_run: computeNextRun(task, { from: now }),
           status: new_status,
         };
 
         break;
-      case 2:
+      case TASK_STATUS.DONE:
         // Completado
         data_update = {
-          //last_run: now,
-          //next_run: nextRun,
           last_response: result,
           failed_attempts: 0,
-          //last_time: now
-          last_exec_time: time_execution_ms || 0,
+          last_exec_time: exec_ms,
           status: new_status,
         };
 
+        // Si la ejecución duró más que el propio intervalo, el `next_run` calculado al
+        // arrancar ya quedó en el pasado: se avanza al siguiente hueco futuro.
+        if (task.next_run && new Date(task.next_run) <= now) {
+          data_update.next_run = computeNextRun(task, { from: now });
+        }
+
         break;
-      case 3:
-        // Error
+      case TASK_STATUS.ERROR:
+      case TASK_STATUS.TIMEOUT: {
+        // Error o timeout: reintento con espera creciente en vez de morir al tercer fallo.
+        const failed_attempts = task.failed_attempts + 1;
+
         data_update = {
-          //last_run: now,
-          //next_run: nextRun,
           last_response: result,
-          failed_attempts: task.failed_attempts + 1,
+          failed_attempts,
           status: new_status,
-          last_exec_time: time_execution_ms || 0,
+          last_exec_time: exec_ms,
+          next_run: computeBackoffNextRun(task, failed_attempts, { from: now }),
         };
 
+        if (shouldDisableForFailures(task, failed_attempts)) {
+          data_update.enabled = false;
+          data_update.last_response = {
+            ...(result && typeof result === "object" ? result : { error: result }),
+            disabled_reason: `Deshabilitada tras ${failed_attempts} fallos consecutivos`,
+          };
+        }
+
         break;
+      }
       default:
         break;
     }
@@ -290,6 +452,144 @@ export const updateIntervalTaskStatus = async (
     };
   } catch (error) {
     console.log(error);
+    return { success: false, message: error.message };
+  }
+};
+
+/**
+ * Libera las tareas que quedaron marcadas como "en ejecución" sin estarlo: el proceso
+ * murió a media corrida o el fetch se colgó. Sin esto, `allow_concurrent = false` las
+ * dejaría bloqueadas para siempre, porque el ciclo no vuelve a tomar una tarea en
+ * estado 1.
+ *
+ * @param {number} [graceSeconds] margen sobre `exec_time_limit` antes de darla por muerta
+ * @returns {Promise<number>} tareas liberadas
+ */
+export const reapStaleRunningTasks = async (graceSeconds = 30) => {
+  try {
+    const now = new Date();
+
+    // Se filtra en JS porque comparar contra la columna `exec_time_limit` dentro de un
+    // intervalo de fecha no es portable entre los dialectos que soporta el proyecto.
+    const running = await IntervalTask.findAll({
+      where: { status: TASK_STATUS.RUNNING },
+    });
+
+    let reaped = 0;
+
+    for (const task of running) {
+      const startedAt = task.last_run ? new Date(task.last_run) : null;
+      if (!startedAt || Number.isNaN(startedAt.getTime())) continue;
+
+      const limitMs =
+        (Number(task.exec_time_limit || 30) + Number(graceSeconds || 0)) * 1000;
+
+      if (now.getTime() - startedAt.getTime() <= limitMs) continue;
+
+      const failed_attempts = task.failed_attempts + 1;
+      const data_update = {
+        status: TASK_STATUS.TIMEOUT,
+        failed_attempts,
+        last_response: {
+          error: "Task abandoned: still running past exec_time_limit",
+        },
+        next_run: computeBackoffNextRun(task, failed_attempts, { from: now }),
+      };
+
+      if (shouldDisableForFailures(task, failed_attempts)) {
+        data_update.enabled = false;
+        data_update.last_response.disabled_reason = `Deshabilitada tras ${failed_attempts} fallos consecutivos`;
+      }
+
+      await IntervalTask.update(data_update, {
+        where: { idtask: task.idtask },
+      });
+      reaped++;
+    }
+
+    return reaped;
+  } catch (error) {
+    console.error("Error reaping stale interval tasks:", error);
+    return 0;
+  }
+};
+
+/**
+ * Reprograma la tarea al siguiente hueco válido sin ejecutarla ni tocar su contador de
+ * fallos. Se usa cuando el ciclo la descarta por caer fuera de la ventana horaria: sin
+ * esto seguiría vencida y se reevaluaría cada 10 s.
+ *
+ * @param {object} task fila (o proyección) de la tarea, con los campos de planificación
+ */
+export const rescheduleIntervalTask = async (task) => {
+  try {
+    await IntervalTask.update(
+      { next_run: computeNextRun(task, { from: new Date() }) },
+      { where: { idtask: task.idtask } },
+    );
+    return true;
+  } catch (error) {
+    console.error("Error rescheduling interval task:", error);
+    return false;
+  }
+};
+
+/**
+ * Fuerza la ejecución de una tarea en el próximo ciclo del worker.
+ * @param {number|string} idtask
+ */
+export const runNowIntervalTask = async (idtask) => {
+  try {
+    const task = await IntervalTask.findOne({ where: { idtask } });
+    if (!task) {
+      return { success: false, message: `No existe la tarea ${idtask}` };
+    }
+
+    if (task.status === TASK_STATUS.RUNNING && !task.allow_concurrent) {
+      return {
+        success: false,
+        message: "La tarea está en ejecución y no permite concurrencia.",
+      };
+    }
+
+    await IntervalTask.update(
+      {
+        next_run: new Date(),
+        failed_attempts: 0,
+        status: TASK_STATUS.WAITING,
+      },
+      { where: { idtask } },
+    );
+
+    return { success: true, message: "La tarea se ejecutará en el próximo ciclo." };
+  } catch (error) {
+    return { success: false, message: error.message };
+  }
+};
+
+/**
+ * Reinicia el contador de fallos y reactiva la tarea si el backoff la deshabilitó.
+ * @param {number|string} idtask
+ */
+export const resetIntervalTaskAttempts = async (idtask) => {
+  try {
+    const task = await IntervalTask.findOne({ where: { idtask } });
+    if (!task) {
+      return { success: false, message: `No existe la tarea ${idtask}` };
+    }
+
+    await IntervalTask.update(
+      {
+        failed_attempts: 0,
+        enabled: true,
+        status: TASK_STATUS.WAITING,
+        next_run: computeNextRun(task, { from: new Date(), anchor: null }),
+      },
+      { where: { idtask } },
+    );
+
+    return { success: true, message: "Contador de fallos reiniciado." };
+  } catch (error) {
     return { success: false, message: error.message };
   }
 };

@@ -6,7 +6,7 @@ Below is the index of available libraries and functions inside the JS handler VM
 |---|---|---|---|
 | [\$_CUSTOM_HEADERS_](./$_CUSTOM_HEADERS_.md) | `$_CUSTOM_HEADERS_` | Map of custom response headers to send together with $_RETURN_DATA_. | Set headers here before assigning binary or special response payloads to $_RETURN_DATA_. |
 | [\$_ENV_](./$_ENV_.md) | `$_ENV_` | Current runtime environment (dev, qa, prd). | This variable is injected automatically based on the server environment and can be used for environment-specific logic in handlers. |
-| [\$_EXCEPTION_](./$_EXCEPTION_.md) | `$_EXCEPTION_(message, [data], [statusCode])` | Interrupts the program flow and throws an exception with a specific message and status code. | - |
+| [\$_EXCEPTION_](./$_EXCEPTION_.md) | `$_EXCEPTION_(options)` | Interrupts the program flow and throws an exception with a specific message and status code. | If the caller can fix the error (invalid field, business rule), say so in `message` and put the offending values in `data.public`. |
 | [\$_RETURN_DATA_](./$_RETURN_DATA_.md) | `$_RETURN_DATA_` | Primary output slot for JS handlers. | Prefer assigning to $_RETURN_DATA_ over calling reply.send() directly unless you need low-level Fastify control. |
 | [AbortController](./AbortController.md) | `AbortController()` | A controller object that allows you to abort one or more Web APIs (like fetch requests). | - |
 | [Array](./Array.md) | `Array()` | Global Array constructor. | - |

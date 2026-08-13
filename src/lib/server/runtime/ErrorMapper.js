@@ -1,3 +1,8 @@
+import { buildErrorPayload } from "../errorPayload.js";
+
+// Cubre los errores que escapan de runHandler (pre-validación, caché, contexto). Comparte
+// el mismo contrato que `replyException`: `{ error, trace_id }` y, solo cuando el autor lo
+// marcó con $_EXCEPTION_({ ..., data: { public } }), también `data`.
 export function mapOperationalError(error, request) {
   const trace_id = request?.headers?.["ofapi-trace-id"] || "";
 
@@ -18,18 +23,20 @@ export function mapOperationalError(error, request) {
   if (error?.statusCode && Number.isInteger(error.statusCode)) {
     return {
       statusCode: error.statusCode,
-      payload: {
-        error: error.message || "Internal Server Error",
+      payload: buildErrorPayload(
+        error.message || "Internal Server Error",
         trace_id,
-      },
+        error,
+      ),
     };
   }
 
   return {
     statusCode: 500,
-    payload: {
-      error: error?.message || "Internal Server Error",
+    payload: buildErrorPayload(
+      error?.message || "Internal Server Error",
       trace_id,
-    },
+      error,
+    ),
   };
 }

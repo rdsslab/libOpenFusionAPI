@@ -21,6 +21,7 @@ export const ModelNames = {
   Endpoint: prefixTableName("endpoint"),
   EndpointBackup: prefixTableName("endpoint_bkp"),
   IntervalTask: prefixTableName("intervaltask"),
+  IntervalTaskRun: prefixTableName("intervaltask_run"),
   Method: prefixTableName("method"),
   //Handler: prefixTableName("handler"),
   Demo: prefixTableName("demo"),
@@ -119,7 +120,14 @@ modelHooks.on("hook", async (data) => {
 });
 
 // Global hooks to automate notifications for all models
-const IGNORED_MODELS_FOR_HOOKS = [ModelNames.LogEntry, ModelNames.ApiUsageLog];
+// El historial de ejecuciones escribe una fila por corrida de cada tarea, así que se
+// excluye del broadcast de hooks por el mismo motivo que los logs: es ruido de alta
+// frecuencia, no un cambio de configuración.
+const IGNORED_MODELS_FOR_HOOKS = [
+  ModelNames.LogEntry,
+  ModelNames.ApiUsageLog,
+  ModelNames.IntervalTaskRun,
+];
 
 const globalNotify = (action) => (instance, options) => {
   // Get model name (which is the prefixed table name in this project)
@@ -1343,13 +1351,70 @@ export const IntervalTask = dbsequelize.define(
       type: DataTypes.SMALLINT,
       allowNull: false,
       defaultValue: 0,
-      comment: "Consecutive failed attempts. Max 3.",
+      comment: "Consecutive failed attempts. Limit: max_failed_attempts.",
     },
     status: {
       type: DataTypes.SMALLINT,
       allowNull: false,
       defaultValue: 0,
-      comment: "Status of the task",
+      comment: "Status of the task: 0 waiting, 1 running, 2 ok, 3 error, 4 timeout",
+    },
+    allow_concurrent: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+      comment:
+        "Permite lanzar la tarea aunque la ejecución anterior siga en curso",
+    },
+    idkey: {
+      type: DataTypes.BIGINT,
+      allowNull: true,
+      comment:
+        "ApiKey (ofapi_api_key.idkey) usada como Bearer al llamar al endpoint. Sin FK a propósito: borrar la key no debe borrar la tarea",
+    },
+    schedule_mode: {
+      type: DataTypes.STRING(10),
+      allowNull: false,
+      defaultValue: "interval",
+      comment: "interval | cron",
+    },
+    cron: {
+      type: DataTypes.STRING(120),
+      allowNull: true,
+      comment: "Expresión cron cuando schedule_mode = cron",
+    },
+    timezone: {
+      type: DataTypes.STRING(64),
+      allowNull: true,
+      comment: "Zona horaria para cron y ventana. Null = la del servidor",
+    },
+    window_start: {
+      type: DataTypes.STRING(5),
+      allowNull: true,
+      comment: "Inicio de la ventana de ejecución, formato HH:MM",
+    },
+    window_end: {
+      type: DataTypes.STRING(5),
+      allowNull: true,
+      comment: "Fin de la ventana de ejecución, formato HH:MM",
+    },
+    window_days: {
+      type: DataTypes.STRING(20),
+      allowNull: true,
+      comment: "Días permitidos separados por coma. 1=lunes ... 7=domingo",
+    },
+    max_failed_attempts: {
+      type: DataTypes.SMALLINT,
+      allowNull: false,
+      defaultValue: 10,
+      comment:
+        "Fallos consecutivos antes de deshabilitar la tarea. El backoff espacia los reintentos hasta llegar aquí",
+    },
+    history_limit: {
+      type: DataTypes.SMALLINT,
+      allowNull: false,
+      defaultValue: 50,
+      comment: "Ejecuciones a conservar por tarea. 0 = no guardar historial",
     },
     last_exec_time: {
       type: DataTypes.BIGINT,
@@ -1374,6 +1439,72 @@ export const IntervalTask = dbsequelize.define(
         fields: ["idendpoint"],
         name: "idx_interval_idendpoint", // Nombre del índice
         unique: false, // Índice no único
+      },
+    ],
+  },
+);
+
+// Historial de ejecuciones de las tareas programadas. Sin FK a `IntervalTask`, igual
+// que `BotBackup` con `Bot`: el historial sobrevive al borrado de la tarea y la poda la
+// hace `pruneIntervalTaskRuns` según `history_limit`.
+export const IntervalTaskRun = dbsequelize.define(
+  ModelNames.IntervalTaskRun,
+  {
+    idrun: {
+      type: DataTypes.BIGINT,
+      primaryKey: true,
+      autoIncrement: true,
+      allowNull: false,
+      unique: true,
+    },
+    idtask: {
+      type: DataTypes.BIGINT,
+      allowNull: false,
+      comment: "Tarea a la que pertenece la ejecución",
+    },
+    started_at: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      comment: "Inicio de la ejecución",
+    },
+    finished_at: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      comment: "Fin de la ejecución",
+    },
+    duration_ms: {
+      type: DataTypes.BIGINT,
+      allowNull: true,
+      comment: "Duración en milisegundos",
+    },
+    status: {
+      type: DataTypes.SMALLINT,
+      allowNull: false,
+      comment: "2 completado, 3 error, 4 timeout",
+    },
+    http_status: {
+      type: DataTypes.SMALLINT,
+      allowNull: true,
+      comment: "Código HTTP devuelto por el endpoint",
+    },
+    error: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      comment: "Mensaje de error cuando la ejecución no fue exitosa",
+    },
+    response: jsonField("response"),
+  },
+  {
+    freezeTableName: true,
+    timestamps: false,
+    paranoid: false,
+    comment: "Historial de ejecuciones de interval tasks",
+    hooks: {},
+    indexes: [
+      {
+        fields: ["idtask"],
+        name: "idx_intervaltask_run_idtask",
+        unique: false,
       },
     ],
   },

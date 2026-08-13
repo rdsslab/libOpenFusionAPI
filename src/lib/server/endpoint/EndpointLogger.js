@@ -65,7 +65,10 @@ export class EndpointLogger {
       idclient,
       response_time: reply?.openfusionapi?.lastResponse?.responseTime,
       response_data: undefined,
-      message: reply?.openfusionapi?.lastResponse?.exception,
+      // El objeto de excepción llega entero (message, data de contexto, statusCode) y el
+      // `data` de un $_EXCEPTION_ puede ser el body completo: se recorta como el resto de
+      // los campos grandes en vez de entrar sin límite a la columna.
+      message: this.truncateData(reply?.openfusionapi?.lastResponse?.exception),
       url: new URL(request.url, "http://localhost").pathname,
       log_level,
     };

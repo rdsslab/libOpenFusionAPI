@@ -25,6 +25,13 @@ export class TasksInterval {
   constructor() {
     //  super();
     //  this.interval = 5000; // Time Interval in milliseconds
+
+    /**
+     * Callback para los eventos que el worker publica sobre las tareas programadas.
+     * Lo inyecta el servidor para reenviarlos por websocket.
+     * @type {(payload: any) => void}
+     */
+    this.onIntervalTaskEvent = null;
   }
 
   pushLog(log) {
@@ -47,7 +54,20 @@ export class TasksInterval {
 
     // Recibir mensajes del worker
     this.worker.on("message", (msg) => {
-      console.log("Mensaje recibido del worker:", msg);
+      try {
+        const data = typeof msg === "string" ? JSON.parse(msg) : msg;
+
+        if (data?.action === "intervalTaskEvent") {
+          if (typeof this.onIntervalTaskEvent === "function") {
+            this.onIntervalTaskEvent(data.data);
+          }
+          return;
+        }
+
+        console.log("Mensaje recibido del worker:", msg);
+      } catch (error) {
+        console.log("Mensaje recibido del worker:", msg);
+      }
     });
 
     // Enviar mensaje al worker

@@ -1,0 +1,64 @@
+{
+  "namespace": "interval_tasks",
+  "label": "Interval Tasks",
+  "status": "active",
+  "summary": "Recurring unattended execution of an existing endpoint, stored in ofapi_intervaltask. A task says when to call the endpoint, with what payload and with whose credentials; it never contains code of its own.",
+  "storage": {
+    "table": "ofapi_intervaltask",
+    "history_table": "ofapi_intervaltask_run",
+    "primary_key": "idtask",
+    "parent": "ofapi_endpoint.idendpoint (ON DELETE CASCADE)",
+    "db_layer": "src/lib/db/interval_task.js",
+    "history_db_layer": "src/lib/db/interval_task_run.js",
+    "model": "src/lib/db/models.js",
+    "column_migration": "src/lib/db/ensureIntervalTaskColumns.js"
+  },
+  "runtime": {
+    "task": "src/lib/timer/tasks.js",
+    "worker": "src/lib/timer/worker.js",
+    "schedule": "src/lib/timer/schedule.js",
+    "poll_interval_ms": 10000,
+    "max_backoff_seconds": 3600,
+    "default_interval_seconds": 300,
+    "default_exec_time_limit_seconds": 30,
+    "default_max_failed_attempts": 10,
+    "default_history_limit": 50,
+    "reaper_grace_seconds": 30,
+    "max_stored_response_chars": 4096
+  },
+  "schedule_modes": ["interval", "cron"],
+  "task_status": {
+    "0": "waiting",
+    "1": "running",
+    "2": "completed",
+    "3": "error",
+    "4": "timeout"
+  },
+  "runtime_attributes": [
+    "status",
+    "failed_attempts",
+    "last_run",
+    "next_run",
+    "last_exec_time",
+    "last_response"
+  ],
+  "crud_tools": {
+    "read": ["list_interval_tasks", "get_interval_task_runs"],
+    "write": [
+      "upsert_interval_task",
+      "run_interval_task_now",
+      "reset_interval_task_attempts",
+      "delete_interval_task"
+    ],
+    "skill": ["get_interval_task_skill"]
+  },
+  "observability": {
+    "event": "interval_task",
+    "channel": "/server/events",
+    "tool": "get_interval_task_runs"
+  },
+  "docs": {
+    "main": "README.md",
+    "skill": "AI_SKILL.md"
+  }
+}

@@ -149,7 +149,7 @@ For AI agents, the intended operating model is:
 5. Use JSON Schema where structured contracts are needed.
 6. Validate and publish the result.
 
-OpenFusionAPI also supports recurring task automation. Agents and operators can manage interval-based schedules for existing endpoints using the system tools `/interval_tasks/byidapp`, `/interval_tasks/upsert`, and `/interval_tasks/delete` (writes require explicit authorization).
+OpenFusionAPI also supports recurring task automation. An interval task schedules an **existing** endpoint to run unattended, on a fixed interval or on a cron expression with a timezone and an execution window. Agents and operators manage them with the system tools `get_interval_task_skill` (the full contract and diagnostics runbook), `list_interval_tasks` and `get_interval_task_runs` (read), and `upsert_interval_task`, `run_interval_task_now`, `reset_interval_task_attempts` and `delete_interval_task` (writes require explicit authorization). See [src/docs/interval_tasks/](src/docs/interval_tasks/).
 
 That workflow lets an agent create usable services with minimal or no handwritten code, which is one of the main reasons OpenFusionAPI can dramatically accelerate service deployment.
  

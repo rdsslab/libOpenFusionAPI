@@ -1,3 +1,5 @@
+import { buildErrorPayload } from "../server/errorPayload.js";
+
 export const setCacheReply = (reply, data, headers) => {
   if (reply) {
     if (!reply.openfusionapi) {
@@ -115,7 +117,7 @@ export const replyException = (request, reply, error) => {
       ? error.statusCode
       : 500;
 
-  const message =
+  let message =
     typeof error === "string"
       ? error
       : error?.message || "Internal Server Error";
@@ -129,7 +131,9 @@ export const replyException = (request, reply, error) => {
         : "Internal Server Error.";
   }
 
-  reply.code(statusCode).send({ error: message, trace_id });
+  // El detalle solo sale si el autor lo marcó como público con
+  // $_EXCEPTION_({ ..., data: { public } }); el resto se queda en el log.
+  reply.code(statusCode).send(buildErrorPayload(message, trace_id, error));
   return;
 };
 

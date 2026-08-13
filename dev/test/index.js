@@ -75,6 +75,11 @@ async function runAllTests() {
         args: ["backup_restore_test.js"],
       },
       {
+        label: "interval_task_upsert_test.js",
+        command: "node",
+        args: ["interval_task_upsert_test.js"],
+      },
+      {
         label: "fetch_timeout_test.js",
         command: "node",
         args: ["fetch_timeout_test.js"],
