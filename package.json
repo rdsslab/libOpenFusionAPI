@@ -1,6 +1,6 @@
 {
   "name": "@rdsslab/libopenfusionapi",
-  "version": "10.0.1",
+  "version": "10.0.2",
   "description": "Library based on Fastify to create APIs quickly and easily from a web interface.",
   "scripts": {
     "test": "node ./dev/test/index.js",
@@ -13,6 +13,7 @@
     "test:mcp-names": "node ./dev/test/check_mcp_name_uniqueness.js --server-key openfusion_system_remote_prd --app system --environment prd --idapp cfcd2084-95d5-65ef-66e7-dff9f98764da",
     "test:smoke": "node ./dev/test/smoke_runtime.js",
     "docs:js-api": "node ./src/lib/server/generateDocs.js",
+    "docs:js-api:check": "node ./src/lib/server/generateDocs.js --check",
     "docs:handlers:index": "node ./src/lib/server/generateHandlerIndex.js",
     "docs:handlers:validate": "node ./src/lib/server/validateHandlerDocs.js",
     "docs:handlers": "npm run docs:js-api && npm run docs:handlers:index && npm run docs:handlers:validate",

@@ -1,17 +1,10 @@
 <!-- AUTO-GENERADO por src/lib/server/generateDocs.js a partir de src/lib/server/functionVars.js. NO EDITAR A MANO: este directorio se vacia y se reescribe en cada regeneracion. Los cambios van en functionVars.js. -->
 
-# `luxon`
+# `canvas`
 
-[External Documentation](https://moment.github.io/luxon) 
+[External Documentation](https://github.com/Automattic/node-canvas) 
 
-Friendly wrapper for JavaScript dates and times
+Node canvas library required for qr-code-styling.
 
-#### Example
-
-```javascript
-
-      const dt = luxon.DateTime.now();
-      $_RETURN_DATA_ = dt;
-      
-```
+*   Returns: Canvas module
 

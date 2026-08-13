@@ -64,9 +64,22 @@ function normalizeMetadata(key, raw) {
     };
 }
 
+/**
+ * Aviso que encabeza cada archivo generado.
+ *
+ * Existe porque ya se perdieron correcciones por editar estos archivos a mano:
+ * el texto correcto de uFetch.batch y las notas de QRCodeStyling se escribieron
+ * directamente en el markdown, y como main() vacia el directorio antes de
+ * regenerar, la siguiente ejecucion los habria borrado en silencio. Es un
+ * comentario HTML para que no se vea al renderizar, pero si al editar.
+ */
+const GENERATED_BANNER =
+    "<!-- AUTO-GENERADO por src/lib/server/generateDocs.js a partir de src/lib/server/functionVars.js. NO EDITAR A MANO: este directorio se vacia y se reescribe en cada regeneracion. Los cambios van en functionVars.js. -->";
+
 function generateLibraryMarkdown(key, fn) {
     const meta = normalizeMetadata(key, fn);
-    let md = `# \`${meta.signature}\`\n\n`;
+    let md = `${GENERATED_BANNER}\n\n`;
+    md += `# \`${meta.signature}\`\n\n`;
 
     if (meta.deprecated) {
         md += `> **⚠️ DEPRECATED**\n\n`;
@@ -162,50 +175,144 @@ function generateIndexMarkdown(functions) {
     return md;
 }
 
-async function main() {
+/**
+ * Construye en memoria el contenido completo de la documentacion, sin tocar el
+ * disco: devuelve un Map { nombreArchivo -> contenido }.
+ *
+ * Se extrajo de main() para que la escritura y la comprobacion consuman
+ * exactamente la misma salida. Si se duplicara la logica, el comprobador podria
+ * dar por bueno algo que el generador escribe distinto, que es justo el fallo
+ * que viene a detectar.
+ */
+function buildDocs() {
+    // Pass null/dummy arguments because listFunctionsVars expects them strictly for returning the function object,
+    // but for metadata it returns the structure even with undefined.
+    const functions = listFunctionsVars(null, null, null);
+    const files = new Map();
+
+    files.set("README.md", generateIndexMarkdown(functions));
+
+    const sortedKeys = Object.keys(functions).sort();
+    for (const key of sortedKeys) {
+        files.set(`${key}.md`, generateLibraryMarkdown(key, functions[key]));
+    }
+
+    return files;
+}
+
+/**
+ * Normaliza los finales de linea antes de comparar.
+ *
+ * IMPRESCINDIBLE: el generador escribe siempre \n, pero en Windows git puede
+ * dejar el archivo en disco con CRLF al hacer checkout (core.autocrlf). Sin esta
+ * normalizacion el comprobador fallaria en cada clon de Windows por un motivo
+ * que no tiene nada que ver con el contenido, y acabaria desactivandose.
+ */
+const normalizeEol = (text) => text.replace(/\r\n/g, "\n");
+
+async function readFileIfExists(filePath) {
     try {
-        console.log("Generating documentation...");
-        // Pass null/dummy arguments because listFunctionsVars expects them strictly for returning the function object,
-        // but for metadata it returns the structure even with undefined.
-        const functions = listFunctionsVars(null, null, null);
-
-        // Delete old output file if it exists
-        try {
-            await fs.unlink(OLD_OUTPUT_FILE);
-            console.log(`Deleted old consolidated documentation file at: ${OLD_OUTPUT_FILE}`);
-        } catch (error) {
-            if (error.code !== "ENOENT") throw error;
-        }
-
-        // Create libraries directory
-        await fs.mkdir(OUTPUT_DIR, { recursive: true });
-
-        // Clean out existing files in the directory to avoid stale docs
-        try {
-            const existingFiles = await fs.readdir(OUTPUT_DIR);
-            for (const file of existingFiles) {
-                await fs.unlink(path.join(OUTPUT_DIR, file));
-            }
-        } catch (error) {
-            if (error.code !== "ENOENT") throw error;
-        }
-
-        // Write index file
-        const indexMarkdown = generateIndexMarkdown(functions);
-        const indexFilePath = path.join(OUTPUT_DIR, "README.md");
-        await fs.writeFile(indexFilePath, indexMarkdown, "utf-8");
-        console.log(`Libraries index generated at: ${indexFilePath}`);
-
-        // Write individual files
-        const sortedKeys = Object.keys(functions).sort();
-        for (const key of sortedKeys) {
-            const libMarkdown = generateLibraryMarkdown(key, functions[key]);
-            const libFilePath = path.join(OUTPUT_DIR, `${key}.md`);
-            await fs.writeFile(libFilePath, libMarkdown, "utf-8");
-        }
-        console.log(`Generated ${sortedKeys.length} library detail files under: ${OUTPUT_DIR}`);
+        return await fs.readFile(filePath, "utf-8");
     } catch (error) {
-        console.error("Error generating documentation:", error);
+        if (error.code === "ENOENT") return undefined;
+        throw error;
+    }
+}
+
+async function writeDocs() {
+    console.log("Generating documentation...");
+    const files = buildDocs();
+
+    // Delete old output file if it exists
+    try {
+        await fs.unlink(OLD_OUTPUT_FILE);
+        console.log(`Deleted old consolidated documentation file at: ${OLD_OUTPUT_FILE}`);
+    } catch (error) {
+        if (error.code !== "ENOENT") throw error;
+    }
+
+    // Create libraries directory
+    await fs.mkdir(OUTPUT_DIR, { recursive: true });
+
+    // Clean out existing files in the directory to avoid stale docs
+    try {
+        const existingFiles = await fs.readdir(OUTPUT_DIR);
+        for (const file of existingFiles) {
+            await fs.unlink(path.join(OUTPUT_DIR, file));
+        }
+    } catch (error) {
+        if (error.code !== "ENOENT") throw error;
+    }
+
+    for (const [fileName, content] of files) {
+        await fs.writeFile(path.join(OUTPUT_DIR, fileName), content, "utf-8");
+    }
+
+    console.log(`Libraries index generated at: ${path.join(OUTPUT_DIR, "README.md")}`);
+    console.log(`Generated ${files.size - 1} library detail files under: ${OUTPUT_DIR}`);
+}
+
+/**
+ * Comprueba que lo que hay en disco coincide con lo que produciria el generador,
+ * SIN escribir nada. Sale con codigo 1 si no coincide.
+ *
+ * DONDE SE USA: en CI o en un hook de pre-commit, para detectar que alguien
+ * edito un markdown generado en vez de functionVars.js. NO tiene sentido
+ * encadenarlo detras de `docs:js-api` dentro de `docs:handlers`, porque ahi la
+ * escritura acaba de ocurrir y la comprobacion pasaria siempre.
+ */
+async function checkDocs() {
+    const files = buildDocs();
+    const problems = [];
+
+    let existingFiles = [];
+    try {
+        existingFiles = await fs.readdir(OUTPUT_DIR);
+    } catch (error) {
+        if (error.code !== "ENOENT") throw error;
+    }
+
+    // Archivos que sobran: la regeneracion vacia el directorio, asi que
+    // desapareceran sin aviso.
+    for (const fileName of existingFiles) {
+        if (!files.has(fileName)) {
+            problems.push(`${fileName}: esta en disco pero el generador no lo produce (se borraria al regenerar)`);
+        }
+    }
+
+    for (const [fileName, expected] of files) {
+        const current = await readFileIfExists(path.join(OUTPUT_DIR, fileName));
+        if (current === undefined) {
+            problems.push(`${fileName}: falta en disco`);
+        } else if (normalizeEol(current) !== normalizeEol(expected)) {
+            problems.push(`${fileName}: difiere de lo que genera functionVars.js`);
+        }
+    }
+
+    if (problems.length > 0) {
+        console.error("La documentacion generada NO coincide con su fuente:\n");
+        problems.forEach((problem) => console.error(`  - ${problem}`));
+        console.error(
+            "\nEstos archivos se generan desde src/lib/server/functionVars.js y el directorio" +
+            "\nse vacia en cada regeneracion. Si editaste un .md a mano, lleva el cambio a" +
+            "\nfunctionVars.js y ejecuta `npm run docs:js-api`."
+        );
+        process.exit(1);
+    }
+
+    console.log(`Documentacion verificada: ${files.size} archivos coinciden con functionVars.js.`);
+}
+
+async function main() {
+    const isCheck = process.argv.includes("--check");
+    try {
+        if (isCheck) {
+            await checkDocs();
+        } else {
+            await writeDocs();
+        }
+    } catch (error) {
+        console.error(isCheck ? "Error checking documentation:" : "Error generating documentation:", error);
         process.exit(1);
     }
 }

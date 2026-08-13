@@ -1,3 +1,5 @@
+<!-- AUTO-GENERADO por src/lib/server/generateDocs.js a partir de src/lib/server/functionVars.js. NO EDITAR A MANO: este directorio se vacia y se reescribe en cada regeneracion. Los cambios van en functionVars.js. -->
+
 # `uFetch([constructor(url?, redirect_in_unauthorized?, timeoutOptions?)], [request(url, method, data, headers, options, body, timeout)], [get|post|put|patch|delete({ url, data, body, headers, options, timeout })], [batch({ url, method, items, headers, options, config })], [batch_old(url, method, items, headers, options, config)])`
 
 [External Documentation](https://github.com/rdsslab/uFetch) 
@@ -9,7 +11,7 @@ Universal HTTP client for Node.js and browsers. Primary use is standard fetch-st
 > Previous versions of uFetch exposed method wrappers as `GET`, `POST`, `PUT`, `PATCH`, `DELETE` (uppercase).
 > **These no longer exist in the current version and will throw a runtime error.**
 > Always use the lowercase equivalents: `get`, `post`, `put`, `patch`, `delete`.
-> This applies both to direct calls (`api.get(...)`) and to the `method` field inside `batch()` items (use `'POST'` as a string value there, not a method call).
+> This applies both to direct calls (`api.get(...)`) and to the `method` field of the `batch()` configuration object (use `'POST'` as a string value there, not a method call). Note that `method` belongs to that configuration object, never to the individual items.
 
 **Notes**
 

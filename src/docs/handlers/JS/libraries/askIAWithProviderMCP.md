@@ -1,3 +1,5 @@
+<!-- AUTO-GENERADO por src/lib/server/generateDocs.js a partir de src/lib/server/functionVars.js. NO EDITAR A MANO: este directorio se vacia y se reescribe en cada regeneracion. Los cambios van en functionVars.js. -->
+
 # `askIAWithProviderMCP(options.provider, [options.provider.provider|modelProvider|name|vendor], options.provider.model, [options.provider.baseUrl|baseURL], [options.provider.apiKey|api_key], [options.provider.azureApiKey|azure_api_key], [options.provider.apiVersion|api_version|api-version], [options.provider.temperature], [options.provider.maxTokens|max_tokens], [options.provider.toolChoice|tool_choice], [options.provider.timeout], [options.provider.responseTimeout|responseTimeoutMs|runTimeout], options.prompts, [options.mcpServers], [options.maxToolRounds], [options.includeDiagnostics], [options.signal])`
 
 [External Documentation](https://github.com/rdsslab/libOpenFusionAPI) 

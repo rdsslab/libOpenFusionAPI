@@ -883,7 +883,20 @@ $_RETURN_DATA_ = {
     },
     uFetch: {
       fn: request && reply ? uFetch : undefined,
-      description: "Universal HTTP client for Node.js and browsers. Primary use is standard fetch-style requests (get/post/put/patch/delete); batch adds controlled parallel processing for large input sets.",
+      // El generador (generateDocs.js) emite la description tal cual y despues
+      // la seccion **Notes**, sin ningun mecanismo para bloques de aviso. Por eso
+      // el bloque CAUTION vive aqui, al final de la description, y no como campo
+      // aparte: es la unica forma de que aparezca en el markdown generado.
+      description: [
+        "Universal HTTP client for Node.js and browsers. Primary use is standard fetch-style requests (get/post/put/patch/delete); batch adds controlled parallel processing for large input sets.",
+        "",
+        "> [!CAUTION]",
+        "> **Deprecated API — Do NOT use uppercase method names.**",
+        "> Previous versions of uFetch exposed method wrappers as `GET`, `POST`, `PUT`, `PATCH`, `DELETE` (uppercase).",
+        "> **These no longer exist in the current version and will throw a runtime error.**",
+        "> Always use the lowercase equivalents: `get`, `post`, `put`, `patch`, `delete`.",
+        "> This applies both to direct calls (`api.get(...)`) and to the `method` field of the `batch()` configuration object (use `'POST'` as a string value there, not a method call). Note that `method` belongs to that configuration object, never to the individual items.",
+      ].join("\n"),
       web: "https://github.com/rdsslab/uFetch",
       params: [
         {
@@ -943,7 +956,8 @@ $_RETURN_DATA_ = {
         "Use batch() when you must process many calls from a list and split the workload into concurrent workers/blocks.",
         "batch() returns per-item result objects and is designed to continue even if some items fail; always inspect isError per item.",
         "batch() signature: batch({ url, method, items, headers, options, timeout, config: { concurrency, onProgress, responseParser, includeResponse } }).",
-        "If an item includes any of { url, method, data, body, headers, options, timeout }, those fields override base values for that item.",
+        "Every item in items shares the exact same url/method/headers/options/timeout — there is no per-item override. items must be either a plain array (each element sent verbatim as data for every request) or an object wrapper { data: [...] } / { body: [...] } to choose how the whole batch is sent. An item object containing keys like url/method/timeout is NOT inspected or extracted — it is sent as-is as the payload.",
+        "If different payloads need a different url/method/timeout, do not use batch(); use Promise.all with individual get/post/put/patch/delete calls instead.",
         "Positional signature batch(url, method, items, headers, options, config) is not accepted by batch(); use batch_old(...) for legacy compatibility.",
         "Each batch result item has shape by default: { isError, httpCode, data?, error? }.",
         "If config.includeResponse is true, each result may also include response.",
@@ -951,6 +965,7 @@ $_RETURN_DATA_ = {
       ],
       agentGuidance: [
         "For internal OpenFusionAPI endpoints in the same instance, prefer uFetchAutoEnv instead of hardcoding dev/qa/prd URLs.",
+        "**NEVER use uppercase method wrappers**: `GET`, `POST`, `PUT`, `PATCH`, `DELETE` are deprecated and removed. Always use `get`, `post`, `put`, `patch`, `delete` (lowercase).",
         "Start with get/post/put/patch/delete and switch to batch only when you have a collection of inputs to process concurrently.",
         "If you need per-item fault tolerance and progress in a large workload, prefer batch over Promise.all.",
         "Prefer method wrappers with opts object for readability: get/post/put/patch/delete({ url, data, body, headers, options, timeout }).",
@@ -982,8 +997,8 @@ const batchResults = await api.batch({
   timeout: 60000,
   items: [
     { username: 'a' },
-    { username: 'b', method: 'PUT', timeout: 15000 },
-    { url: 'https://other-api.example/log', data: { msg: 'audit' } },
+    { username: 'b' },
+    { username: 'c' },
   ],
   config: {
     concurrency: 5,
@@ -1264,14 +1279,18 @@ $_RETURN_DATA_ = {
 
     QRCodeStyling: {
       fn: request && reply ? QRCodeStylingNode : undefined,
-      description: "Library to generate styled QR codes (Node-compatible).",
+      // [2026-08-13] Descripcion y notas recuperadas del markdown generado: se
+      // habian escrito a mano en src/docs/handlers/JS/libraries/QRCodeStyling.md
+      // sin traerlas aqui, asi que la siguiente regeneracion las borraba. En
+      // particular se perdia el aviso de no pasar nodeCanvas/jsdom a mano.
+      description: "Library to generate styled QR codes. In the OpenFusionAPI JS handler this is the Node-compatible build (`qr-code-styling/lib/qr-code-styling.common.js`), with `node-canvas` and `jsdom` injected automatically.",
       web: "https://qr-code-styling.com/",
       agentGuidance: [
         "Use this for generating customized and styled QR codes.",
       ],
       notes: [
-        "This wrapper uses qr-code-styling/lib/qr-code-styling.common.js with node-canvas and JSDOM injected automatically.",
-        "getRawData returns a Buffer in Node.js."
+        "`getRawData` returns a `Buffer` in Node.js.",
+        "Do not pass `nodeCanvas` or `jsdom` manually; they are provided by the runtime."
       ],
       example: `
 const qrCode = new QRCodeStyling({
@@ -1282,6 +1301,7 @@ const qrCode = new QRCodeStyling({
   backgroundOptions: { color: "#e9ebee" }
 });
 const buffer = await qrCode.getRawData("png");
+
 $_CUSTOM_HEADERS_.set("Content-Type", "image/png");
 $_RETURN_DATA_ = buffer;
       `
