@@ -146,6 +146,9 @@ would be added. Always include `data` when you also send `headers`.
 - A run that exceeds `exec_time_limit` is aborted and recorded with status `4` (timeout). A task
   left as `running` by a dead process is released once that limit plus a grace period passes.
 - With `allow_concurrent: false` (the default) a cycle is skipped while the previous run is alive.
+- HTTP `200` is recorded as completed unless the JSON payload explicitly declares
+  `success: false`; that payload is recorded as an error using its `error` or `message`. The field is
+  optional: endpoints without `success` continue to use the HTTP status as the outcome.
 - Failures retry with exponential backoff, doubling from the interval up to one hour. On reaching
   `max_failed_attempts` the task is **disabled automatically** with a `disabled_reason`.
 - Responses longer than 4096 characters are stored as `{truncated: true, size, preview}`.

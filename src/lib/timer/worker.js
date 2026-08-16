@@ -18,6 +18,7 @@ import {
   computeSchedulerDelay,
   isWithinWindow,
 } from "./schedule.js";
+import { getResponseOutcome } from "./responseOutcome.js";
 
 import { performance } from "perf_hooks";
 import { URLAutoEnvironment } from "../server/functionVars.js";
@@ -181,7 +182,12 @@ async function finishTask(task, outcome) {
     started_at,
   } = outcome;
 
-  await updateIntervalTaskStatus(task.idtask, status, result, duration_ms);
+  const transition = await updateIntervalTaskStatus(
+    task.idtask,
+    status,
+    result,
+    duration_ms,
+  );
 
   const historyLimit = Number(task.history_limit);
   if (Number.isFinite(historyLimit) && historyLimit > 0) {
@@ -208,11 +214,12 @@ async function finishTask(task, outcome) {
     duration_ms,
     http_status,
     error,
+    ...(transition?.runtime || {}),
   });
 }
 
-async function runFetchTask(task) {
-  const started_at = new Date();
+async function runFetchTask(task, runningState = {}) {
+  const started_at = runningState.last_run || new Date();
   const start = performance.now();
 
   emitTaskEvent({
@@ -222,6 +229,7 @@ async function runFetchTask(task) {
     url: task.url,
     status: TASK_STATUS.RUNNING,
     started_at,
+    ...runningState,
   });
 
   try {
@@ -276,12 +284,15 @@ async function runFetchTask(task) {
         responseData = await resp_task.text();
       }
 
+      const outcome = getResponseOutcome(responseData);
+
       await finishTask(task, {
-        status: TASK_STATUS.DONE,
+        status: outcome.success ? TASK_STATUS.DONE : TASK_STATUS.ERROR,
         result: responseData,
         duration_ms,
         http_status: resp_task.status,
         started_at,
+        error: outcome.error,
       });
     } else {
       // Una credencial revocada devuelve 401/403: se descarta la cache para que el
@@ -376,7 +387,7 @@ async function tick() {
       running.add(key);
 
       updateIntervalTaskStatus(task.idtask, TASK_STATUS.RUNNING)
-        .then(() => runFetchTask(task))
+        .then((transition) => runFetchTask(task, transition?.runtime))
         .catch((error) => {
           console.error("Error running interval task", task.idtask, error);
         })

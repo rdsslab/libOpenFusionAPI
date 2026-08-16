@@ -522,6 +522,7 @@ export const updateIntervalTaskStatus = async (
     return {
       success: true,
       message: "La tarea fue actualizada correctamente.",
+      runtime: data_update,
     };
   } catch (error) {
     console.log(error);

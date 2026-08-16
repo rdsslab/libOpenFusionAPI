@@ -67,6 +67,10 @@ becomes the request body. Always include `data` when sending `headers`.
 The task list uses **Waiting/Running** for what is happening now. Open the task or its History to
 see the result of the previous execution; a task can correctly be **Waiting** with **Last result: OK**.
 
+An HTTP `200` is successful unless the JSON response explicitly contains `success: false`. In that
+case the run is recorded as **Error**, and `error` or `message` from the response is shown in History.
+The `success` field is optional because not every endpoint returns it.
+
 Failures use exponential backoff. When the maximum is reached, correct the underlying endpoint or
 credential problem before using **Reset attempts**.
 
