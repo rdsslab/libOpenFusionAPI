@@ -8,14 +8,34 @@ Read this before scheduling, diagnosing or repairing a recurring task.
 
 ---
 
-## 1. Tools
+## 1. Required agent skills and context
+
+1. Call `get_interval_task_skill` first. This document is its source of truth and may evolve with
+  the scheduler.
+2. Know the target application UUID. Use `apps_catalog` when it is not supplied.
+3. Resolve the existing endpoint with `app_endpoints_catalog` or `search_endpoints`; never create
+  an interval task with `endpoint_upsert`.
+4. Read the endpoint's handler skill only when its payload or business logic must be understood or
+  changed. Scheduling alone does not require editing endpoint code.
+5. For private non-system endpoints, use `list_api_keys` and select an enabled key belonging to the
+  same application.
+6. Treat all task mutation tools as writes requiring explicit user authorization. Prefer listing,
+  history and a disabled test task before enabling unattended execution.
+
+The interval-task skill is independent from `JS_CORE`: tasks contain no executable code. The
+endpoint being called may require `JS_CORE` or another handler skill, but that belongs to the
+endpoint workflow rather than the scheduler.
+
+---
+
+## 2. Tools
 
 | Tool | Mode | Use it to |
 |---|---|---|
 | `list_interval_tasks` | read | See every task of an application, with its configuration and its live telemetry. |
 | `get_interval_task_runs` | read | Read the execution history of one task: duration, HTTP status, error, response. |
 | `upsert_interval_task` | write | Create a task or change an existing one. |
-| `run_interval_task_now` | write | Force one execution on the next scheduler cycle (~10 s). |
+| `run_interval_task_now` | write | Set the task due and wake the scheduler immediately. |
 | `reset_interval_task_attempts` | write | Clear the failure counter and re-enable a task the backoff disabled. |
 | `delete_interval_task` | write | Remove the schedule permanently. The endpoint is not touched. |
 
@@ -32,7 +52,7 @@ There is no "list all tasks of the server" tool: tasks are always listed per app
 
 ---
 
-## 2. Data model
+## 3. Data model
 
 Configuration you own:
 
@@ -49,8 +69,8 @@ Configuration you own:
 | `window_days` | — | Allowed weekdays, `1`=Monday … `7`=Sunday, comma separated. |
 | `datestart` | now | Not eligible before this moment. |
 | `dateend` | — | Stops running after this moment. |
-| `params` | `{}` | Payload sent to the endpoint. See §4. |
-| `idkey` | — | ApiKey used as Bearer. See §5. |
+| `params` | `{}` | Payload sent to the endpoint. See §5. |
+| `idkey` | — | ApiKey used as Bearer. See §6. |
 | `exec_time_limit` | `30` | Seconds one execution may take before it is aborted. |
 | `allow_concurrent` | `false` | Whether a new execution may start while the previous one runs. |
 | `max_failed_attempts` | `10` | Consecutive failures before the task is auto-disabled. |
@@ -61,14 +81,16 @@ Telemetry the scheduler owns — read it, never write it:
 
 `status`, `failed_attempts`, `last_run`, `next_run`, `last_exec_time`, `last_response`.
 
-`status`: `0` waiting · `1` running · `2` completed · `3` error · `4` timeout.
+`status`: `0` waiting · `1` running · `2` completed · `3` error · `4` timeout. Values `2`–`4`
+are terminal results of the previous run; they do not mean the task is still executing. Operationally,
+only `1` is running, while any other enabled task with a future `next_run` is waiting.
 
 > In the response of `list_interval_tasks` the task's own `enabled` flag is returned as
 > **`task_enabled`**, because `enabled` there belongs to the endpoint and to the application.
 
 ---
 
-## 3. Updating a task is a partial update
+## 4. Updating a task is a partial update
 
 `upsert_interval_task` with an `idtask` merges over the stored row: fields you do not send keep
 their current value. Two exceptions to know:
@@ -83,7 +105,7 @@ immediately, so the new schedule takes effect without waiting for the old cycle.
 
 ---
 
-## 4. What the endpoint receives (`params`)
+## 5. What the endpoint receives (`params`)
 
 Preferred shape:
 
@@ -101,7 +123,7 @@ would be added. Always include `data` when you also send `headers`.
 
 ---
 
-## 5. Authentication (`idkey`)
+## 6. Authentication (`idkey`)
 
 - Endpoints of the `system` application use the internal token automatically.
 - For any other application, an endpoint with `access > 0` needs `idkey` pointing at an **enabled**
@@ -113,10 +135,11 @@ would be added. Always include `data` when you also send `headers`.
 
 ---
 
-## 6. Execution rules
+## 7. Execution rules
 
-- The scheduler polls every **10 seconds**. A task fires when its `next_run` has passed and the
-  application, the endpoint and the task are all enabled.
+- The scheduler sleeps until the nearest `next_run` (minimum 250 ms) and keeps a 60-second
+  heartbeat to detect direct database changes and abandoned runs. API writes wake it immediately.
+  A task fires when its `next_run` has passed and the application, endpoint and task are enabled.
 - `next_run` is **anchored** to the planned schedule, not to the moment the previous run finished,
   so a slow execution does not make the series drift.
 - Outside the execution window the task is rescheduled to the next window opening, not retried.
@@ -129,26 +152,26 @@ would be added. Always include `data` when you also send `headers`.
 
 ---
 
-## 7. Diagnostics runbook
+## 8. Diagnostics runbook
 
 **"The task never runs."**
 `list_interval_tasks` and check, in this order: `task_enabled`, `endpoint_enabled` and `app_enabled`
 must all be `true`; `datestart` must be in the past and `dateend` in the future; `failed_attempts`
 must be below `max_failed_attempts`; `next_run` must not be far ahead. If a window is set, confirm
 the current time and weekday fall inside `window_start`–`window_end` / `window_days` **in the task's
-`timezone`**. An invalid timezone or a malformed `HH:MM` is ignored silently rather than rejected,
-so re-read the stored values instead of trusting what you sent.
+`timezone`**. Invalid IANA timezones and invalid cron expressions are rejected at save time. A
+malformed `HH:MM` is currently ignored, so re-read the stored window values after writing.
 
 **"It got disabled by itself."**
 It hit `max_failed_attempts`. Read `get_interval_task_runs` to see the actual errors, fix the cause,
 then `reset_interval_task_attempts` — that clears the counter, re-enables the task and reschedules it.
 
 **"It runs but the endpoint receives nothing."**
-Check `params`: a payload without a `data` key is sent whole as `data` (§4). Also check the endpoint
+Check `params`: a payload without a `data` key is sent whole as `data` (§5). Also check the endpoint
 method — `data` goes in the query string for `GET`/`HEAD`/`DELETE` and in the body for the rest.
 
 **"Every run fails with 401/403."**
-`idkey` is missing, disabled, expired, or belongs to another application (§5).
+`idkey` is missing, disabled, expired, or belongs to another application (§6).
 
 **"Runs are recorded as status 4."**
 The endpoint takes longer than `exec_time_limit`. Raise it, or make the endpoint asynchronous.
@@ -162,7 +185,7 @@ loses the whole configuration.
 
 ---
 
-## 8. Backup and restore
+## 9. Backup and restore
 
 Interval tasks travel inside the application backup, at the root of the payload as `tasks`.
 Telemetry is not restored (the task comes back as waiting, with zero failures), `idtask` and `idkey`

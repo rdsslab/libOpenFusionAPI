@@ -39,7 +39,7 @@ async function runTests() {
 
   try {
     // 1. INSERT
-    console.log("[STEP 1/6] Insert stores the payload and defaults to disabled...");
+    console.log("[STEP 1/7] Insert stores the payload and defaults to disabled...");
     const inserted = await upsertIntervalTask({
       idendpoint: endpointId,
       interval: 900,
@@ -62,7 +62,7 @@ async function runTests() {
     assert.strictEqual(Number(afterInsert.exec_time_limit), 120);
 
     // 2. UPDATE parcial
-    console.log("[STEP 2/6] Partial update keeps the fields that were not sent...");
+    console.log("[STEP 2/7] Partial update keeps the fields that were not sent...");
     await upsertIntervalTask({ idtask: created_idtask, enabled: true });
 
     const afterPartial = await getIntervalTaskById(created_idtask);
@@ -93,7 +93,7 @@ async function runTests() {
     );
 
     // 3. null explícito
-    console.log("[STEP 3/6] An explicit null clears the field...");
+    console.log("[STEP 3/7] An explicit null clears the field...");
     await upsertIntervalTask({ idtask: created_idtask, dateend: null, note: null });
 
     const afterNull = await getIntervalTaskById(created_idtask);
@@ -101,7 +101,7 @@ async function runTests() {
     assert.strictEqual(afterNull.note, null, "note should be cleared");
 
     // 4. La telemetría del scheduler no es configurable desde el upsert
-    console.log("[STEP 4/6] Scheduler telemetry sent in the payload is ignored...");
+    console.log("[STEP 4/7] Scheduler telemetry sent in the payload is ignored...");
     await IntervalTask.update(
       { failed_attempts: 4, status: 3 },
       { where: { idtask: created_idtask } }
@@ -132,7 +132,7 @@ async function runTests() {
     );
 
     // 5. Cambiar la programación recalcula la próxima ejecución
-    console.log("[STEP 5/6] Changing the schedule recomputes next_run...");
+    console.log("[STEP 5/7] Changing the schedule recomputes next_run...");
     const farFuture = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
     await IntervalTask.update(
       { next_run: farFuture },
@@ -147,8 +147,25 @@ async function runTests() {
       "next_run must be recomputed when the interval changes"
     );
 
-    // 6. Un idtask inexistente no crea una fila con ese id
-    console.log("[STEP 6/6] An unknown idtask is rejected instead of inserted...");
+    // 6. La validación usa la fila fusionada, también en updates parciales
+    console.log("[STEP 6/7] Partial cron updates validate the merged schedule...");
+    await upsertIntervalTask({
+      idtask: created_idtask,
+      schedule_mode: "cron",
+      cron: "0 7 * * 1-5",
+      timezone: "America/Guayaquil",
+    });
+    await assert.rejects(
+      () => upsertIntervalTask({ idtask: created_idtask, timezone: "Invalid/Zone" }),
+      (error) => error?.code === "INVALID_TASK_SCHEDULE"
+    );
+    await assert.rejects(
+      () => upsertIntervalTask({ idtask: created_idtask, cron: "not-a-cron" }),
+      (error) => error?.code === "INVALID_TASK_SCHEDULE"
+    );
+
+    // 7. Un idtask inexistente no crea una fila con ese id
+    console.log("[STEP 7/7] An unknown idtask is rejected instead of inserted...");
     const GHOST_IDTASK = 987654322;
     await assert.rejects(
       () => upsertIntervalTask({ idtask: GHOST_IDTASK, idendpoint: endpointId }),

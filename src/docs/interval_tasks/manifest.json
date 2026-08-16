@@ -17,7 +17,11 @@
     "task": "src/lib/timer/tasks.js",
     "worker": "src/lib/timer/worker.js",
     "schedule": "src/lib/timer/schedule.js",
-    "poll_interval_ms": 10000,
+    "scheduler_delay_ms": {
+      "minimum": 250,
+      "maximum_heartbeat": 60000,
+      "strategy": "sleep until the nearest next_run; API writes wake the worker immediately"
+    },
     "max_backoff_seconds": 3600,
     "default_interval_seconds": 300,
     "default_exec_time_limit_seconds": 30,
@@ -27,6 +31,12 @@
     "max_stored_response_chars": 4096
   },
   "schedule_modes": ["interval", "cron"],
+  "ui": {
+    "conditional_fields": {
+      "interval": { "schedule_mode": "interval" },
+      "cron": { "schedule_mode": "cron" }
+    }
+  },
   "task_status": {
     "0": "waiting",
     "1": "running",
@@ -59,6 +69,7 @@
   },
   "docs": {
     "main": "README.md",
+    "human_guide": "HUMAN_GUIDE.md",
     "skill": "AI_SKILL.md"
   }
 }

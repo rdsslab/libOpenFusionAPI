@@ -6295,6 +6295,9 @@ export const system_app = {
                 "type": "integer",
                 "minimum": 1,
                 "default": 300,
+                "x-ui-visible-when": {
+                  "schedule_mode": "interval"
+                },
                 "description": "Seconds between executions when schedule_mode is 'interval' (default: 300). In 'cron' mode the schedule comes from `cron` and this value is ignored except as the base of the retry backoff."
               },
               "datestart": {
@@ -6338,11 +6341,14 @@ export const system_app = {
               },
               "cron": {
                 "type": "string",
+                "x-ui-visible-when": {
+                  "schedule_mode": "cron"
+                },
                 "description": "Cron expression (5 or 6 fields) used when schedule_mode is 'cron'. Rejected at save time if missing or invalid."
               },
               "timezone": {
                 "type": "string",
-                "description": "IANA timezone (e.g. 'America/Guayaquil') applied to the cron expression and the execution window. Defaults to the server timezone. An invalid name is not rejected: it degrades silently and the task stops firing, so re-read the stored value with 'list_interval_tasks' after writing."
+                "description": "IANA timezone (e.g. 'America/Guayaquil') applied to the cron expression and the execution window. Defaults to the server timezone. Invalid IANA timezone names are rejected at save time."
               },
               "window_start": {
                 "type": "string",
@@ -12561,7 +12567,7 @@ export const system_app = {
         "enabled": true,
         "name": "run_interval_task_now",
         "title": "Run Interval Task Now",
-        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nForces one execution of an interval task on the scheduler's next cycle, which polls every 10 seconds. It does so by setting the task's next execution to now and clearing its consecutive failure counter; it does not run the endpoint synchronously, so this tool returns before the execution finishes.\nRUNS THE ENDPOINT FOR REAL: whatever the endpoint writes, sends or calls actually happens, exactly as on a scheduled run. Use it to verify a task you just created, then read the outcome with 'get_interval_task_runs'.\nThis does not change the schedule: after the forced run the task returns to its normal `interval` or `cron` cadence. It also does not re-enable a disabled task — use 'reset_interval_task_attempts' for that.\nErrors: 400 when the task does not exist, or when it is already running and `allow_concurrent` is false. Response: `{success, message}`.",
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nForces one execution of an interval task on the scheduler's next cycle and wakes the worker immediately. It does so by setting the task's next execution to now and clearing its consecutive failure counter; it does not run the endpoint synchronously, so this tool returns before the execution finishes.\nRUNS THE ENDPOINT FOR REAL: whatever the endpoint writes, sends or calls actually happens, exactly as on a scheduled run. Use it to verify a task you just created, then read the outcome with 'get_interval_task_runs'.\nThis does not change the schedule: after the forced run the task returns to its normal `interval` or `cron` cadence. It also does not re-enable a disabled task — use 'reset_interval_task_attempts' for that.\nErrors: 400 when the task does not exist, or when it is already running and `allow_concurrent` is false. Response: `{success, message}`.",
         "operation_mode": "write",
         "requires_explicit_confirmation": true,
         "destructive": false,

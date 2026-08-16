@@ -198,6 +198,10 @@ export default class ServerAPI extends EventEmitter {
       bodyLimit: this.maxBodyBytes,
     });
 
+    this.fastify.addHook("onClose", async () => {
+      await this.TasksInterval.stop();
+    });
+
     this.fastify.addHttpMethod("QUERY", { hasBody: true });
 
     this._build();

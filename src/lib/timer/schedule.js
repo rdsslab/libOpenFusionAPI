@@ -12,7 +12,7 @@
  */
 
 import { CronExpressionParser } from "cron-parser";
-import { DateTime } from "luxon";
+import { DateTime, IANAZone } from "luxon";
 
 /** Estados de una tarea, compartidos por el worker, el DAO y el GUI. */
 export const TASK_STATUS = {
@@ -31,6 +31,26 @@ const MAX_CRON_LOOKAHEAD = 500;
 
 /** Intervalo mínimo aceptable, para no entrar en un bucle de milisegundos. */
 const MIN_INTERVAL_SECONDS = 1;
+
+/** Límites del heartbeat adaptativo del worker. */
+export const MIN_SCHEDULER_DELAY_MS = 250;
+export const MAX_SCHEDULER_DELAY_MS = 60000;
+
+/**
+ * Espera hasta el próximo vencimiento, acotada para detectar cambios externos y tareas
+ * abandonadas aunque ninguna operación de esta instancia despierte al worker.
+ */
+export function computeSchedulerDelay(nextRun, now = new Date()) {
+  if (!nextRun) return MAX_SCHEDULER_DELAY_MS;
+
+  const target = new Date(nextRun);
+  if (Number.isNaN(target.getTime())) return MIN_SCHEDULER_DELAY_MS;
+
+  return Math.min(
+    MAX_SCHEDULER_DELAY_MS,
+    Math.max(MIN_SCHEDULER_DELAY_MS, target.getTime() - now.getTime()),
+  );
+}
 
 /**
  * Segundos de intervalo saneados de una tarea.
@@ -286,6 +306,10 @@ export function shouldDisableForFailures(task, failedAttempts) {
  * @returns {{valid: boolean, error?: string}}
  */
 export function validateCron(expression, timezone) {
+  if (timezone && !IANAZone.isValidZone(timezone)) {
+    return { valid: false, error: `Invalid IANA timezone: ${timezone}` };
+  }
+
   try {
     CronExpressionParser.parse(expression, { tz: timezone || undefined });
     return { valid: true };

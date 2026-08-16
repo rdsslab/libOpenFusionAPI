@@ -3,6 +3,7 @@ import { createLogEntriesBulk } from "../db/log.js";
 import { LogBuffer } from "./logBuffer.js";
 import {
   getIntervalTaskProcess,
+  getNextIntervalTaskRun,
   updateIntervalTaskStatus,
   reapStaleRunningTasks,
   rescheduleIntervalTask,
@@ -12,19 +13,24 @@ import {
   pruneIntervalTaskRuns,
 } from "../db/interval_task_run.js";
 import { getApiKeyById } from "../db/apikey.js";
-import { TASK_STATUS, isWithinWindow } from "./schedule.js";
+import {
+  TASK_STATUS,
+  computeSchedulerDelay,
+  isWithinWindow,
+} from "./schedule.js";
 
 import { performance } from "perf_hooks";
 import { URLAutoEnvironment } from "../server/functionVars.js";
 
 const fetchOFAPI = new URLAutoEnvironment({ environment: "no_env" });
-const interval = 10000;
-
 /** Tareas que este worker tiene en vuelo ahora mismo. */
 const running = new Set();
 
 /** Evita que un ciclo lento haga que se solapen los ticks del `setInterval`. */
 let tickInProgress = false;
+let tickTimer = null;
+let wakePending = false;
+let shuttingDown = false;
 
 /** Cache de ApiKeys por idkey: evita una consulta por ejecución. */
 const API_KEY_CACHE_TTL_MS = 60000;
@@ -45,6 +51,14 @@ parentPort.on("message", (data) => {
     switch (data_json.action) {
       case "pushLog":
         logBuffer.push(data_json.data);
+        break;
+
+      case "wake":
+        scheduleTick(0);
+        break;
+
+      case "shutdown":
+        shutdown();
         break;
 
       default:
@@ -333,7 +347,10 @@ function canRun(task, now) {
 }
 
 async function tick() {
-  if (tickInProgress) return;
+  if (tickInProgress) {
+    wakePending = true;
+    return;
+  }
   tickInProgress = true;
 
   try {
@@ -370,11 +387,47 @@ async function tick() {
   } catch (error) {
     console.error("Error en el ciclo de interval tasks:", error);
   } finally {
+    let nextDelay;
+    try {
+      const nextRun = await getNextIntervalTaskRun();
+      nextDelay = computeSchedulerDelay(nextRun);
+    } catch (error) {
+      console.error("Error calculating next interval task wake-up:", error);
+      nextDelay = computeSchedulerDelay(null);
+    }
+
     tickInProgress = false;
+    if (wakePending) {
+      wakePending = false;
+      scheduleTick(0);
+    } else {
+      scheduleTick(nextDelay);
+    }
   }
 }
 
-setInterval(tick, interval);
+function scheduleTick(delayMs) {
+  if (shuttingDown) return;
+  if (tickTimer) clearTimeout(tickTimer);
+  tickTimer = setTimeout(() => {
+    tickTimer = null;
+    tick();
+  }, Math.max(0, Number(delayMs) || 0));
+}
+
+scheduleTick(0);
+
+async function shutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  if (tickTimer) clearTimeout(tickTimer);
+
+  try {
+    await logBuffer.stop({ flush: true });
+  } finally {
+    process.exit(0);
+  }
+}
 
 // Mantén el proceso vivo escuchando mensajes
 parentPort.on("message", (msg) => {
@@ -385,16 +438,8 @@ parentPort.on("message", (msg) => {
 });
 
 process.on("SIGINT", async () => {
-  try {
-    await logBuffer.stop({ flush: true });
-  } finally {
-    process.exit(0);
-  }
+  await shutdown();
 });
 process.on("SIGTERM", async () => {
-  try {
-    await logBuffer.stop({ flush: true });
-  } finally {
-    process.exit(0);
-  }
+  await shutdown();
 });

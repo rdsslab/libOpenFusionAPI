@@ -6,6 +6,8 @@ An interval task is a row of `ofapi_intervaltask` that points at an endpoint and
 it, *with what payload* (`params`) and *with whose credentials* (`idkey`). It contains no code: the
 logic lives in the endpoint, which stays callable by hand exactly as before.
 
+- **Human operations guide:** [HUMAN_GUIDE.md](HUMAN_GUIDE.md), covering the GUI, safe defaults,
+  examples and troubleshooting.
 - **Agent skill (the full contract, including the diagnostics runbook):** [AI_SKILL.md](AI_SKILL.md),
   served by the `get_interval_task_skill` tool.
 - **Machine-readable summary:** [manifest.json](manifest.json).
@@ -29,7 +31,7 @@ logic lives in the endpoint, which stays callable by hand exactly as before.
 | Data access, upsert merge, status transitions, reaper | `src/lib/db/interval_task.js` |
 | Execution history (`ofapi_intervaltask_run`), truncation, pruning | `src/lib/db/interval_task_run.js` |
 | Idempotent column migration run at boot | `src/lib/db/ensureIntervalTaskColumns.js` |
-| Scheduler worker thread (10 s poll, auth, fetch, timeout) | `src/lib/timer/worker.js` |
+| Scheduler worker thread (adaptive wake-up, auth, fetch, timeout) | `src/lib/timer/worker.js` |
 | Pure scheduling math: cron, windows, anchored next_run, backoff | `src/lib/timer/schedule.js` |
 | Worker supervision and event forwarding | `src/lib/timer/tasks.js` |
 | HTTP/MCP handlers | `src/lib/server/functions/system/prd/interval_tasks/index.js` |

@@ -9,6 +9,10 @@ import { getIntervalTaskRuns } from "../../../../../db/interval_task_run.js";
 import { validateCron } from "../../../../../timer/schedule.js";
 import { readIntervalTaskSkill } from "../../../../intervalTaskDocs.js";
 
+function wakeIntervalTaskWorker(params) {
+  params?.reply?.openfusionapi?.server?.TasksInterval?.wake?.();
+}
+
 export async function fnGetIntervalTasksByIdApp(params) {
   let r = { code: 200, data: undefined };
   try {
@@ -63,7 +67,14 @@ export async function fnUpsertIntervalTask(params) {
 
     r.data = await upsertIntervalTask(body);
     r.code = 200;
+    wakeIntervalTaskWorker(params);
   } catch (error) {
+    if (error?.code === "INVALID_TASK_SCHEDULE") {
+      r.data = { error: error.message, code: error.code };
+      r.code = 400;
+      return r;
+    }
+
     if (error?.code === "INTERVAL_TASK_NOT_FOUND") {
       r.data = { error: error.message, code: error.code };
       r.code = 404;
@@ -112,6 +123,7 @@ export async function fnRunIntervalTaskNow(params) {
 
     r.data = result;
     r.code = result.success ? 200 : 400;
+    if (result.success) wakeIntervalTaskWorker(params);
   } catch (error) {
     r.data = error;
     r.code = 500;
@@ -127,6 +139,7 @@ export async function fnResetIntervalTaskAttempts(params) {
 
     r.data = result;
     r.code = result.success ? 200 : 400;
+    if (result.success) wakeIntervalTaskWorker(params);
   } catch (error) {
     r.data = error;
     r.code = 500;
@@ -147,6 +160,7 @@ export async function fndeleteIntervalTask(params) {
 
     r.data = await deleteIntervalTask(idtask);
     r.code = 200;
+    if (r.data) wakeIntervalTaskWorker(params);
   } catch (error) {
     r.data = error;
     r.code = 500;

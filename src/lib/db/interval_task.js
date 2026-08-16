@@ -6,6 +6,7 @@ import {
   computeNextRun,
   computeBackoffNextRun,
   shouldDisableForFailures,
+  validateCron,
 } from "../timer/schedule.js";
 
 /**
@@ -86,6 +87,21 @@ export const upsertIntervalTask = async (data) => {
       payload = merged;
     }
 
+    if (payload.schedule_mode === "cron") {
+      if (!payload.cron) {
+        const error = new Error("cron is required when schedule_mode is 'cron'");
+        error.code = "INVALID_TASK_SCHEDULE";
+        throw error;
+      }
+
+      const check = validateCron(payload.cron, payload.timezone);
+      if (!check.valid) {
+        const error = new Error(`Invalid cron expression: ${check.error}`);
+        error.code = "INVALID_TASK_SCHEDULE";
+        throw error;
+      }
+    }
+
     const [result, created] = await IntervalTask.upsert(payload, {
       returning: true,
     });
@@ -93,7 +109,10 @@ export const upsertIntervalTask = async (data) => {
   } catch (error) {
     // El idtask inexistente es un error de entrada, no una falla: se propaga como 404 sin
     // ensuciar el log con un stack.
-    if (error?.code !== "INTERVAL_TASK_NOT_FOUND") {
+    if (
+      error?.code !== "INTERVAL_TASK_NOT_FOUND" &&
+      error?.code !== "INVALID_TASK_SCHEDULE"
+    ) {
       console.error("Error retrieving:", error, data);
     }
     throw error; // c4ca4238-a0b9-2382-0dcc-509a6f75849b
@@ -294,6 +313,60 @@ export const getIntervalTaskProcess = async () => {
   };
 
   return await getIntervalTask(filter);
+};
+
+/**
+ * Próximo vencimiento de una tarea elegible. El worker lo usa para dormir hasta ese
+ * instante en vez de consultar la base de datos con una frecuencia fija.
+ */
+export const getNextIntervalTaskRun = async () => {
+  const now = new Date();
+  const task = await IntervalTask.findOne({
+    attributes: ["next_run"],
+    where: {
+      enabled: true,
+      next_run: { [Op.not]: null },
+      [Op.and]: [
+        {
+          [Op.or]: [
+            { datestart: { [Op.lte]: now } },
+            { datestart: { [Op.is]: null } },
+          ],
+        },
+        {
+          [Op.or]: [
+            { dateend: { [Op.gte]: now } },
+            { dateend: { [Op.is]: null } },
+          ],
+        },
+        Sequelize.where(
+          Sequelize.col("failed_attempts"),
+          Op.lt,
+          Sequelize.col("max_failed_attempts"),
+        ),
+      ],
+    },
+    include: [
+      {
+        model: Endpoint,
+        attributes: [],
+        where: { enabled: true },
+        required: true,
+        include: [
+          {
+            model: Application,
+            attributes: [],
+            where: { enabled: true },
+            required: true,
+          },
+        ],
+      },
+    ],
+    order: [["next_run", "ASC"]],
+    raw: true,
+  });
+
+  return task?.next_run ? new Date(task.next_run) : null;
 };
 
 // DELETE

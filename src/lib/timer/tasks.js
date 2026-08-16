@@ -22,9 +22,20 @@ export function safeStringify(obj, space = 2) {
   );
 }
 export class TasksInterval {
-  constructor() {
+  constructor({
+    WorkerClass = Worker,
+    restartDelayMs = 5000,
+    workerPath = path.resolve(__dirname, "./worker.js"),
+  } = {}) {
     //  super();
     //  this.interval = 5000; // Time Interval in milliseconds
+
+    this.WorkerClass = WorkerClass;
+    this.restartDelayMs = restartDelayMs;
+    this.workerPath = workerPath;
+    this.worker = null;
+    this.restartTimer = null;
+    this.stopping = false;
 
     /**
      * Callback para los eventos que el worker publica sobre las tareas programadas.
@@ -38,6 +49,10 @@ export class TasksInterval {
     this.postMessage({ action: "pushLog", data: log });
   }
 
+  wake() {
+    this.postMessage({ action: "wake" });
+  }
+
   postMessage(data) {
     if (this.worker) {
       this.worker.postMessage(safeStringify(data));
@@ -47,13 +62,20 @@ export class TasksInterval {
   }
 
   run() {
-    // Crea un nuevo hilo ejecutando el worker
-    const workerPath = path.resolve(__dirname, "./worker.js");
-    console.log("workerPath", workerPath);
-    this.worker = new Worker(workerPath);
+    if (this.worker) return this.worker;
+
+    this.stopping = false;
+    if (this.restartTimer) {
+      clearTimeout(this.restartTimer);
+      this.restartTimer = null;
+    }
+
+    console.log("workerPath", this.workerPath);
+    const worker = new this.WorkerClass(this.workerPath);
+    this.worker = worker;
 
     // Recibir mensajes del worker
-    this.worker.on("message", (msg) => {
+    worker.on("message", (msg) => {
       try {
         const data = typeof msg === "string" ? JSON.parse(msg) : msg;
 
@@ -73,15 +95,47 @@ export class TasksInterval {
     // Enviar mensaje al worker
     //this.worker.postMessage("¡Hola worker, desde el hilo principal!");
 
-    this.worker.on("error", (err) => {
+    worker.on("error", (err) => {
       console.error("Error en el worker:", err);
     });
 
-    this.worker.on("exit", (code) => {
-      console.warn(`${Date.now().toString()} - El worker finalizó con código ${code}. Reiniciando...`);
-      setTimeout(() => this.run(), 5000); // Esperar 1 segundo antes de reiniciar
+    worker.on("exit", (code) => {
+      if (this.worker !== worker) return;
+      this.worker = null;
+
+      if (this.stopping) return;
+
+      console.warn(
+        `${Date.now().toString()} - El worker finalizó con código ${code}. Reiniciando...`,
+      );
+      this.restartTimer = setTimeout(() => {
+        this.restartTimer = null;
+        this.run();
+      }, this.restartDelayMs);
     });
 
-    return this.worker;
+    return worker;
+  }
+
+  async stop() {
+    this.stopping = true;
+
+    if (this.restartTimer) {
+      clearTimeout(this.restartTimer);
+      this.restartTimer = null;
+    }
+
+    const worker = this.worker;
+    if (!worker) return;
+
+    const exited = new Promise((resolve) => worker.once("exit", resolve));
+    worker.postMessage(safeStringify({ action: "shutdown" }));
+
+    const forceTimer = setTimeout(() => {
+      worker.terminate().catch(() => {});
+    }, 5000);
+    await exited;
+    clearTimeout(forceTimer);
+    if (this.worker === worker) this.worker = null;
   }
 }
