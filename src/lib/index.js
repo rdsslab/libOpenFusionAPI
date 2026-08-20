@@ -43,6 +43,7 @@ import {
   Endpoint as EndpointBBDD,
   Bot,
   BotBackup,
+  BotLog,
   LogEntry,
   IntervalTask,
   IntervalTaskRun,
@@ -366,6 +367,13 @@ export default class ServerAPI extends EventEmitter {
           console.error("[ServerAPI._onBotChanged] Error in botLifecycleTask.runOnce:", err);
         });
       }
+
+      // Push a real-time event so the frontend refreshes the bot list immediately.
+      this._emitEndpointEvent("bot_changed", {
+        idbot: data?.data?.idbot || null,
+        idapp: data?.data?.idapp || null,
+        action: data?.action || null,
+      });
     } catch (err) {
       console.error("[ServerAPI._onBotChanged] Error:", err);
     }
@@ -432,8 +440,22 @@ export default class ServerAPI extends EventEmitter {
           const appTable = prefixTableName("application");
           const backupTable = `${appTable}_backup`;
 
-          log("PRAGMA foreign_keys = OFF");
-          await dbAPIs.query("PRAGMA foreign_keys = OFF;");
+          // SQLite PRAGMAs are per-connection AND the connection is cached from
+          // authenticate(). The afterConnect hook never fires for cached connections,
+          // so we must run the PRAGMA directly on the live connection handle.
+          const connMgr = dbAPIs.connectionManager;
+          const cachedConn =
+            connMgr.connections && Object.values(connMgr.connections)[0];
+          if (cachedConn && typeof cachedConn.run === "function") {
+            await new Promise((resolve, reject) => {
+              cachedConn.run("PRAGMA foreign_keys = OFF", (err) =>
+                err ? reject(err) : resolve(),
+              );
+            });
+            log("Set PRAGMA foreign_keys = OFF on cached connection");
+          } else {
+            log("WARNING: could not access cached SQLite connection for PRAGMA");
+          }
 
           log(`DROP TABLE IF EXISTS \`${backupTable}\``);
           await dbAPIs.query(`DROP TABLE IF EXISTS \`${backupTable}\`;`);
@@ -451,29 +473,40 @@ export default class ServerAPI extends EventEmitter {
           } catch (error) {
             log("First boot may not have the application table yet (skipped uniqueness query).");
           }
-        }
 
-        try {
-          log("Running dbAPIs.sync({ alter: true })...");
-          await dbAPIs.sync({ alter: true });
-          log("Database created or updated successfully with alter: true.");
-        } catch (alterError) {
-          log("WARNING: sync({ alter: true }) failed, attempting fallback sync().", alterError);
-          // Fallback to normal sync to ensure missing tables are created
-          await dbAPIs.sync();
-          log("Database tables created successfully using fallback sync().");
+          try {
+            log("Running dbAPIs.sync({ alter: true })...");
+            await dbAPIs.sync({ alter: true });
+            log("Database created or updated successfully with alter: true.");
+          } catch (alterError) {
+            log("WARNING: sync({ alter: true }) failed, attempting fallback sync().", alterError);
+            // Fallback to normal sync to ensure missing tables are created
+            await dbAPIs.sync();
+            log("Database tables created successfully using fallback sync().");
+          }
+
+          // Restore FK enforcement on the cached connection.
+          if (cachedConn && typeof cachedConn.run === "function") {
+            await new Promise((resolve, reject) => {
+              cachedConn.run("PRAGMA foreign_keys = ON", (err) =>
+                err ? reject(err) : resolve(),
+              );
+            });
+            log("Restored PRAGMA foreign_keys = ON on cached connection");
+          }
+        } else {
+          try {
+            log("Running dbAPIs.sync({ alter: true })...");
+            await dbAPIs.sync({ alter: true });
+            log("Database created or updated successfully with alter: true.");
+          } catch (alterError) {
+            log("WARNING: sync({ alter: true }) failed, attempting fallback sync().", alterError);
+            await dbAPIs.sync();
+            log("Database tables created successfully using fallback sync().");
+          }
         }
       } catch (error) {
         log("Error creating database tables:", error);
-      } finally {
-        if (dbAPIs.getDialect() === "sqlite") {
-          try {
-            log("PRAGMA foreign_keys = ON");
-            await dbAPIs.query("PRAGMA foreign_keys = ON;");
-          } catch (err) {
-            log("Failed to restore foreign keys:", err);
-          }
-        }
       }
     }
 
@@ -495,6 +528,12 @@ export default class ServerAPI extends EventEmitter {
       await BotBackup.sync();
     } catch (error) {
       log("Error ensuring bot backup table:", error);
+    }
+
+    try {
+      await BotLog.sync();
+    } catch (error) {
+      log("Error ensuring bot log table:", error);
     }
 
     // Mismo criterio para las tareas programadas: sin estas columnas el worker de

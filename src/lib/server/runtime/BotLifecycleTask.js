@@ -3,7 +3,7 @@ import { RUNTIME_SUPPORTED_PROVIDERS } from "../bot-manager/providers.js";
 import { getActiveBots, disableBot, updateBotRuntimeState } from "../../db/bot.js";
 import { getAppVarsObject } from "../utils.js";
 import { resolveAppVarPlaceholder } from "../../handler/utils.js";
-import { createLog } from "../../db/log.js";
+import { createBotLog } from "../../db/bot_log.js";
 import crypto from "node:crypto";
 
 /** Mínimo de bots para que un fallo simultáneo sea estadísticamente un incidente de plataforma. */
@@ -30,6 +30,13 @@ export class BotLifecycleTask {
     // falla o el bot se detiene, de modo que cada corrida sea un trace distinto.
     this.botTraces = new Map();
 
+    // Metadata del bot (provider, environment, username) para incluir en cada log.
+    // Se actualiza cuando el bot arranca exitosamente (username resuelto por getMe).
+    this.botMeta = new Map();
+
+    // Timestamp de inicio de cada intento de arranque, para calcular duration_ms.
+    this.startAttemptTimestamps = new Map();
+
     // Bots cuyo fallo de arranque ya se registró con detalle vía el evento `bot_log`
     // (evento `bot_startup_error`, con error_type y bot_username). El manager además
     // rechaza la promesa de startBot, así que sin esta marca el catch de runOnce
@@ -41,13 +48,25 @@ export class BotLifecycleTask {
 
     // El manager publica su estado observado y aquí se persiste en `ofapi_bot`. La
     // separación es deliberada: el manager no conoce la BBDD.
-    this.manager.on("bot_health", async ({ botId, patch }) => {
+    this.manager.on("bot_health", async ({ botId, idapp, patch }) => {
       try {
         await updateBotRuntimeState(botId, patch);
       } catch (err) {
         // El estado observado es diagnóstico: si no se puede escribir, el bot debe
         // seguir operando igual.
         console.error(`[BotLifecycleTask] Failed to persist runtime state for ${botId}:`, err);
+      }
+      // Push real-time status to the frontend via WebSocket.
+      try {
+        if (this.serverAPI && typeof this.serverAPI._emitEndpointEvent === "function") {
+          this.serverAPI._emitEndpointEvent("bot_status_changed", {
+            idbot: botId,
+            idapp,
+            ...patch,
+          });
+        }
+      } catch (_) {
+        // WebSocket push is best-effort; never block the lifecycle.
       }
     });
 
@@ -73,6 +92,7 @@ export class BotLifecycleTask {
           botId,
           idapp,
           status_code: 200,
+          event: "bot_auto_disabled",
           message: {
             event: "bot_auto_disabled",
             reason: reason || "unknown",
@@ -87,6 +107,7 @@ export class BotLifecycleTask {
           botId,
           idapp,
           status_code: 500,
+          event: "bot_auto_disable_failed",
           message: {
             event: "bot_auto_disable_failed",
             error: err?.message || String(err),
@@ -101,13 +122,33 @@ export class BotLifecycleTask {
       try {
         const botUsername = botInfo?.username || null;
         const botName = botInfo?.first_name || null;
+
+        // Actualizar metadata del bot cuando arranca exitosamente
+        if (type === "STARTED" && botUsername) {
+          const meta = this.botMeta.get(botId) || {};
+          this.botMeta.set(botId, { ...meta, username: botUsername });
+        }
         
+        // Capturar inicio del intento para duration_ms
+        let duration_ms = null;
+        const attemptStart = this.startAttemptTimestamps.get(botId);
+        if (attemptStart) {
+          duration_ms = Date.now() - attemptStart;
+          this.startAttemptTimestamps.delete(botId);
+        }
+
+        // Obtener estado runtime actual del bot para el snapshot
+        const failureState = this.manager.errorHistoryFor(botId);
+
         let status_code = 200;
-        let messageData = { event: "started", type };
-        let bodyData = null;
+        let event = "info";
+        let log_level = 2; // INFO
+        let error_type = null;
+        let messageData = { event: "info", type };
 
         if (type === "STARTED") {
           status_code = 200;
+          event = "bot_started";
           messageData = {
             event: "bot_started",
             bot_username: botUsername,
@@ -115,24 +156,31 @@ export class BotLifecycleTask {
           };
         } else if (type === "ERROR") {
           status_code = error?.status || 500;
+          event = "bot_startup_error";
+          error_type = error?.errorType || "STARTUP_ERROR";
+          log_level = 4; // ERROR
           messageData = {
             event: "bot_startup_error",
             error: error?.message || String(error),
             stack: error?.stack || null,
-            error_type: error?.errorType || "STARTUP_ERROR",
+            error_type,
             bot_username: botUsername
           };
         } else if (type === "BOT_ERROR") {
           status_code = 500;
+          event = "bot_runtime_error";
+          log_level = 4; // ERROR
           messageData = {
             event: "bot_runtime_error",
             error: error?.message || String(error),
             stack: error?.stack || null,
             bot_username: botUsername
           };
-          bodyData = error?.update || null;
         } else if (type === "BOT_CRASH") {
           status_code = 500;
+          event = "bot_worker_crash";
+          error_type = error?.errorType || "WORKER_CRASH";
+          log_level = 5; // FATAL
           messageData = {
             event: "bot_worker_crash",
             error: error?.message || String(error),
@@ -141,19 +189,23 @@ export class BotLifecycleTask {
           };
         } else if (type === "INFO") {
           status_code = 200;
+          const infoEvent = infoMessage?.event || "info";
+          event = infoEvent;
+          log_level = 2; // INFO
           messageData = infoMessage || { event: "info", type };
         }
 
-        const logData = this.buildLogData({
+        await this.persistLog(this.buildLogData({
           botId,
           idapp,
-          botUsername,
           status_code,
+          event,
+          log_level,
+          error_type,
           message: messageData,
-          body: bodyData
-        });
-
-        await this.persistLog(logData);
+          duration_ms,
+          failure_count_snapshot: failureState?.failureCount || 0,
+        }));
 
         // Este fallo ya quedó registrado con detalle (`bot_startup_error`), así que el
         // catch de runOnce no debe duplicarlo como `bot_manage_error`. El trace NO se
@@ -168,10 +220,23 @@ export class BotLifecycleTask {
       }
     });
 
-    // Listen to custom bot logs pushed from worker sandboxes
+    // Listen to custom bot logs pushed from worker sandboxes (ofapi.log)
     this.manager.on("bot_log_push", async ({ botId, idapp, logData }) => {
       try {
-        await this.persistLog(logData);
+        const meta = this.botMeta.get(botId) || {};
+        // Convertir formato LogEntry (del worker) a formato BotLog
+        await this.persistLog({
+          idbot: botId,
+          idapp: idapp || logData?.idapp || null,
+          trace_id: logData?.trace_id || this.traceForBot(botId),
+          provider: meta.provider || null,
+          environment: meta.environment || null,
+          event: "bot_custom_log",
+          log_level: logData?.log_level ?? 2,
+          status_code: logData?.status_code ?? null,
+          message: logData?.message || { log: logData?.body },
+          user_agent: "worker",
+        });
       } catch (err) {
         // Last resort: the logging pipeline itself failed
         console.error("[BotLifecycleTask] Failed to push custom bot log:", err);
@@ -195,38 +260,36 @@ export class BotLifecycleTask {
 
   /** Cierra la corrida actual: el siguiente intento usará un trace nuevo. */
   endBotTrace(botId) {
-    if (botId) this.botTraces.delete(botId);
+    if (botId) {
+      this.botTraces.delete(botId);
+      this.startAttemptTimestamps.delete(botId);
+    }
   }
 
-  buildLogData({ botId, idapp, botUsername = null, status_code, message, body = null, traceId = null }) {
+  buildLogData({ botId, idapp, status_code, event, log_level, error_type, message, duration_ms, failure_count_snapshot, traceId = null }) {
+    const meta = this.botMeta.get(botId) || {};
     return {
-      trace_id: traceId || this.traceForBot(botId),
-      timestamp: new Date(),
+      idbot: botId || null,
       idapp: idapp || null,
-      idendpoint: botId,
-      url: botUsername ? `telegram://bot/${botUsername}` : `telegram://bot/${botId}`,
-      method: "BOT",
+      trace_id: traceId || this.traceForBot(botId),
+      provider: meta.provider || null,
+      environment: meta.environment || null,
+      event: event || "info",
+      log_level: log_level ?? 2,
       status_code,
-      log_level: 3, // Full level
-      price_by_request: 0,
-      price_kb_request: 0,
-      price_kb_response: 0,
-      cost_total: 0,
-      client: "telegram-api",
+      error_type: error_type || null,
       message,
-      body,
-      response_time: 0
+      duration_ms: duration_ms ?? null,
+      failure_count_snapshot: failure_count_snapshot ?? null,
+      user_agent: "system",
     };
   }
 
   async persistLog(logData) {
-    if (this.serverAPI && this.serverAPI.TasksInterval) {
-      this.serverAPI.TasksInterval.pushLog(logData);
-    } else if (typeof createLog === "function") {
-      await createLog(logData);
-    } else {
-      // Last resort: no logging backend available
-      console.error("[URGENTE] [BotLifecycleTask] No hay backend de logs disponible. No se pudo guardar el log.");
+    try {
+      await createBotLog(logData);
+    } catch (err) {
+      console.error("[BotLifecycleTask] Failed to persist bot log:", err);
     }
   }
 
@@ -285,6 +348,7 @@ export class BotLifecycleTask {
       botId: null,
       idapp: null,
       status_code: 503,
+      event: "bot_platform_outage_suspected",
       message: {
         event: "bot_platform_outage_suspected",
         affected_bots: failing,
@@ -311,6 +375,7 @@ export class BotLifecycleTask {
       botId: null,
       idapp,
       status_code: 200,
+      event: "bot_platform_outage_cleared",
       message: {
         event: "bot_platform_outage_cleared",
         description:
@@ -336,6 +401,16 @@ export class BotLifecycleTask {
         RUNTIME_SUPPORTED_PROVIDERS.includes(b.provider)
       );
 
+      // Actualizar metadata de cada bot activo (provider, environment)
+      for (const bot of supportedBots) {
+        const existing = this.botMeta.get(bot.idbot) || {};
+        this.botMeta.set(bot.idbot, {
+          ...existing,
+          provider: bot.provider,
+          environment: bot.environment,
+        });
+      }
+
       // También detener bots que ya no deben estar corriendo.
       // El BotManager tiene la lista de bots activos en memoria.
       const runningBotIds = new Set(this.manager.listActiveBots());
@@ -349,8 +424,28 @@ export class BotLifecycleTask {
           } catch (error) {
             console.error(`[BotLifecycleTask] Error stopping bot ${runningId}:`, error);
           } finally {
+            // Registrar evento de parada
+            const meta = this.botMeta.get(runningId) || {};
+            await this.persistLog({
+              idbot: runningId,
+              idapp: null,
+              trace_id: this.traceForBot(runningId),
+              provider: meta.provider || null,
+              environment: meta.environment || null,
+              event: "bot_stopped",
+              log_level: 2,
+              status_code: 200,
+              message: {
+                event: "bot_stopped",
+                description: "Bot removed from active list or disabled.",
+              },
+              user_agent: "system",
+            }).catch(() => {});
+
             // La corrida terminó: si el bot vuelve, abre un trace nuevo.
             this.endBotTrace(runningId);
+            this.botMeta.delete(runningId);
+            this.startAttemptTimestamps.delete(runningId);
             this.reportedStartupFailures.delete(runningId);
             // Detenerlo es una decisión deliberada (se deshabilitó o se borró), no un
             // fallo: el estado observado debe reflejar eso y no un backoff pendiente.
@@ -394,6 +489,7 @@ export class BotLifecycleTask {
                   botId: bot.idbot,
                   idapp: bot.idapp,
                   status_code: 400,
+                  event: "bot_token_error",
                   message: {
                     event: "bot_token_error",
                     error: tokenError?.message || String(tokenError),
@@ -416,6 +512,9 @@ export class BotLifecycleTask {
           // desde `next_retry_at` para no golpear al proveedor justo cuando puede seguir
           // caído. No hace nada si ya hay historial vivo o si el plazo ya venció.
           this.manager.hydrateFailureState(bot);
+
+          // Registrar inicio del intento para calcular duration_ms
+          this.startAttemptTimestamps.set(bot.idbot, Date.now());
 
           await this.manager.startBot(
             bot.idbot,
@@ -454,6 +553,7 @@ export class BotLifecycleTask {
                 botId: bot.idbot,
                 idapp: bot.idapp,
                 status_code: 500,
+                event: "bot_manage_error",
                 message: {
                   event: "bot_manage_error",
                   error: error?.message || String(error),
@@ -478,6 +578,7 @@ export class BotLifecycleTask {
         botId: null,
         idapp: null,
         status_code: 500,
+        event: "bot_management_loop_error",
         message: {
           event: "bot_management_loop_error",
           error: error?.message || String(error),

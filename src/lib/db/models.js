@@ -38,6 +38,7 @@ export const ModelNames = {
   ClientTransactions: prefixTableName("client_transactions"),
   Bot: prefixTableName("bot"),
   BotBackup: prefixTableName("bot_bkp"),
+  BotLog: prefixTableName("bot_log"),
 };
 
 const default_json_schema = {
@@ -127,6 +128,7 @@ const IGNORED_MODELS_FOR_HOOKS = [
   ModelNames.LogEntry,
   ModelNames.ApiUsageLog,
   ModelNames.IntervalTaskRun,
+  ModelNames.BotLog,
 ];
 
 const globalNotify = (action) => (instance, options) => {
@@ -1014,6 +1016,156 @@ export const BotBackup = dbsequelize.define(
   },
 );
 
+// ============================================
+// MODELO BotLog
+//
+// Historial detallado de eventos del ciclo de vida de los bots (`ofapi_bot_log`).
+// Tabla dedicada para observabilidad de bots: reemplaza el uso de `LogEntry`
+// para logs de bots, con campos semánticos específicos (provider, event,
+// error_type, snapshots de estado runtime, etc.).
+//
+// El campo `provider` permite filtrar por plataforma de mensajería.
+// El campo `event` cataloga el tipo de evento con la taxonomía completa:
+//   bot_started, bot_stopped, bot_startup_error, bot_runtime_error,
+//   bot_worker_crash, bot_token_error, bot_start_retry_scheduled,
+//   bot_start_deferred, bot_quarantined, bot_restarting, bot_auto_disabled,
+//   bot_disabled_by_user, bot_platform_outage_suspected,
+//   bot_platform_outage_cleared, bot_manage_error, bot_auto_disable_failed,
+//   bot_custom_log
+//
+// `metadata` es un JSON extensible para datos específicos del provider
+// (ej: message_id de Telegram, chat_id, etc.) sin cambiar el schema.
+// ============================================
+export const BotLog = dbsequelize.define(
+  ModelNames.BotLog,
+  {
+    id: {
+      type: DataTypes.UUID,
+      primaryKey: true,
+      allowNull: false,
+      unique: true,
+      defaultValue: DataTypes.UUIDV4,
+    },
+    idbot: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      comment: "Bot UUID (null for platform-level events)",
+    },
+    idapp: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      comment: "Application UUID",
+    },
+    trace_id: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      comment: "Correlation ID for a single start attempt and its worker lifetime",
+    },
+    timestamp: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW,
+      comment: "Event timestamp",
+    },
+    provider: {
+      type: DataTypes.STRING(50),
+      allowNull: true,
+      comment: "Messaging provider/platform (telegram, whatsapp, ms_teams...)",
+    },
+    environment: {
+      type: DataTypes.STRING(10),
+      allowNull: true,
+      comment: "Bot environment (dev, qa, prd)",
+    },
+    event: {
+      type: DataTypes.STRING(60),
+      allowNull: false,
+      comment: "Event taxonomy (bot_started, bot_startup_error, ...)",
+    },
+    log_level: {
+      type: DataTypes.SMALLINT,
+      allowNull: false,
+      defaultValue: 2,
+      comment: "Severity: 0=TRACE, 1=DEBUG, 2=INFO, 3=WARN, 4=ERROR, 5=FATAL",
+    },
+    status_code: {
+      type: DataTypes.SMALLINT,
+      allowNull: true,
+      comment: "Semantic status: 200=ok, 400=bad request, 500=error, 503=outage",
+    },
+    error_type: {
+      type: DataTypes.STRING(40),
+      allowNull: true,
+      comment: "Classified error type (INVALID_TOKEN, CONNECTION_ERROR, CODE_ERROR...)",
+    },
+    message:  jsonField("message", { comment: "" }),
+    stack: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      comment: "Truncated stack trace (only for code/startup errors)",
+    },
+    provider_response: jsonField("provider_response", { comment: "" }),
+    runtime_status_snapshot: {
+      type: DataTypes.STRING(24),
+      allowNull: true,
+      comment: "Bot runtime_status at the time of this log",
+    },
+    failure_count_snapshot: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      comment: "Bot failure_count at the time of this log",
+    },
+    duration_ms: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      comment: "Duration of the start attempt or uptime before crash (ms)",
+    },
+    user_agent: {
+      type: DataTypes.STRING(30),
+      allowNull: true,
+      comment: "Who generated the event: 'system', 'user', or 'worker'",
+    },
+    metadata: jsonField("metadata", { comment: "" }),
+  },
+  {
+    freezeTableName: true,
+    timestamps: false,
+    paranoid: false,
+    comment: "Detailed bot lifecycle event log",
+    hooks: {},
+    indexes: [
+      {
+        name: "idx_botlog_idbot_timestamp",
+        fields: ["idbot", "timestamp"],
+      },
+      {
+        name: "idx_botlog_idapp_timestamp",
+        fields: ["idapp", "timestamp"],
+      },
+      {
+        name: "idx_botlog_timestamp",
+        fields: ["timestamp"],
+      },
+      {
+        name: "idx_botlog_event",
+        fields: ["event"],
+      },
+      {
+        name: "idx_botlog_provider",
+        fields: ["provider"],
+      },
+      {
+        name: "idx_botlog_trace_id",
+        fields: ["trace_id"],
+      },
+      {
+        name: "idx_botlog_error_type",
+        fields: ["error_type"],
+      },
+    ],
+  },
+);
+
 export const LogEntry = dbsequelize.define(
   ModelNames.LogEntry,
   {
@@ -1846,4 +1998,23 @@ Application.hasMany(Bot, {
 Bot.belongsTo(Application, {
   foreignKey: "idapp",
   as: "app",
+});
+
+// ----------------------------
+// Bot <-> BotLog
+// Un bot tiene muchos logs de ciclo de vida.
+// Sin FK: el historial de logs debe sobrevivir al borrado del bot.
+// ----------------------------
+Bot.hasMany(BotLog, {
+  foreignKey: "idbot",
+  sourceKey: "idbot",
+  as: "logs",
+  constraints: false,
+});
+
+BotLog.belongsTo(Bot, {
+  foreignKey: "idbot",
+  targetKey: "idbot",
+  as: "bot",
+  constraints: false,
 });

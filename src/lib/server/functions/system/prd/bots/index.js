@@ -11,6 +11,7 @@ import {
   getBotBackupByIdBot,
   getBotBackupByIdBotLightweight,
 } from "../../../../../db/bot_backup.js";
+import { getBotLogs } from "../../../../../db/bot_log.js";
 import { getAppVarsByIdApp } from "../../../../../db/appvars.js";
 import { readBotSkill, readBotProviderSkill } from "../../../../botDocs.js";
 
@@ -401,6 +402,54 @@ export async function fnGetBotProviderSkill(params) {
     } else {
       r.code = 500;
     }
+  }
+  return r;
+}
+
+export async function fnGetBotLogs(params) {
+  let r = { code: 204, data: undefined };
+  try {
+    const query = params.request.query || {};
+    const {
+      idbot,
+      idapp,
+      event,
+      environment,
+      provider,
+      error_type,
+      trace_id,
+      log_level,
+      last_hours,
+      limit,
+      offset,
+    } = query;
+
+    if (!idbot) {
+      r.code = 400;
+      r.data = { success: false, error: "Missing required field: idbot" };
+      return r;
+    }
+
+    const logs = await getBotLogs({
+      idbot,
+      idapp,
+      event,
+      environment,
+      provider,
+      error_type,
+      trace_id,
+      log_level: log_level !== undefined ? Number(log_level) : undefined,
+      last_hours: last_hours !== undefined ? Number(last_hours) : 24,
+      limit: limit !== undefined ? Number(limit) : 200,
+      offset: offset !== undefined ? Number(offset) : 0,
+    });
+
+    r.data = { success: true, data: logs };
+    r.code = 200;
+  } catch (error) {
+    console.error("[fnGetBotLogs] error:", error);
+    r.data = { success: false, error: error?.message || String(error) };
+    r.code = 500;
   }
   return r;
 }

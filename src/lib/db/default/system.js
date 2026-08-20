@@ -13475,6 +13475,101 @@ export const system_app = {
         "headers": [{ "enabled": false, "key": "", "value": "", "internal_hash_row": "bot-provider-skill-h1" }],
         "auth": { "basic": { "username": "", "password": "" }, "bearer": { "token": "" }, "selection": 0 }
       }
+    },
+    {
+      "idendpoint": "a3f8c1d2-6e7b-4a9f-b5c0-8d2e1f3a4b56",
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "environment": "prd",
+      "resource": "/bots/logs",
+      "method": "GET",
+      "handler": "FUNCTION",
+      "access": 2,
+      "enabled": true,
+      "rowkey": 999,
+      "title": "Bot lifecycle logs",
+      "description": "Returns lifecycle event logs (start, stop, errors, retries) for a specific bot. Default window is 24 hours.",
+      "keywords": "bot,logs,lifecycle,events,errors",
+      "timeout": 30,
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "cache_time": 0,
+      "code": "fnGetBotLogs",
+      "mcp": {
+        "enabled": true,
+        "name": "bot_lifecycle_logs",
+        "title": "Bot Lifecycle Logs",
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Returns the lifecycle event history of a specific bot (starts, stops, errors, retries). Default window is 24 hours, configurable up to 72. Requires 'idbot'.",
+        "operation_mode": "read",
+        "requires_explicit_confirmation": false,
+        "side_effects": "No persistent write side effects expected.",
+        "safe_alternative": "N/A",
+        "exampleRequest": {
+          "idbot": "8454e48a-cbda-4f5a-94d2-c0a57429a5af",
+          "last_hours": 24
+        }
+      },
+      "ctrl": {},
+      "cors": {},
+      "custom_data": {},
+      "json_schema": {
+        "in": {
+          "enabled": true,
+          "schema": {
+            "title": "GetBotLogsRequest",
+            "type": "object",
+            "properties": {
+              "idbot": {
+                "type": "string",
+                "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                "description": "Bot UUID whose logs should be returned (required)."
+              },
+              "last_hours": {
+                "type": "integer",
+                "default": 24,
+                "minimum": 1,
+                "maximum": 72,
+                "description": "Hours to look back (1-72, default 24)."
+              },
+              "limit": {
+                "type": "integer",
+                "default": 200,
+                "minimum": 1,
+                "maximum": 10000,
+                "description": "Max records to return."
+              },
+              "offset": {
+                "type": "integer",
+                "default": 0,
+                "minimum": 0,
+                "description": "Offset for pagination."
+              },
+              "event": {
+                "type": "string",
+                "description": "Filter by event name or comma-separated list (e.g. 'bot_started,bot_stopped')."
+              },
+              "log_level": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 5,
+                "description": "Minimum log level (0=TRACE..5=FATAL). Default returns all."
+              }
+            },
+            "required": ["idbot"],
+            "additionalProperties": false
+          }
+        },
+        "out": { "enabled": false }
+      },
+      "headers_test": {},
+      "data_test": {
+        "query": [
+          { "enabled": true, "key": "idbot", "value": "8454e48a-cbda-4f5a-94d2-c0a57429a5af", "internal_hash_row": "bot-logs-q1" }
+        ],
+        "body": { "selection": 0, "json": {}, "xml": { "code": "" }, "text": { "value": "" }, "form": {} },
+        "headers": [{ "enabled": false, "key": "", "value": "", "internal_hash_row": "bot-logs-h1" }],
+        "auth": { "basic": { "username": "", "password": "" }, "bearer": { "token": "" }, "selection": 0 }
+      }
     }
   ]
 }
