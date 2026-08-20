@@ -87,7 +87,11 @@ export const sendHandlerResponse = (
 };
 
 export const sendHandlerError = (reply, statusCode, error, extra = {}) => {
-  reply.code(statusCode).send({ error, ...extra });
+  const payload = { error, ...extra };
+  if (reply.openfusionapi?.lastResponse) {
+    reply.openfusionapi.lastResponse.data = payload;
+  }
+  reply.code(statusCode).send(payload);
 };
 
 export const isValidHttpStatusCode = (code) => {
@@ -133,7 +137,11 @@ export const replyException = (request, reply, error) => {
 
   // El detalle solo sale si el autor lo marcó como público con
   // $_EXCEPTION_({ ..., data: { public } }); el resto se queda en el log.
-  reply.code(statusCode).send(buildErrorPayload(message, trace_id, error));
+  const payload = buildErrorPayload(message, trace_id, error);
+  if (reply.openfusionapi?.lastResponse) {
+    reply.openfusionapi.lastResponse.data = payload;
+  }
+  reply.code(statusCode).send(payload);
   return;
 };
 

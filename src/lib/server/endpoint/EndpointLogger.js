@@ -139,7 +139,15 @@ export class EndpointLogger {
       let param_log =
         request?.openfusionapi?.handler?.params?.ctrl?.log ?? {};
       const category = getLogLevelForStatus(reply.statusCode);
-      const level = param_log[`status_${category}`] ?? 1;
+      const DEFAULT_LOG_LEVELS = {
+        info: 1,
+        success: 1,
+        redirect: 1,
+        client_error: 2,
+        server_error: 3,
+      };
+      const level =
+        param_log[`status_${category}`] ?? DEFAULT_LOG_LEVELS[category] ?? 1;
 
       const save_log = this.getDataLog(level, request, reply);
 
