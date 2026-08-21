@@ -1,7 +1,7 @@
 import "dotenv/config";
 import assert from "node:assert";
 import { v4 as uuidv4 } from "uuid";
-import { getAppBackupById, restoreAppFromBackup } from "../../src/lib/db/app.js";
+import { getAppBackupById, restoreAppFromBackup, getAllAppsBackup, restoreAllAppsFromBackup } from "../../src/lib/db/app.js";
 import {
   Endpoint,
   IntervalTask,
@@ -434,6 +434,61 @@ async function runTests() {
   );
 
   await Bot.destroy({ where: { idbot: probeBot.idbot } });
+
+  // 9. Full server backup: todas las apps en una sola llamada, cada una con el
+  // mismo formato que getAppBackupById.
+  console.log("[STEP 9] Full server backup includes every app...");
+  const full = await getAllAppsBackup();
+  assert.strictEqual(full.kind, "ofapi_full_backup", "Full backup should declare its kind");
+  assert.ok(Array.isArray(full.apps), "Full backup should include the apps array");
+  assert.strictEqual(full.count, full.apps.length, "count should match apps length");
+  assert.ok(
+    full.apps.some((a) => a.idapp === TEST_APP_ID),
+    "Full backup should include the test app"
+  );
+  assert.ok(
+    full.apps.some((a) => a.idapp === "cfcd2084-95d5-65ef-66e7-dff9f98764da"),
+    "Full backup should include the system app"
+  );
+  const fullTestAppEntry = full.apps.find((a) => a.idapp === TEST_APP_ID);
+  assert.ok(Array.isArray(fullTestAppEntry.endpoints), "Each entry should carry endpoints");
+  assert.ok(Array.isArray(fullTestAppEntry.tasks), "Each entry should carry root tasks");
+  assert.ok(Array.isArray(fullTestAppEntry.clients), "Each entry should carry clients");
+  assert.ok(Array.isArray(fullTestAppEntry.keys), "Each entry should carry keys");
+  console.log(`-> Full backup includes ${full.count} app(s).`);
+
+  // 10. Restore completo desde el backup del servidor: resumen sin fallos y
+  // datos intactos tras el round trip.
+  console.log("[STEP 10] Full restore from server backup...");
+  const summary = await restoreAllAppsFromBackup(full);
+  assert.strictEqual(summary.count, full.apps.length, "Summary should cover every app");
+  assert.strictEqual(summary.failed, 0, "No app should fail to restore");
+  assert.strictEqual(summary.restored, full.apps.length, "Every app should be restored");
+
+  const afterFullRestore = await getAppBackupById(TEST_APP_ID);
+  assert.strictEqual(
+    afterFullRestore.endpoints.find((e) => e.resource === "/chat" && e.environment === "dev")
+      ?.title,
+    fullTestAppEntry.endpoints.find(
+      (e) => e.resource === "/chat" && e.environment === "dev"
+    )?.title,
+    "Round trip through full backup/restore should keep endpoint data"
+  );
+  assert.ok(
+    afterFullRestore.keys.some((k) => String(k.idkey) === String(probeKey.idkey)),
+    "Api keys should survive the full round trip"
+  );
+
+  // El mismo restore acepta también el array plano de backups por app.
+  const summaryFromArray = await restoreAllAppsFromBackup(full.apps);
+  assert.strictEqual(summaryFromArray.failed, 0, "Plain array payload should be accepted");
+
+  // Payload inválido debe rechazarse sin restaurar nada.
+  await assert.rejects(
+    () => restoreAllAppsFromBackup({ not_apps: [] }),
+    /Invalid full backup payload/
+  );
+  console.log("-> Full restore completed without failures.");
 
   // Cleanup: restore original values from the unmodified backup
   console.log("[CLEANUP] Restoring original values...");

@@ -1027,6 +1027,120 @@ export async function getAppBackupById(idapp) {
   }
 }
 
+/**
+ * Genera un backup completo del servidor: todas las aplicaciones registradas
+ * en una sola llamada. Cada entrada usa el mismo formato que
+ * getAppBackupById (endpoints, variables, interval tasks, bots, clientes y
+ * api keys), por lo que restoreAllAppsFromBackup puede consumirlo y cada app
+ * también puede restaurarse individualmente con restoreAppFromBackup.
+ *
+ * Si el backup de una app falla no aborta todo: la app queda reportada en
+ * `errors` y el resto viaja en `apps`.
+ *
+ * @returns {Promise<object>} { kind, generated_at, count, apps, errors? }
+ */
+export async function getAllAppsBackup() {
+  try {
+    const apps = await getAllApps(["idapp"]);
+
+    const apps_backup = [];
+    const errors = [];
+
+    for (const { idapp } of apps) {
+      try {
+        apps_backup.push(await getAppBackupById(idapp));
+      } catch (error) {
+        console.error(
+          `[getAllAppsBackup] Error getting backup for app ${idapp}:`,
+          error
+        );
+        errors.push({ idapp, error: error?.message || String(error) });
+      }
+    }
+
+    return {
+      kind: "ofapi_full_backup",
+      generated_at: new Date().toISOString(),
+      count: apps_backup.length,
+      apps: apps_backup,
+      ...(errors.length > 0 ? { errors } : {}),
+    };
+  } catch (error) {
+    console.error("Error getting full backup:", error);
+    throw new Error("No se pudo obtener el backup completo del servidor");
+  }
+}
+
+/**
+ * Restaura un backup completo del servidor generado por getAllAppsBackup.
+ *
+ * Acepta el objeto completo ({ apps: [...] }) o directamente el array de
+ * backups individuales. Cada app se restaura con restoreAppFromBackup, así
+ * que aplica toda su semántica: upsert por clave natural, remapeo de ids,
+ * telemetría de runtime descartada y registros ausentes NO eliminados.
+ *
+ * Las apps se procesan en forma secuencial para no competir por la base.
+ * Un fallo en una app no detiene las demás: se reporta en el resultado.
+ *
+ * @param {object|Array} backup - { apps: [...] } o array de backups por app
+ * @returns {Promise<object>} { count, restored, failed, results }
+ */
+export async function restoreAllAppsFromBackup(backup) {
+  const apps = Array.isArray(backup)
+    ? backup
+    : Array.isArray(backup?.apps)
+      ? backup.apps
+      : null;
+
+  if (!apps) {
+    throw new Error(
+      "Invalid full backup payload: expected an object with an 'apps' array or a plain array of app backups"
+    );
+  }
+
+  const results = [];
+
+  for (const app of apps) {
+    const idapp = app?.idapp;
+
+    try {
+      if (!idapp) {
+        throw new Error("Backup entry without idapp");
+      }
+
+      const restored = await restoreAppFromBackup(app);
+
+      // restoreAppFromBackup devuelve el Error en lugar de lanzarlo y
+      // devuelve undefined si la entrada no tiene idapp.
+      if (restored instanceof Error) {
+        throw restored;
+      }
+      if (!restored || !restored.idapp) {
+        throw new Error("restoreAppFromBackup returned no result");
+      }
+
+      results.push({ idapp: restored.idapp, ok: true });
+    } catch (error) {
+      console.error(
+        `[restoreAllAppsFromBackup] Error restoring app ${idapp}:`,
+        error
+      );
+      results.push({
+        idapp: idapp ?? null,
+        ok: false,
+        error: error?.message || String(error),
+      });
+    }
+  }
+
+  return {
+    count: results.length,
+    restored: results.filter((r) => r.ok).length,
+    failed: results.filter((r) => !r.ok).length,
+    results,
+  };
+}
+
 function ValidateEndpoint(default_endpoints, system_endpoints) {
   let result = { valid: true, message: "All endpoints are correct." };
 

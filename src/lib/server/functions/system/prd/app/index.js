@@ -6,6 +6,8 @@ import {
   upsertApp,
   restoreAppFromBackup,
   getAppBackupById,
+  getAllAppsBackup,
+  restoreAllAppsFromBackup,
   checkSystemApp,
   getApplicationTreeByFilters,
   getApplicationsTreeByFilters,
@@ -168,6 +170,33 @@ export async function fnGetAppBackupById(params) {
   } catch (error) {
     console.log(error);
 
+    r.data = error;
+    r.code = 500;
+  }
+  return r;
+}
+
+export async function fnGetAllAppsBackup(params) {
+  let r = { code: 200, data: undefined };
+  try {
+    r.data = await getAllAppsBackup();
+    r.code = 200;
+  } catch (error) {
+    console.log(error);
+
+    r.data = error;
+    r.code = 500;
+  }
+  return r;
+}
+
+export async function fnRestoreAllAppsFromBackup(params) {
+  let r = { data: undefined, code: 204 };
+  try {
+    let data = await restoreAllAppsFromBackup(params.request.body);
+    r.data = data;
+    r.code = 200;
+  } catch (error) {
     r.data = error;
     r.code = 500;
   }

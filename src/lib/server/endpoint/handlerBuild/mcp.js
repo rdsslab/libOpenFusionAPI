@@ -647,7 +647,6 @@ export const CreateMCPHandler = async (app_name, environment) => {
     safeToolName,
     effectiveDescription,
     inputSchema,
-    exampleRequest,
     endpointUpsertDescriptionAddon,
   }) => {
     const requiredFields = getRequiredFields(inputSchema);
@@ -656,14 +655,11 @@ export const CreateMCPHandler = async (app_name, environment) => {
       ? stripRedundantModePrefix(effectiveDescription.trim())
       : fallbackDescription;
     const accessLabel = endpoint.access == 0 ? "public" : "private";
-    const minimalPayload = toPrettyText(exampleRequest, "No example available.");
     const mcpMetadataDescription = buildMcpMetadataDescription(endpoint);
 
-    // No se repiten aquí los campos que el cliente MCP ya recibe por separado:
-    // el nombre de la tool es la clave con la que se invoca, y las propiedades de
-    // primer nivel y `additionalProperties` están en el inputSchema publicado.
-    // `Required fields` sí se mantiene porque es fácil pasarlo por alto en un
-    // schema grande y es lo que decide si una llamada se rechaza de entrada.
+    // Descripción compacta: solo información esencial que el agente necesita
+    // para decidir SI llamar esta tool. El schema, ejemplos y behavior notes
+    // completos están en list_api_endpoints_<app> para quien necesite detalles.
     const lines = [
       `Purpose: ${purpose}`,
       ...(mcpMetadataDescription ? [mcpMetadataDescription] : []),
@@ -671,7 +667,6 @@ export const CreateMCPHandler = async (app_name, environment) => {
       `HTTP target: ${endpoint.method} ${endpoint.resource}`,
       `Environment: ${endpoint.environment}`,
       `Required fields: ${requiredFields.length > 0 ? requiredFields.join(", ") : "none"}`,
-      `Minimal example payload: ${minimalPayload}`,
     ];
 
     if (hasStructuredRuntimeSpecificPayload(endpoint.handler)) {
@@ -1262,12 +1257,12 @@ _mcpConfig.tools.push({
   info: {
     title: "List API endpoint catalog for " + app_name + " on " + environment + " environment",
     description: [
-      `Purpose: return a lightweight endpoint catalog for application '${app_name}' on '${environment}' environment.`,
+      `Purpose: PRIMARY discovery tool for application '${app_name}' on '${environment}' environment. Always call this tool FIRST to discover available endpoints before calling any other endpoint tool or the full documentation dump.`,
       `Scope: limited to application '${app_name}' and environment '${environment}'. It cannot list any other application; for that use the 'app_endpoints_catalog' tool, which takes an idapp and supports filters and paging.`,
       "Required fields: none.",
       "Top-level input fields: none.",
       "Output: compact markdown table with MCP tool name, HTTP method, resource path, and handler.",
-      "Agent guidance: prefer this tool for discovery because it avoids sending full schemas, examples, and long endpoint documentation blocks.",
+      `Agent guidance: call this tool FIRST. It returns a lightweight table (no schemas, no examples). Use the tool names from the table to invoke specific endpoints, or call list_api_endpoints_${app_name} for full per-endpoint documentation only when needed.`,
     ].join("\n"),
     inputSchema: {},
     annotations: { readOnlyHint: true },
@@ -1287,24 +1282,40 @@ _mcpConfig.tools.push({
   info: {
     title: "List API endpoints for " + app_name + " on " + environment + " environment",
     description: [
-      `Purpose: return documentation for all API endpoints for application '${app_name}' on '${environment}' environment.`,
+      `Purpose: return full documentation for all API endpoints for application '${app_name}' on '${environment}' environment.`,
       `Scope: limited to application '${app_name}' and environment '${environment}'. It cannot document any other application.`,
       "Required fields: none.",
       "Top-level input fields: none.",
-      "Output: markdown text containing endpoint-by-endpoint API documentation, example payloads, schemas, and behavior notes.",
-      `Agent guidance: prefer list_api_endpoints_catalog_${app_name} for initial discovery and call this full dump only when you need detailed schemas, examples, or behavior notes for many endpoints at once.`,
+      "Output: markdown text containing endpoint-by-endpoint API documentation, schemas, examples, and behavior notes. Response may be truncated when the catalog is large; individual endpoint details remain complete for the endpoints included.",
+      `Agent guidance: prefer list_api_endpoints_catalog_${app_name} for initial discovery. Call this tool only when you need schemas, examples, or behavior notes for specific endpoints.`,
     ].join("\n"),
     inputSchema: {},
     annotations: { readOnlyHint: true },
   },
-  handler: async () => ({
-    content: [
-      {
-        type: "text",
-        text: md_resource,
-      },
-    ],
-  })
+  handler: async () => {
+    const MAX_CHARS = 15000;
+    let text = md_resource;
+
+    if (text.length > MAX_CHARS) {
+      const truncated = text.substring(0, MAX_CHARS);
+      const lastEndpointBoundary = truncated.lastIndexOf("\n## Endpoint\n");
+      if (lastEndpointBoundary > 0) {
+        text = truncated.substring(0, lastEndpointBoundary);
+      }
+      text += `\n\n---\nResponse truncated: ${md_resource.length} characters total, showing first ${text.length}. ` +
+        `For a compact tool-name table, call list_api_endpoints_catalog_${app_name}. ` +
+        `To see a specific endpoint, invoke its tool directly — each tool's own description includes the HTTP target and required fields.`;
+    }
+
+    return {
+      content: [
+        {
+          type: "text",
+          text,
+        },
+      ],
+    };
+  }
 });
 
   // Re-creates the McpServer object for the current request (allowing individual transport connect)
