@@ -113,11 +113,6 @@ export async function loginApiClient(username, password) {
 
   if (client) {
     let u = client.toJSON();
-    // TODO: el modelo ApiClient no define el campo exp_time, por lo que siempre
-    // cae en el fallback de 1 hora. Para respetar una vigencia configurable por
-    // cliente se debe: (1) agregar exp_time al modelo en src/lib/db/models.js,
-    // (2) ejecutar la migración correspondiente en la base de datos, y (3) exponer
-    // el campo en las funciones de creación/actualización de ApiClient.
     const tokenSeconds =
       Number.isFinite(Number(u.exp_time)) && Number(u.exp_time) > 0
         ? Number(u.exp_time)
@@ -293,6 +288,66 @@ export async function findApiClientTree(filters = {}) {
   return result;
 }
 
+
+/**
+ * Actualiza un ApiClient existente por idclient.
+ * Si se provee password, se hashea automáticamente.
+ * Nunca permite cambiar el idclient ni el username.
+ *
+ * @param {string} idclient - UUID del cliente a actualizar.
+ * @param {object} data - Campos a actualizar.
+ * @returns {Promise<object>} Cliente actualizado sin password.
+ */
+export async function updateApiClient(idclient, data) {
+  try {
+    if (!idclient) throw new Error("idclient is required.");
+
+    const client = await ApiClient.findByPk(idclient);
+    if (!client) throw new Error("ApiClient not found.");
+
+    // Proteger campos inmutables
+    delete data.idclient;
+    delete data.username;
+    delete data.createdAt;
+    delete data.updatedAt;
+
+    // Hashear password si se provee
+    if (data.password) {
+      data.password = EncryptPwd(data.password);
+    }
+
+    await client.update(data);
+
+    let result = client.toJSON();
+    result.password = undefined;
+    return result;
+  } catch (error) {
+    throw new Error(error.message);
+  }
+}
+
+/**
+ * Elimina un ApiClient por idclient.
+ * También elimina las ApiKey asociadas en cascada.
+ *
+ * @param {string} idclient - UUID del cliente a eliminar.
+ * @returns {Promise<boolean>} true si se eliminó, false si no se encontró.
+ */
+export async function deleteApiClient(idclient) {
+  try {
+    if (!idclient) throw new Error("idclient is required.");
+
+    const client = await ApiClient.findByPk(idclient);
+    if (!client) return false;
+
+    // Eliminar ApiKeys asociadas primero (si no hay CASCADE en la FK)
+    await ApiKey.destroy({ where: { idclient } });
+    await client.destroy();
+    return true;
+  } catch (error) {
+    throw new Error(error.message);
+  }
+}
 
 export const defaultApiClient = async () => {
   try {

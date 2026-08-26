@@ -8,6 +8,8 @@ import {
   ApiClientfindByIdOrUsername,
   loginApiClient,
   updateAPIClientPassword,
+  updateApiClient,
+  deleteApiClient,
 } from "../../../../../db/apiclient.js";
 import { userRegister } from "../../../../templates/email/user_register.js";
 
@@ -125,6 +127,51 @@ export async function fnLoginApiClient(params) {
     }
   } catch (error) {
     r.data = error;
+    r.code = 500;
+  }
+  return r;
+}
+
+export async function fnUpdateApiClient(params) {
+  let r = { data: undefined, code: 204 };
+  try {
+    const idclient = params?.request?.body?.idclient || params?.request?.query?.idclient;
+    if (!idclient) {
+      r.data = { error: "idclient is required." };
+      r.code = 400;
+      return r;
+    }
+
+    let data = await updateApiClient(idclient, params?.request?.body);
+    r.data = data;
+    r.code = 200;
+  } catch (error) {
+    r.data = { error: error.message };
+    r.code = 500;
+  }
+  return r;
+}
+
+export async function fnDeleteApiClient(params) {
+  let r = { data: undefined, code: 204 };
+  try {
+    const idclient = params?.request?.body?.idclient || params?.request?.query?.idclient;
+    if (!idclient) {
+      r.data = { error: "idclient is required." };
+      r.code = 400;
+      return r;
+    }
+
+    let deleted = await deleteApiClient(idclient);
+    if (deleted) {
+      r.data = { success: true, message: "ApiClient deleted." };
+      r.code = 200;
+    } else {
+      r.data = { success: false, message: "ApiClient not found." };
+      r.code = 404;
+    }
+  } catch (error) {
+    r.data = { error: error.message };
     r.code = 500;
   }
   return r;

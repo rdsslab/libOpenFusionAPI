@@ -3,6 +3,8 @@ import {
   login,
   getAllUsers,
   updateUserPassword,
+  updateUser,
+  deleteUser,
 } from "../../../../../db/user.js";
 import {getUserPasswordTokenFromRequest} from "../../../../auth.js";
 
@@ -120,6 +122,51 @@ export async function fnUpdateUserPassword(params) {
     r.code = 200;
   } catch (error) {
     r.data = error;
+    r.code = 500;
+  }
+  return r;
+}
+
+export async function fnUpdateUser(params) {
+  let r = { data: undefined, code: 204 };
+  try {
+    const iduser = params?.request?.body?.iduser || params?.request?.query?.iduser;
+    if (!iduser) {
+      r.data = { error: "iduser is required." };
+      r.code = 400;
+      return r;
+    }
+
+    let data = await updateUser(iduser, params?.request?.body);
+    r.data = data;
+    r.code = 200;
+  } catch (error) {
+    r.data = { error: error.message };
+    r.code = 500;
+  }
+  return r;
+}
+
+export async function fnDeleteUser(params) {
+  let r = { data: undefined, code: 204 };
+  try {
+    const iduser = params?.request?.body?.iduser || params?.request?.query?.iduser;
+    if (!iduser) {
+      r.data = { error: "iduser is required." };
+      r.code = 400;
+      return r;
+    }
+
+    let deleted = await deleteUser(iduser);
+    if (deleted) {
+      r.data = { success: true, message: "User deleted." };
+      r.code = 200;
+    } else {
+      r.data = { success: false, message: "User not found." };
+      r.code = 404;
+    }
+  } catch (error) {
+    r.data = { error: error.message };
     r.code = 500;
   }
   return r;

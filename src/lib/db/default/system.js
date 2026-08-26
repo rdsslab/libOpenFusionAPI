@@ -164,7 +164,16 @@ export const system_app = {
     {
       "ctrl": {},
       "cors": {},
-      "mcp": {},
+      "mcp": {
+        "enabled": true,
+        "name": "list_users",
+        "title": "List System Users",
+        "description": "READ ONLY: This tool does not modify persistent data.\nReturns all system users registered in the platform. Each row includes iduser, enabled, username, name (last_name + first_name), and email. Use this to discover user IDs before calling user_update or user_delete.",
+        "operation_mode": "read",
+        "requires_explicit_confirmation": false,
+        "side_effects": "No persistent write side effects expected.",
+        "safe_alternative": "N/A"
+      },
       "json_schema": {},
       "custom_data": {},
       "headers_test": {},
@@ -179,12 +188,12 @@ export const system_app = {
       "method": "GET",
       "handler": "FUNCTION",
       "access": 2,
-      "title": "",
-      "description": "",
+      "title": "List Users",
+      "description": "Returns all system users.",
       "price_by_request": 1,
       "price_kb_request": 1,
       "price_kb_response": 1,
-      "keywords": "",
+      "keywords": "user,list",
       "code": "fnGetUsersList",
       "cache_time": 0,
       "createdAt": "2025-11-21T22:04:52.726Z",
@@ -195,7 +204,16 @@ export const system_app = {
         "admin": true
       },
       "cors": {},
-      "mcp": {},
+      "mcp": {
+        "enabled": true,
+        "name": "apiclient_create",
+        "title": "Create API Client",
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution.\nCreates a new external API client. A random password is generated and returned in the response (shown only once). Required field: email. Optional: username, first_name, last_name, status, document_id, document_type, phone, startAt, endAt, exp_time.",
+        "operation_mode": "write",
+        "requires_explicit_confirmation": true,
+        "side_effects": "Creates a new ApiClient row. The plaintext password is returned only in this response and cannot be recovered.",
+        "safe_alternative": "Call 'list_api_clients' first to check whether the client already exists."
+      },
       "json_schema": {},
       "custom_data": {},
       "headers_test": {},
@@ -210,8 +228,8 @@ export const system_app = {
       "method": "POST",
       "handler": "FUNCTION",
       "access": 2,
-      "title": "Create user external",
-      "description": "Create user external",
+      "title": "Create API Client",
+      "description": "Create a new external API client.",
       "price_by_request": 1,
       "price_kb_request": 1,
       "price_kb_response": 1,
@@ -257,7 +275,16 @@ export const system_app = {
         "admin": true
       },
       "cors": {},
-      "mcp": {},
+      "mcp": {
+        "enabled": true,
+        "name": "user_create",
+        "title": "Create System User",
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution.\nCreates a new system user (internal platform user). The password is stored hashed. Required field: username. Optional: password, first_name, last_name, email, enabled, ctrl, exp_time.",
+        "operation_mode": "write",
+        "requires_explicit_confirmation": true,
+        "side_effects": "Creates a new user row in the database. The user can then log in to the platform.",
+        "safe_alternative": "Call 'list_users' first to verify the username is not already taken."
+      },
       "json_schema": {},
       "custom_data": {},
       "headers_test": {},
@@ -272,8 +299,8 @@ export const system_app = {
       "method": "POST",
       "handler": "FUNCTION",
       "access": 2,
-      "title": "",
-      "description": "Create user admin",
+      "title": "Create System User",
+      "description": "Create a new system user (internal platform user).",
       "price_by_request": 1,
       "price_kb_request": 1,
       "price_kb_response": 1,
@@ -776,7 +803,16 @@ export const system_app = {
         "admin": true
       },
       "cors": {},
-      "mcp": {},
+      "mcp": {
+        "enabled": true,
+        "name": "user_change_password",
+        "title": "Change User Password",
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution.\nChanges the password of a system user. Requires username, oldPassword, and newPassword. The new password must meet security requirements and differ from the old one.",
+        "operation_mode": "write",
+        "requires_explicit_confirmation": true,
+        "side_effects": "Updates the password hash in the database. The user must use the new password on next login.",
+        "safe_alternative": "Call 'list_users' first to confirm the user exists and is active."
+      },
       "json_schema": {},
       "custom_data": {},
       "headers_test": {},
@@ -791,8 +827,8 @@ export const system_app = {
       "method": "POST",
       "handler": "FUNCTION",
       "access": 2,
-      "title": "",
-      "description": "Update user password",
+      "title": "Change User Password",
+      "description": "Update user password with validation of the old password.",
       "price_by_request": 1,
       "price_kb_request": 1,
       "price_kb_response": 1,
@@ -900,16 +936,26 @@ export const system_app = {
       "method": "GET",
       "handler": "FUNCTION",
       "access": 0,
-      "title": "",
-      "description": "",
+      "title": "Login API Client",
+      "description": "Authenticates an API client and returns a JWT token.",
       "price_by_request": 1,
       "price_kb_request": 1,
       "price_kb_response": 1,
-      "keywords": "",
+      "keywords": "apiclient,login,auth,token",
       "code": "fnLoginApiClient",
       "cache_time": 0,
       "createdAt": "2025-11-21T22:04:52.727Z",
-      "updatedAt": "2025-11-22T00:11:42.114Z"
+      "updatedAt": "2025-11-22T00:11:42.114Z",
+      "mcp": {
+        "enabled": true,
+        "name": "apiclient_login",
+        "title": "Login API Client",
+        "description": "READ ONLY: This tool does not modify persistent data (except updating last_login timestamp).\nAuthenticates an external API client using Basic Auth (username:password) and returns a JWT token. The client must have status 'active' or 'initial' and be within its validity period (startAt/endAt).",
+        "operation_mode": "read",
+        "requires_explicit_confirmation": false,
+        "side_effects": "Updates the last_login timestamp of the client.",
+        "safe_alternative": "Call 'list_api_clients' first to verify the client exists and is active."
+      }
     },
     {
       "ctrl": {
@@ -5666,7 +5712,16 @@ export const system_app = {
         "admin": true
       },
       "cors": {},
-      "mcp": {},
+      "mcp": {
+        "enabled": true,
+        "name": "apiclient_change_password",
+        "title": "Change API Client Password",
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution.\nChanges the password of an external API client. Requires username, oldPassword, and newPassword. The new password must meet security requirements and differ from the old one.",
+        "operation_mode": "write",
+        "requires_explicit_confirmation": true,
+        "side_effects": "Updates the password hash in the database. The client must use the new password on next login.",
+        "safe_alternative": "Call 'list_api_clients' first to confirm the client exists and is active."
+      },
       "json_schema": {},
       "custom_data": {},
       "headers_test": {},
@@ -5681,8 +5736,8 @@ export const system_app = {
       "method": "POST",
       "handler": "FUNCTION",
       "access": 2,
-      "title": "",
-      "description": "Update API Client password",
+      "title": "Change API Client Password",
+      "description": "Change API client password with validation of the old password.",
       "price_by_request": 1,
       "price_kb_request": 1,
       "price_kb_response": 1,
@@ -13638,6 +13693,235 @@ export const system_app = {
         "headers": [{ "enabled": false, "key": "", "value": "", "internal_hash_row": "bot-logs-h1" }],
         "auth": { "basic": { "username": "", "password": "" }, "bearer": { "token": "" }, "selection": 0 }
       }
+    },
+    {
+      "ctrl": { "admin": true },
+      "cors": {},
+      "mcp": {
+        "enabled": true,
+        "name": "user_update",
+        "title": "Update System User",
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution.\nUpdates an existing system user by iduser. Fields iduser and username are immutable. Any other field can be updated: first_name, last_name, email, enabled, ctrl, exp_time, start_date, end_date. If 'password' is provided it is stored hashed. Call 'list_users' first to obtain the iduser.",
+        "operation_mode": "write",
+        "requires_explicit_confirmation": true,
+        "side_effects": "Overwrites the specified fields of the user row. A password change takes effect on next login.",
+        "safe_alternative": "Call 'list_users' first to confirm the iduser and current values."
+      },
+      "json_schema": {
+        "in": {
+          "enabled": true,
+          "schema": {
+            "title": "UserUpdateRequest",
+            "type": "object",
+            "required": ["iduser"],
+            "additionalProperties": false,
+            "properties": {
+              "iduser": { "type": "integer", "description": "ID of the user to update (required, immutable)." },
+              "first_name": { "type": "string", "description": "First name." },
+              "last_name": { "type": "string", "description": "Last name." },
+              "email": { "type": "string", "description": "Email address." },
+              "password": { "type": "string", "minLength": 8, "description": "New password (stored hashed, optional)." },
+              "enabled": { "type": ["boolean", "integer"], "enum": [true, false, 0, 1], "description": "Enable or disable the user." },
+              "ctrl": { "type": "object", "description": "Access control attributes (JSON)." },
+              "exp_time": { "type": "integer", "minimum": 1, "description": "Token expiration time in seconds." },
+              "start_date": { "type": "string", "format": "date", "description": "Validity start date." },
+              "end_date": { "type": "string", "format": "date", "description": "Validity end date." }
+            }
+          }
+        },
+        "out": { "enabled": false }
+      },
+      "custom_data": {},
+      "headers_test": {},
+      "data_test": {},
+      "idendpoint": "b1a2c3d4-e5f6-7890-abcd-ef0123456701",
+      "rowkey": 801,
+      "enabled": true,
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "environment": "prd",
+      "timeout": 30,
+      "resource": "/user/update",
+      "method": "POST",
+      "handler": "FUNCTION",
+      "access": 2,
+      "title": "Update System User",
+      "description": "Update an existing system user by iduser.",
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "keywords": "user,update",
+      "code": "fnUpdateUser",
+      "cache_time": 0,
+      "createdAt": "2026-08-26T00:00:00.000Z",
+      "updatedAt": "2026-08-26T00:00:00.000Z"
+    },
+    {
+      "ctrl": { "admin": true },
+      "cors": {},
+      "mcp": {
+        "enabled": true,
+        "name": "user_delete",
+        "title": "Delete System User",
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution.\nPermanently deletes a system user by iduser. The operation is irreversible. Call 'list_users' first to obtain the iduser.",
+        "operation_mode": "write",
+        "requires_explicit_confirmation": true,
+        "side_effects": "Permanently removes the user row. The user can no longer log in.",
+        "safe_alternative": "Call 'list_users' first to confirm the iduser."
+      },
+      "json_schema": {
+        "in": {
+          "enabled": true,
+          "schema": {
+            "title": "UserDeleteRequest",
+            "type": "object",
+            "required": ["iduser"],
+            "additionalProperties": false,
+            "properties": {
+              "iduser": { "type": "integer", "description": "ID of the user to delete (required)." }
+            }
+          }
+        },
+        "out": { "enabled": false }
+      },
+      "custom_data": {},
+      "headers_test": {},
+      "data_test": {},
+      "idendpoint": "b1a2c3d4-e5f6-7890-abcd-ef0123456702",
+      "rowkey": 802,
+      "enabled": true,
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "environment": "prd",
+      "timeout": 30,
+      "resource": "/user/delete",
+      "method": "POST",
+      "handler": "FUNCTION",
+      "access": 2,
+      "title": "Delete System User",
+      "description": "Permanently delete a system user.",
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "keywords": "user,delete",
+      "code": "fnDeleteUser",
+      "cache_time": 0,
+      "createdAt": "2026-08-26T00:00:00.000Z",
+      "updatedAt": "2026-08-26T00:00:00.000Z"
+    },
+    {
+      "ctrl": { "admin": true },
+      "cors": {},
+      "mcp": {
+        "enabled": true,
+        "name": "apiclient_update",
+        "title": "Update API Client",
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution.\nUpdates an existing external API client by idclient. Fields idclient and username are immutable. Any other field can be updated: first_name, last_name, email, status, document_id, document_type, phone, startAt, endAt, exp_time, custom_data. If 'password' is provided it is stored hashed. Call 'list_api_clients' first to obtain the idclient.",
+        "operation_mode": "write",
+        "requires_explicit_confirmation": true,
+        "side_effects": "Overwrites the specified fields of the ApiClient row. A password change takes effect on next login.",
+        "safe_alternative": "Call 'list_api_clients' first to confirm the idclient and current values."
+      },
+      "json_schema": {
+        "in": {
+          "enabled": true,
+          "schema": {
+            "title": "ApiClientUpdateRequest",
+            "type": "object",
+            "required": ["idclient"],
+            "additionalProperties": false,
+            "properties": {
+              "idclient": { "type": "string", "format": "uuid", "description": "UUID of the client to update (required, immutable)." },
+              "first_name": { "type": "string", "description": "First name." },
+              "last_name": { "type": "string", "description": "Last name." },
+              "email": { "type": "string", "description": "Email address." },
+              "password": { "type": "string", "minLength": 8, "description": "New password (stored hashed, optional)." },
+              "status": { "type": "string", "enum": ["initial", "active", "suspended", "inactive"], "description": "Client status." },
+              "document_id": { "type": "string", "description": "Document ID number." },
+              "document_type": { "type": "string", "enum": ["passport", "unknown", "id_card", "driver_license", "tax_id", "social_security", "other"], "description": "Document type." },
+              "phone": { "type": "string", "description": "Phone number." },
+              "startAt": { "type": "string", "format": "date-time", "description": "Validity start date." },
+              "endAt": { "type": ["string", "null"], "format": "date-time", "description": "Validity end date. Null means no expiration." },
+              "exp_time": { "type": "integer", "minimum": 1, "description": "Token expiration time in seconds." },
+              "custom_data": { "type": "object", "description": "Custom data (JSON)." }
+            }
+          }
+        },
+        "out": { "enabled": false }
+      },
+      "custom_data": {},
+      "headers_test": {},
+      "data_test": {},
+      "idendpoint": "b1a2c3d4-e5f6-7890-abcd-ef0123456703",
+      "rowkey": 803,
+      "enabled": true,
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "environment": "prd",
+      "timeout": 30,
+      "resource": "/apiclient/update",
+      "method": "POST",
+      "handler": "FUNCTION",
+      "access": 2,
+      "title": "Update API Client",
+      "description": "Update an existing external API client.",
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "keywords": "apiclient,update",
+      "code": "fnUpdateApiClient",
+      "cache_time": 0,
+      "createdAt": "2026-08-26T00:00:00.000Z",
+      "updatedAt": "2026-08-26T00:00:00.000Z"
+    },
+    {
+      "ctrl": { "admin": true },
+      "cors": {},
+      "mcp": {
+        "enabled": true,
+        "name": "apiclient_delete",
+        "title": "Delete API Client",
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution.\nPermanently deletes an external API client by idclient. Associated ApiKeys are also removed. The operation is irreversible. Call 'list_api_clients' first to obtain the idclient.",
+        "operation_mode": "write",
+        "requires_explicit_confirmation": true,
+        "side_effects": "Permanently removes the ApiClient row and all its associated ApiKey rows. The client can no longer authenticate.",
+        "safe_alternative": "Call 'list_api_clients' first to confirm the idclient."
+      },
+      "json_schema": {
+        "in": {
+          "enabled": true,
+          "schema": {
+            "title": "ApiClientDeleteRequest",
+            "type": "object",
+            "required": ["idclient"],
+            "additionalProperties": false,
+            "properties": {
+              "idclient": { "type": "string", "format": "uuid", "description": "UUID of the client to delete (required)." }
+            }
+          }
+        },
+        "out": { "enabled": false }
+      },
+      "custom_data": {},
+      "headers_test": {},
+      "data_test": {},
+      "idendpoint": "b1a2c3d4-e5f6-7890-abcd-ef0123456704",
+      "rowkey": 804,
+      "enabled": true,
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "environment": "prd",
+      "timeout": 30,
+      "resource": "/apiclient/delete",
+      "method": "POST",
+      "handler": "FUNCTION",
+      "access": 2,
+      "title": "Delete API Client",
+      "description": "Permanently delete an external API client and its ApiKeys.",
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "keywords": "apiclient,delete",
+      "code": "fnDeleteApiClient",
+      "cache_time": 0,
+      "createdAt": "2026-08-26T00:00:00.000Z",
+      "updatedAt": "2026-08-26T00:00:00.000Z"
     }
   ]
 }

@@ -62,6 +62,43 @@ export const deleteUser = async (
 };
 
 /**
+ * Actualiza un usuario existente por iduser.
+ * Si se provee password, se hashea automáticamente.
+ * Nunca permite cambiar el iduser ni el username.
+ *
+ * @param {number} iduser - ID del usuario a actualizar.
+ * @param {object} data - Campos a actualizar.
+ * @returns {Promise<object>} Usuario actualizado sin password.
+ */
+export async function updateUser(iduser, data) {
+  try {
+    if (!iduser) throw new Error("iduser is required.");
+
+    const user = await User.findByPk(iduser);
+    if (!user) throw new Error("User not found.");
+
+    // Proteger campos inmutables
+    delete data.iduser;
+    delete data.username;
+    delete data.createdAt;
+    delete data.updatedAt;
+
+    // Hashear password si se provee
+    if (data.password) {
+      data.password = EncryptPwd(data.password);
+    }
+
+    await user.update(data);
+
+    let result = user.toJSON();
+    result.password = undefined;
+    return result;
+  } catch (error) {
+    throw new Error(error.message);
+  }
+}
+
+/**
  * @param {string} username
  * @param {string} password
  */

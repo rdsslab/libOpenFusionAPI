@@ -21,6 +21,7 @@ import { defaultApiClient } from "./db/apiclient.js";
 import dbAPIs from "./db/sequelize.js";
 import { ensureBotRuntimeColumns } from "./db/ensureBotRuntimeColumns.js";
 import { ensureIntervalTaskColumns } from "./db/ensureIntervalTaskColumns.js";
+import { ensureApiClientExpTimeColumn } from "./db/ensureApiClientExpTimeColumn.js";
 import {
   defaultApps,
   getApplicationTreeByFilters,
@@ -542,6 +543,15 @@ export default class ServerAPI extends EventEmitter {
       await ensureIntervalTaskColumns(log);
     } catch (error) {
       log("Error ensuring interval task columns:", error);
+    }
+
+    // La columna exp_time en ofapi_api_client permite configurar la duración del
+    // token JWT por cliente. Sin ella, loginApiClient siempre cae al fallback de
+    // 3600s. Idempotente y de alcance acotado, se ejecuta en cada arranque.
+    try {
+      await ensureApiClientExpTimeColumn(log);
+    } catch (error) {
+      log("Error ensuring ApiClient exp_time column:", error);
     }
 
     try {

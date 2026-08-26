@@ -1801,6 +1801,12 @@ export const ApiClient = dbsequelize.define(
       type: DataTypes.DATE,
       allowNull: true, // << corregido
     },
+    exp_time: {
+      type: DataTypes.BIGINT,
+      allowNull: true,
+      defaultValue: 3600,
+      comment: "Token expiration time in seconds. Null or 0 falls back to 3600 (1 hour).",
+    },
   },
   {
     timestamps: true,
