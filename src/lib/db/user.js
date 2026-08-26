@@ -2,6 +2,7 @@ import { customError } from "../server/utils.js";
 import { EncryptPwd } from "../server/auth.js";
 import { GenToken } from "../server/functionVars.js";
 import { validatePasswordSecurity } from "./utils.js";
+import { validateCtrlSchema, fullAccessCtrl, emptyCtrl } from "../server/permissions.js";
 import { User } from "./models.js";
 import dbsequelize from "./sequelize.js";
 import { Op } from "sequelize";
@@ -83,6 +84,14 @@ export async function updateUser(iduser, data) {
     delete data.createdAt;
     delete data.updatedAt;
 
+    // Validar ctrl si se provee
+    if (data.ctrl !== undefined) {
+      const ctrlCheck = validateCtrlSchema(data.ctrl);
+      if (!ctrlCheck.valid) {
+        throw new Error("Invalid ctrl: " + ctrlCheck.errors.join("; "));
+      }
+    }
+
     // Hashear password si se provee
     if (data.password) {
       data.password = EncryptPwd(data.password);
@@ -135,7 +144,7 @@ export const defaultUser = async () => {
         first_name: "super",
         last_name: "user",
         email: "superopenfusionapi@example.com",
-        ctrl: {},
+        ctrl: fullAccessCtrl(),
       });
     }
 
@@ -151,7 +160,7 @@ export const defaultUser = async () => {
         first_name: "client",
         last_name: "api",
         email: "superopenfusionapi@example.com",
-        ctrl: {},
+        ctrl: fullAccessCtrl(),
       });
     }
 
@@ -168,35 +177,7 @@ export const defaultUser = async () => {
         first_name: "admin",
         last_name: "user",
         email: "admin@example.com",
-        ctrl: {
-          as_admin: true,
-          env: {
-            dev: {
-              app: {
-                create: true,
-                delete: true,
-                edit: true,
-                read: true,
-              },
-            },
-            qa: {
-              app: {
-                create: true,
-                delete: true,
-                edit: true,
-                read: true,
-              },
-            },
-            prd: {
-              app: {
-                create: true,
-                delete: true,
-                edit: true,
-                read: true,
-              },
-            },
-          },
-        },
+        ctrl: fullAccessCtrl(),
       });
     }
 
@@ -214,22 +195,19 @@ export const defaultUser = async () => {
         last_name: "user",
         email: "demo@example.com",
         ctrl: {
-          as_admin: true,
+          as_admin: false,
           env: {
             dev: {
-              app: {
-                create: true,
-                delete: true,
-                edit: true,
-                read: true,
-              },
+              users:      { read: true, create: false, edit: false, delete: false },
+              apiclients: { read: true, create: false, edit: false, delete: false },
+              endpoints:  { read: true, create: false, edit: false, delete: false },
+              apps:       { read: true },
+              appvars:    { read: true },
+              bots:       { read: true },
+              logs:       { read: true },
             },
-            qa: {
-              app: {},
-            },
-            prd: {
-              app: {},
-            },
+            qa: {},
+            prd: {},
           },
         },
       });
@@ -411,6 +389,14 @@ export async function createUser(data) {
     // Validaciones mínimas
     if (!data.username) {
       throw new Error("El campo 'username' es obligatorio.");
+    }
+
+    // Validar ctrl si se provee
+    if (data.ctrl !== undefined && data.ctrl !== null) {
+      const ctrlCheck = validateCtrlSchema(data.ctrl);
+      if (!ctrlCheck.valid) {
+        throw new Error("Invalid ctrl: " + ctrlCheck.errors.join("; "));
+      }
     }
 
     // Crear usuario
