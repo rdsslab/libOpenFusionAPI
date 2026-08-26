@@ -1142,92 +1142,99 @@ export async function restoreAllAppsFromBackup(backup) {
 }
 
 function ValidateEndpoint(default_endpoints, system_endpoints) {
-  let result = { valid: true, message: "All endpoints are correct." };
+  let result = { valid: true, message: "All endpoints are correct.", differences: [] };
 
   for (let index = 0; index < default_endpoints.length; index++) {
     const element = default_endpoints[index];
 
     let dif = system_endpoints.find((item) => {
-      return item.idendpoint == element.idendpoint;
+      return item.resource === element.resource
+        && item.method === element.method
+        && item.environment === element.environment;
     });
 
     if (!dif) {
-      // No se encontró el endoint sale del bucle y reporta la diferencia
       result.valid = false;
-      result.diff = { endpoint: element };
-      result.message = `Endpoint ${element.idendpoint} not found`;
-      break;
-    } else {
-      let field_diff = [];
+      result.differences.push({
+        type: "missing",
+        endpoint: element,
+        message: `Endpoint ${element.resource} ${element.method} (${element.environment}) not found`,
+      });
+      continue;
+    }
 
-      if (
-        JSON.stringify(element.json_schema) !== JSON.stringify(dif.json_schema)
-      ) {
-        field_diff.push("json_schema");
-      }
-      if (element.enabled !== dif.enabled) {
-        field_diff.push("enabled");
-      }
-      if (element.enabled !== dif.enabled) {
-        field_diff.push("enabled");
-      }
-      if (element.idapp !== dif.idapp) {
-        field_diff.push("idapp");
-      }
-      if (element.environment !== dif.environment) {
-        field_diff.push("environment");
-      }
-      if (element.resource !== dif.resource) {
-        field_diff.push("resource");
-      }
-      if (element.title !== dif.title) {
-        field_diff.push("title");
-      }
-      if (element.description !== dif.description) {
-        field_diff.push("description");
-      }
-      if (element.keywords !== dif.keywords) {
-        field_diff.push("keywords");
-      }
-      if (element.method !== dif.method) {
-        field_diff.push("method");
-      }
+    let field_diff = [];
 
-      if (element.handler !== dif.handler) {
-        field_diff.push("handler");
-      }
-      if (element.access !== dif.access) {
-        field_diff.push("access");
-      }
-      if (JSON.stringify(element.ctrl) !== JSON.stringify(dif.ctrl)) {
-        field_diff.push("ctrl");
-      }
-      if (JSON.stringify(element.cors) !== JSON.stringify(dif.cors)) {
-        field_diff.push("cors");
-      }
-      if (JSON.stringify(element.mcp) !== JSON.stringify(dif.mcp)) {
-        field_diff.push("mcp");
-      }
-      if (JSON.stringify(element.code) !== JSON.stringify(dif.code)) {
-        field_diff.push("code");
-      }
-      if (element.cache_time !== dif.cache_time) {
-        field_diff.push("cache_time");
-      }
+    if (
+      JSON.stringify(element.json_schema) !== JSON.stringify(dif.json_schema)
+    ) {
+      field_diff.push("json_schema");
+    }
+    if (element.enabled !== dif.enabled) {
+      field_diff.push("enabled");
+    }
+    if (element.idapp !== dif.idapp) {
+      field_diff.push("idapp");
+    }
+    if (element.environment !== dif.environment) {
+      field_diff.push("environment");
+    }
+    if (element.resource !== dif.resource) {
+      field_diff.push("resource");
+    }
+    if (element.title !== dif.title) {
+      field_diff.push("title");
+    }
+    if (element.description !== dif.description) {
+      field_diff.push("description");
+    }
+    if (element.keywords !== dif.keywords) {
+      field_diff.push("keywords");
+    }
+    if (element.method !== dif.method) {
+      field_diff.push("method");
+    }
+    if (element.handler !== dif.handler) {
+      field_diff.push("handler");
+    }
+    if (element.access !== dif.access) {
+      field_diff.push("access");
+    }
+    if (JSON.stringify(element.ctrl) !== JSON.stringify(dif.ctrl)) {
+      field_diff.push("ctrl");
+    }
+    if (JSON.stringify(element.cors) !== JSON.stringify(dif.cors)) {
+      field_diff.push("cors");
+    }
+    if (JSON.stringify(element.mcp) !== JSON.stringify(dif.mcp)) {
+      field_diff.push("mcp");
+    }
+    if (JSON.stringify(element.code) !== JSON.stringify(dif.code)) {
+      field_diff.push("code");
+    }
+    if (element.cache_time !== dif.cache_time) {
+      field_diff.push("cache_time");
+    }
 
-      result.valid = field_diff.length == 0;
-      if (!result.valid) {
-        result.diff = { endpoint: element };
-        result.message = `Endpoint ${element.idendpoint
-          } has modified fields: ${field_diff.join(", ")}`;
-        break;
-      }
+    if (field_diff.length > 0) {
+      result.valid = false;
+      result.differences.push({
+        type: "modified",
+        endpoint: element,
+        fields: field_diff,
+        message: `Endpoint ${element.resource} ${element.method} (${element.environment}) has modified fields: ${field_diff.join(", ")}`,
+      });
     }
   }
+
+  if (!result.valid && result.differences.length > 0) {
+    result.message = result.differences.map((d) => d.message).join("; ");
+  }
+
   return result;
 }
 
-export async function checkSystemApp(restore = false) {
+export async function checkSystemApp(restore = false, endpoint_class = null) {
   try {
     let result = { valid: true, diff: {} };
 
@@ -1243,6 +1250,11 @@ export async function checkSystemApp(restore = false) {
     if (restore && !result.valid) {
       let r = await restoreAppFromBackup(system_app);
       result = ValidateEndpoint(system_app.endpoints, r.endpoints);
+
+      // Invalidar caché en memoria para que el servidor sirva los endpoints restaurados
+      if (endpoint_class?.deleteEndpointsByIdApp) {
+        endpoint_class.deleteEndpointsByIdApp("cfcd2084-95d5-65ef-66e7-dff9f98764da");
+      }
     }
 
     // Devuelve si hay diferencias

@@ -208,7 +208,10 @@ export async function fnCheckSystemApp(params) {
   let r = { data: undefined, code: 204 };
 
   try {
-    let data = await checkSystemApp(params?.request?.body.restore);
+    let data = await checkSystemApp(
+      params?.request?.body.restore,
+      params?.server_data?.endpoint_class
+    );
 
     r.data = data;
     r.code = 200;

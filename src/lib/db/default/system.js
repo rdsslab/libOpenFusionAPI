@@ -12849,6 +12849,7 @@ export const system_app = {
       "price_kb_request": 1,
       "price_kb_response": 1,
       "code": "fnListBots",
+      "cache_time": 0,
       "mcp": {
         "enabled": true,
         "name": "list_bots",
@@ -12963,6 +12964,7 @@ export const system_app = {
       "price_kb_request": 1,
       "price_kb_response": 1,
       "code": "fnUpsertBot",
+      "cache_time": 0,
       "mcp": {
         "enabled": true,
         "name": "upsert_bot",
@@ -13081,6 +13083,7 @@ export const system_app = {
       "price_kb_request": 1,
       "price_kb_response": 1,
       "code": "fnDeleteBot",
+      "cache_time": 0,
       "mcp": {
         "enabled": true,
         "name": "delete_bot",
@@ -13139,6 +13142,7 @@ export const system_app = {
       "price_kb_request": 1,
       "price_kb_response": 1,
       "code": "fnEnableDisableBot",
+      "cache_time": 0,
       "mcp": {
         "enabled": true,
         "name": "enable_disable_bot",
@@ -13215,6 +13219,7 @@ export const system_app = {
       "price_kb_request": 1,
       "price_kb_response": 1,
       "code": "fnGetBotBackupByIdBot",
+      "cache_time": 0,
       "mcp": {
         "enabled": true,
         "name": "bot_change_history",
@@ -13312,6 +13317,7 @@ export const system_app = {
       "price_kb_request": 1,
       "price_kb_response": 1,
       "code": "fnBotRestoreBackup",
+      "cache_time": 0,
       "mcp": {
         "enabled": true,
         "name": "bot_restore_version",
