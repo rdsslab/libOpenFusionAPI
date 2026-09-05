@@ -1,13 +1,89 @@
-<!doctype html>
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.resolve(__dirname, "..");
+const PKG_PATH = path.join(ROOT, "package.json");
+const OUT_DIR = path.join(ROOT, "www");
+const OUT_FILE = path.join(OUT_DIR, "index.html");
+const FAVICON_FILE = path.join(OUT_DIR, "favicon.png");
+
+const SITE_BASE = "http://localhost:3000";
+const GITHUB_REPO = "https://github.com/rdsslab/libOpenFusionAPI";
+const GITHUB_ISSUES = "https://github.com/rdsslab/libOpenFusionAPI/issues";
+
+function readPackageJson() {
+  const raw = fs.readFileSync(PKG_PATH, "utf8");
+  const pkg = JSON.parse(raw);
+  return {
+    name: pkg.name || "libOpenFusionAPI",
+    version: pkg.version || "0.0.0",
+    description:
+      pkg.description ||
+      "Library based on Fastify to create APIs quickly and easily from a web interface.",
+    repository: pkg.repository?.url || `${GITHUB_REPO}.git`,
+    homepage: pkg.homepage || GITHUB_REPO,
+    bugs: pkg.bugs?.url || GITHUB_ISSUES,
+    license: pkg.license || "MIT",
+    author: pkg.author || "edwinspire",
+  };
+}
+
+function normalizeRemote(url) {
+  return url.replace(/^git\+/, "").replace(/\.git$/, "");
+}
+
+function esc(s) {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+const pkg = readPackageJson();
+const repoUrl = normalizeRemote(pkg.repository);
+const issuesUrl = GITHUB_ISSUES;
+const versionMajor = parseInt(String(pkg.version).split(".")[0], 10) || 0;
+
+const ICONS = {
+  bolt:
+    '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>',
+  layers:
+    '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/></svg>',
+  lock:
+    '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>',
+  sparkles:
+    '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z"/><path d="M19 14l.8 2.2L22 17l-2.2.8L19 20l-.8-2.2L16 17l2.2-.8L19 14z"/></svg>',
+  gauge:
+    '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21a9 9 0 1 1 9-9"/><path d="M12 12l4-4"/><path d="M12 21a3 3 0 0 1-3-3c0-1.5 1-2 3-3s3-1.5 3-3"/></svg>',
+  clock:
+    '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 15"/></svg>',
+  arrowUpRight:
+    '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8"/></svg>',
+  book:
+    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>',
+  github:
+    '<svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5A11.5 11.5 0 0 0 .5 12a11.5 11.5 0 0 0 7.86 10.92c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.53-1.33-1.28-1.68-1.28-1.68-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.56-.29-5.25-1.28-5.25-5.7 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.8 0c2.2-1.5 3.17-1.18 3.17-1.18.63 1.6.23 2.77.11 3.06a4.5 4.5 0 0 1 1.19 3.1c0 4.43-2.7 5.4-5.27 5.69.41.36.78 1.06.78 2.14v3.18c0 .31.2.66.8.55A11.5 11.5 0 0 0 23.5 12 11.5 11.5 0 0 0 12 .5z"/></svg>',
+  check:
+    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>',
+  users:
+    '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
+  code:
+    '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>',
+};
+
+const html = `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="Library based on Fastify to create APIs quickly and easily from a web interface." />
-  <meta name="author" content="edwinspire &lt;edwinspire@gmail.com&gt;" />
+  <meta name="description" content="${esc(pkg.description)}" />
+  <meta name="author" content="${esc(pkg.author)}" />
   <meta name="theme-color" content="#070c18" />
   <link rel="icon" href="/favicon.png" type="image/png" />
-  <title>@rdsslab/libopenfusionapi | Runtime API Platform</title>
+  <title>${esc(pkg.name)} | Runtime API Platform</title>
   <style>
     :root {
       --bg: #070c18;
@@ -564,7 +640,7 @@
     <div class="wrap nav-inner">
       <a class="brand" href="#top">
         <span class="brand-mark">OF</span>
-        <span class="brand-text"><strong>@rdsslab/libopenfusionapi</strong><small>Runtime API Platform</small></span>
+        <span class="brand-text"><strong>${esc(pkg.name)}</strong><small>Runtime API Platform</small></span>
       </a>
       <nav class="nav-links" aria-label="Primary">
         <a href="#features">Features</a>
@@ -574,8 +650,8 @@
         <a href="#try">Try it</a>
       </nav>
       <div class="nav-cta">
-        <a class="btn btn-ghost" href="https://github.com/rdsslab/libOpenFusionAPI" target="_blank" rel="noopener"><svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5A11.5 11.5 0 0 0 .5 12a11.5 11.5 0 0 0 7.86 10.92c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.53-1.33-1.28-1.68-1.28-1.68-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.56-.29-5.25-1.28-5.25-5.7 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.8 0c2.2-1.5 3.17-1.18 3.17-1.18.63 1.6.23 2.77.11 3.06a4.5 4.5 0 0 1 1.19 3.1c0 4.43-2.7 5.4-5.27 5.69.41.36.78 1.06.78 2.14v3.18c0 .31.2.66.8.55A11.5 11.5 0 0 0 23.5 12 11.5 11.5 0 0 0 12 .5z"/></svg> GitHub</a>
-        <a class="btn btn-primary" href="https://github.com/rdsslab/libOpenFusionAPI#readme" target="_blank" rel="noopener">Get Started <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8"/></svg></a>
+        <a class="btn btn-ghost" href="${esc(repoUrl)}" target="_blank" rel="noopener">${ICONS.github} GitHub</a>
+        <a class="btn btn-primary" href="${esc(repoUrl)}#readme" target="_blank" rel="noopener">Get Started ${ICONS.arrowUpRight}</a>
       </div>
     </div>
   </header>
@@ -584,21 +660,21 @@
     <section class="hero">
       <div class="wrap hero-grid">
         <div>
-          <span class="badge"><span class="pulse"></span> Fastify-powered API runtime · v12.0.1</span>
+          <span class="badge"><span class="pulse"></span> Fastify-powered API runtime · v${esc(pkg.version)}</span>
           <h1>Ship <span class="grad-text">configurable APIs</span> with production-ready control.</h1>
           <p class="lead">
-            Library based on Fastify to create APIs quickly and easily from a web interface. Built on Node.js and Fastify, it turns configuration into live
+            ${esc(pkg.description)} Built on Node.js and Fastify, it turns configuration into live
             HTTP and WebSocket endpoints across SQL, scripts, SOAP, MCP and MongoDB — for humans
             and AI agents alike.
           </p>
           <div class="hero-actions">
-            <a class="btn btn-primary btn-lg" href="https://github.com/rdsslab/libOpenFusionAPI#readme" target="_blank" rel="noopener"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg> Read the docs</a>
-            <a class="btn btn-ghost btn-lg" href="http://localhost:3000/api/system/server/version/prd" target="_blank" rel="noopener">Live server version <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8"/></svg></a>
+            <a class="btn btn-primary btn-lg" href="${esc(repoUrl)}#readme" target="_blank" rel="noopener">${ICONS.book} Read the docs</a>
+            <a class="btn btn-ghost btn-lg" href="${SITE_BASE}/api/system/server/version/prd" target="_blank" rel="noopener">Live server version ${ICONS.arrowUpRight}</a>
           </div>
           <ul class="hero-points">
-            <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg> No boilerplate</li>
-            <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg> Dev / QA / Prod</li>
-            <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg> MCP &amp; AI ready</li>
+            <li>${ICONS.check} No boilerplate</li>
+            <li>${ICONS.check} Dev / QA / Prod</li>
+            <li>${ICONS.check} MCP &amp; AI ready</li>
           </ul>
         </div>
 
@@ -611,7 +687,7 @@
               <p class="ln"><span class="cmt"># public endpoints you can hit right now</span></p>
               <p class="ln"><span class="meth">GET</span> <span class="url">/api/system/server/version/prd</span></p>
               <p class="ln resp"><span style="color:#4e5d82">←</span> <span class="code">200 OK</span></p>
-              <p class="ln"><span class="cmt">{"libOpenFusionAPI":</span> <span class="val">"12.0.1"</span><span class="punc">,</span></p>
+              <p class="ln"><span class="cmt">{"libOpenFusionAPI":</span> <span class="val">"${esc(pkg.version)}"</span><span class="punc">,</span></p>
               <p class="ln jl"><span class="key">"handlers"</span><span class="punc">:</span> <span class="val">"10+ pluggable"</span><span class="punc">,</span></p>
               <p class="ln jl"><span class="key">"environments"</span><span class="punc">:</span> <span class="val">"dev, qa, prd"</span><span class="punc">}</span></p>
               <p class="ln"><span class="meth">GET</span> <span class="url">/api/system/api/agent_onboarding/prd</span></p>
@@ -623,7 +699,7 @@
 
       <div class="wrap" style="padding-top:34px">
         <div class="stats">
-          <div class="stat"><span class="num" data-count="12">0</span><span class="lbl">Current version</span></div>
+          <div class="stat"><span class="num" data-count="${versionMajor}">0</span><span class="lbl">Current version</span></div>
           <div class="stat"><span class="num" data-count="3">0</span><span class="suffix">+</span><span class="lbl">Environment tiers</span></div>
           <div class="stat"><span class="num" data-count="10">0</span><span class="suffix">+</span><span class="lbl">Endpoint handlers</span></div>
           <div class="stat"><span class="lbl-special">MIT</span><span class="lbl">Open-source license</span></div>
@@ -640,32 +716,32 @@
         </div>
         <div class="grid-features">
           <article class="card reveal">
-            <span class="icon-tile"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></span>
+            <span class="icon-tile">${ICONS.bolt}</span>
             <h3>Rapid endpoint creation</h3>
             <p>Configure endpoints instead of hand-writing boilerplate. Friction drops from days to minutes.</p>
           </article>
           <article class="card reveal">
-            <span class="icon-tile"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/></svg></span>
+            <span class="icon-tile">${ICONS.layers}</span>
             <h3>Pluggable handlers</h3>
             <p>SQL, MongoDB, SOAP, MCP, JS scripts, FETCH, HANA, bulk inserts, text and native functions.</p>
           </article>
           <article class="card reveal">
-            <span class="icon-tile"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>
+            <span class="icon-tile">${ICONS.lock}</span>
             <h3>Access control built-in</h3>
             <p>Public, private and bearer access levels with per-endpoint policy hooks.</p>
           </article>
           <article class="card reveal">
-            <span class="icon-tile"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z"/><path d="M19 14l.8 2.2L22 17l-2.2.8L19 20l-.8-2.2L16 17l2.2-.8L19 14z"/></svg></span>
+            <span class="icon-tile">${ICONS.sparkles}</span>
             <h3>MCP &amp; AI-agent native</h3>
             <p>Agents create applications, variables and endpoints through MCP tooling and JSON Schema contracts.</p>
           </article>
           <article class="card reveal">
-            <span class="icon-tile"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21a9 9 0 1 1 9-9"/><path d="M12 12l4-4"/><path d="M12 21a3 3 0 0 1-3-3c0-1.5 1-2 3-3s3-1.5 3-3"/></svg></span>
+            <span class="icon-tile">${ICONS.gauge}</span>
             <h3>Caching &amp; observability</h3>
             <p>Endpoint caching, tracing, request logging and lifecycle events out of the box.</p>
           </article>
           <article class="card reveal">
-            <span class="icon-tile"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 15"/></svg></span>
+            <span class="icon-tile">${ICONS.clock}</span>
             <h3>Scheduling &amp; bots</h3>
             <p>Recurring interval/cron tasks and messaging bots, all managed in-platform.</p>
           </article>
@@ -706,21 +782,21 @@
         </div>
         <div class="grid-2">
           <article class="card vs-card reveal">
-            <h3><span class="icon-tile" style="width:34px;height:34px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg></span> The old way</h3>
+            <h3><span class="icon-tile" style="width:34px;height:34px">${ICONS.code}</span> The old way</h3>
             <ul class="vs-list">
-              <li><span class="xi no"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></span>Slow, redundant, boilerplate-heavy development.</li>
-              <li><span class="xi no"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></span>Complex, inconsistent environment management.</li>
-              <li><span class="xi no"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></span>Security and validation overhead on every service.</li>
-              <li><span class="xi no"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></span>AI code with no reliable deployment surface.</li>
+              <li><span class="xi no">${ICONS.check}</span>Slow, redundant, boilerplate-heavy development.</li>
+              <li><span class="xi no">${ICONS.check}</span>Complex, inconsistent environment management.</li>
+              <li><span class="xi no">${ICONS.check}</span>Security and validation overhead on every service.</li>
+              <li><span class="xi no">${ICONS.check}</span>AI code with no reliable deployment surface.</li>
             </ul>
           </article>
           <article class="card vs-card reveal">
-            <h3><span class="icon-tile" style="width:34px;height:34px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z"/><path d="M19 14l.8 2.2L22 17l-2.2.8L19 20l-.8-2.2L16 17l2.2-.8L19 14z"/></svg></span> With OpenFusionAPI</h3>
+            <h3><span class="icon-tile" style="width:34px;height:34px">${ICONS.sparkles}</span> With OpenFusionAPI</h3>
             <ul class="vs-list">
-              <li><span class="xi ok"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></span>Configure in minutes, zero boilerplate to maintain.</li>
-              <li><span class="xi ok"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></span>Native dev, qa and production tiers.</li>
-              <li><span class="xi ok"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></span>JSON Schema validation and access control built in.</li>
-              <li><span class="xi ok"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></span>MCP tooling that lets agents assemble deployable services.</li>
+              <li><span class="xi ok">${ICONS.check}</span>Configure in minutes, zero boilerplate to maintain.</li>
+              <li><span class="xi ok">${ICONS.check}</span>Native dev, qa and production tiers.</li>
+              <li><span class="xi ok">${ICONS.check}</span>JSON Schema validation and access control built in.</li>
+              <li><span class="xi ok">${ICONS.check}</span>MCP tooling that lets agents assemble deployable services.</li>
             </ul>
           </article>
         </div>
@@ -736,27 +812,27 @@
         </div>
         <div class="grid-audience">
           <div class="aud-card reveal">
-            <span class="av"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
+            <span class="av">${ICONS.users}</span>
             <div><strong>Backend developers</strong><span>Ship internal and public APIs faster</span></div>
           </div>
           <div class="aud-card reveal">
-            <span class="av"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/></svg></span>
+            <span class="av">${ICONS.layers}</span>
             <div><strong>API architects</strong><span>Consistent contracts, schemas and governance</span></div>
           </div>
           <div class="aud-card reveal">
-            <span class="av"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></span>
+            <span class="av">${ICONS.bolt}</span>
             <div><strong>Integration engineers</strong><span>SQL, SOAP, REST and NoSQL in one place</span></div>
           </div>
           <div class="aud-card reveal">
-            <span class="av"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21a9 9 0 1 1 9-9"/><path d="M12 12l4-4"/><path d="M12 21a3 3 0 0 1-3-3c0-1.5 1-2 3-3s3-1.5 3-3"/></svg></span>
+            <span class="av">${ICONS.gauge}</span>
             <div><strong>DevOps &amp; platform teams</strong><span>Multi-environment control and observability</span></div>
           </div>
           <div class="aud-card reveal">
-            <span class="av"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z"/><path d="M19 14l.8 2.2L22 17l-2.2.8L19 20l-.8-2.2L16 17l2.2-.8L19 14z"/></svg></span>
+            <span class="av">${ICONS.sparkles}</span>
             <div><strong>AI &amp; automation teams</strong><span>MCP-native service creation and upkeep</span></div>
           </div>
           <div class="aud-card reveal">
-            <span class="av"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>
+            <span class="av">${ICONS.lock}</span>
             <div><strong>Enterprises at scale</strong><span>Reusable variables, access rules and caching</span></div>
           </div>
         </div>
@@ -807,11 +883,11 @@
             <div class="bar"><span></span><span></span><span></span><i>endpoints</i></div>
             <pre>
 <span class="c-cmt"># Public system endpoints</span>
-<span class="c-meth">GET</span> <span class="c-url">http://localhost:3000/api/system/server/version/prd</span>
-<span class="c-meth">GET</span> <span class="c-url">http://localhost:3000/api/system/api/agent_onboarding/prd</span>
+<span class="c-meth">GET</span> <span class="c-url">${SITE_BASE}/api/system/server/version/prd</span>
+<span class="c-meth">GET</span> <span class="c-url">${SITE_BASE}/api/system/api/agent_onboarding/prd</span>
 
 <span class="c-cmt"># Public demo app endpoint</span>
-<span class="c-meth">GET</span> <span class="c-url">http://localhost:3000/api/demo/ofapi/javascript/example03/prd</span></pre>
+<span class="c-meth">GET</span> <span class="c-url">${SITE_BASE}/api/demo/ofapi/javascript/example03/prd</span></pre>
           </div>
           <div class="code-block reveal">
             <div class="bar"><span></span><span></span><span></span><i>response</i></div>
@@ -819,7 +895,7 @@
 <span class="c-cmt">// GET /api/system/server/version/prd</span>
 <span class="c-str">{
   "libOpenFusionAPI": {
-    "version": "12.0.1"
+    "version": "${esc(pkg.version)}"
   },
   "runtime": "fastify",
   "status": "running"
@@ -834,8 +910,8 @@
         <h2>Ready to build your next API in minutes?</h2>
         <p>Explore the repository, read the guide, or bring your own roadmap to the issues page. OpenFusionAPI is open source under the MIT license.</p>
         <div class="cta-actions">
-          <a class="btn btn-primary btn-lg" href="https://github.com/rdsslab/libOpenFusionAPI#readme" target="_blank" rel="noopener"><svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5A11.5 11.5 0 0 0 .5 12a11.5 11.5 0 0 0 7.86 10.92c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.53-1.33-1.28-1.68-1.28-1.68-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.56-.29-5.25-1.28-5.25-5.7 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.8 0c2.2-1.5 3.17-1.18 3.17-1.18.63 1.6.23 2.77.11 3.06a4.5 4.5 0 0 1 1.19 3.1c0 4.43-2.7 5.4-5.27 5.69.41.36.78 1.06.78 2.14v3.18c0 .31.2.66.8.55A11.5 11.5 0 0 0 23.5 12 11.5 11.5 0 0 0 12 .5z"/></svg> Open the repository</a>
-          <a class="btn btn-ghost btn-lg" href="https://github.com/rdsslab/libOpenFusionAPI/issues" target="_blank" rel="noopener">Report an issue</a>
+          <a class="btn btn-primary btn-lg" href="${esc(repoUrl)}#readme" target="_blank" rel="noopener">${ICONS.github} Open the repository</a>
+          <a class="btn btn-ghost btn-lg" href="${esc(issuesUrl)}" target="_blank" rel="noopener">Report an issue</a>
         </div>
       </section>
     </div>
@@ -845,15 +921,15 @@
     <div class="wrap foot-inner">
       <div class="foot-brand">
         <span class="brand-mark">OF</span>
-        <span><strong>@rdsslab/libopenfusionapi</strong><small>Maintained by edwinspire &lt;edwinspire@gmail.com&gt;</small></span>
+        <span><strong>${esc(pkg.name)}</strong><small>Maintained by ${esc(pkg.author)}</small></span>
       </div>
       <div class="foot-right">
         <div class="foot-links">
-          <a href="https://github.com/rdsslab/libOpenFusionAPI" target="_blank" rel="noopener">Repository</a>
-          <a href="https://github.com/rdsslab/libOpenFusionAPI/issues" target="_blank" rel="noopener">Issues</a>
-          <a href="https://github.com/rdsslab/libOpenFusionAPI#readme" target="_blank" rel="noopener">Documentation</a>
+          <a href="${esc(repoUrl)}" target="_blank" rel="noopener">Repository</a>
+          <a href="${esc(issuesUrl)}" target="_blank" rel="noopener">Issues</a>
+          <a href="${esc(repoUrl)}#readme" target="_blank" rel="noopener">Documentation</a>
         </div>
-        <span class="foot-ver">v12.0.1 · MIT</span>
+        <span class="foot-ver">v${esc(pkg.version)} · ${esc(pkg.license)}</span>
       </div>
     </div>
   </footer>
@@ -917,3 +993,70 @@
   </script>
 </body>
 </html>
+`;
+
+async function generateFavicon() {
+  try {
+    const { createCanvas } = await import("canvas");
+    const size = 128;
+    const canvas = createCanvas(size, size);
+    const ctx = canvas.getContext("2d");
+    const radius = 30;
+
+    ctx.beginPath();
+    ctx.moveTo(radius, 0);
+    ctx.arcTo(size, 0, size, size, radius);
+    ctx.arcTo(size, size, 0, size, radius);
+    ctx.arcTo(0, size, 0, 0, radius);
+    ctx.arcTo(0, 0, size, 0, radius);
+    ctx.closePath();
+
+    const gradient = ctx.createLinearGradient(0, 0, size, size);
+    gradient.addColorStop(0, "#1e5eff");
+    gradient.addColorStop(1, "#00a58f");
+    ctx.fillStyle = gradient;
+    ctx.fill();
+
+    ctx.save();
+    ctx.shadowColor = "rgba(0,0,0,0.35)";
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "800 52px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("OF", size / 2, size / 2 + 2);
+    ctx.restore();
+
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = "rgba(255,255,255,0.3)";
+    ctx.stroke();
+
+    fs.writeFileSync(FAVICON_FILE, canvas.toBuffer("image/png"));
+    console.log(`Favicon generated at: ${FAVICON_FILE}`);
+  } catch (err) {
+    console.warn(`Favicon generation skipped (canvas unavailable): ${err.message}`);
+  }
+}
+
+fs.mkdirSync(OUT_DIR, { recursive: true });
+fs.writeFileSync(OUT_FILE, html, "utf8");
+console.log(`Index generated at: ${OUT_FILE}`);
+
+await generateFavicon();
+
+if (process.argv.includes("--check")) {
+  const required = [
+    esc(pkg.name),
+    esc(pkg.version),
+    `${SITE_BASE}/api/system/server/version/prd`,
+    `${SITE_BASE}/api/system/api/agent_onboarding/prd`,
+    esc(repoUrl),
+    esc(issuesUrl),
+  ];
+  const missing = required.filter((token) => !html.includes(token));
+  if (missing.length > 0) {
+    console.error(`Validation failed. Missing in output: ${missing.join(", ")}`);
+    process.exit(1);
+  }
+  console.log("Validation passed: generated index includes expected metadata and working links.");
+}
