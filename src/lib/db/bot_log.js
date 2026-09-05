@@ -220,6 +220,7 @@ export const getBotLogs = async (options = {}) => {
     offset = 0,
     order = "timestamp",
     orderDirection = "DESC",
+    lightweight = true,
   } = options;
 
   try {
@@ -290,8 +291,40 @@ export const getBotLogs = async (options = {}) => {
     const normalizedLimit = Math.min(Math.max(Number(limit) || 500, 1), 10000);
     const normalizedOffset = Math.max(Number(offset) || 0, 0);
 
+    // Por defecto se devuelve la proyección compacta: las columnas grandes
+    // (message, stack, provider_response, metadata) pueden dominar el payload
+    // y solo se incluyen cuando el agente pide lightweight=false explícitamente.
+    const lightweightAttributes = [
+      "id",
+      "idbot",
+      "idapp",
+      "trace_id",
+      "timestamp",
+      "provider",
+      "environment",
+      "event",
+      "log_level",
+      "status_code",
+      "error_type",
+      "runtime_status_snapshot",
+      "failure_count_snapshot",
+      "duration_ms",
+      "user_agent",
+    ];
+    const fullAttributes = [
+      ...lightweightAttributes,
+      "message",
+      "stack",
+      "provider_response",
+      "metadata",
+    ];
+    const attributes = lightweight
+      ? lightweightAttributes
+      : fullAttributes;
+
     return await BotLog.findAll({
       where,
+      attributes,
       order: [[order, orderDirection.toUpperCase() === "ASC" ? "ASC" : "DESC"]],
       limit: normalizedLimit,
       offset: normalizedOffset,

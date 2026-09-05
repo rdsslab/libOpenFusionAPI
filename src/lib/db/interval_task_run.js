@@ -110,8 +110,34 @@ export const pruneIntervalTaskRuns = async (idtask, keep) => {
 export const getIntervalTaskRuns = async (idtask, options = {}) => {
   const limit = Math.min(Math.max(Number(options.limit) || 100, 1), 500);
 
+  const where = { idtask };
+  if (options.status !== undefined && options.status !== null) {
+    const status = Number(options.status);
+    if (Number.isInteger(status) && [2, 3, 4].includes(status)) {
+      where.status = status;
+    }
+  }
+
+  // Por defecto se devuelve la proyección compacta: solo columnas de telemetría.
+  // `response` y `error` (que pueden ser grandes y dominar el payload) solo se
+  // incluyen cuando el agente los pide explícitamente con include_response.
+  const lightweightAttributes = [
+    "idrun",
+    "idtask",
+    "started_at",
+    "finished_at",
+    "duration_ms",
+    "status",
+    "http_status",
+  ];
+  const fullAttributes = [...lightweightAttributes, "error", "response"];
+  const attributes = options.include_response
+    ? fullAttributes
+    : lightweightAttributes;
+
   return await IntervalTaskRun.findAll({
-    where: { idtask },
+    where,
+    attributes,
     order: [["idrun", "DESC"]],
     limit,
   });

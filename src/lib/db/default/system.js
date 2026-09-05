@@ -10656,7 +10656,7 @@ export const system_app = {
           "When using date windows, send `start_date` and `end_date` together to keep the range explicit.",
           "Use `last_hours` for quick recent searches and reserve broad unfiltered scans for exceptional cases because log volume can be high.",
           "Use `environment` (dev/qa/prd) to scope logs to a single environment; omit it to search across all environments.",
-          "Use `status_code` to list recent errors: an exact code (e.g. 502), a group (\"4xx\", \"5xx\"), or a comma-separated list (\"502,404\"). Combine with `last_hours` and `orderDirection=DESC` to get the most recent errors first, and use `lightweight=true` to get a compact per-request row (status_code, trace_id, url, timestamp, response_time, method) without headers/payloads.",
+          "Use `status_code` to list recent errors: an exact code (e.g. 502), a group (\"4xx\", \"5xx\"), or a comma-separated list (\"502,404\"). Combine with `last_hours` and `orderDirection=DESC` to get the most recent errors first. `lightweight` defaults to true, so rows come compact (status_code, trace_id, url, timestamp, response_time, method) without headers/payloads; set `lightweight=false` only when you need the full request/response metadata or the structured `message` column.",
           "Use `event` to filter structured logs by `message.event` instead of scanning payloads client-side. To verify a bot started, combine `idendpoint=<idbot>` with `event=bot_started`; to diagnose one that did not, use `event=bot_token_error,bot_startup_error,bot_auto_disabled`.",
           "`lightweight=true` omits the `message` column from the response but `event` still filters correctly, so the two combine safely."
         ]
@@ -10752,6 +10752,11 @@ export const system_app = {
                 "type": "string",
                 "minLength": 1,
                 "description": "Primary correlation key for diagnostics. Use this to trace a full error chain and execution path for one request across endpoint interactions."
+              },
+              "lightweight": {
+                "type": "boolean",
+                "default": true,
+                "description": "When true (default), omits the large columns (user_agent, client, req_headers, res_headers, response_data, message) to keep the response compact and save agent tokens. Set false only when you need payloads, headers or structured messages."
               },
               "raw": {
                 "type": "boolean",
@@ -11255,8 +11260,8 @@ export const system_app = {
                 "type": "integer",
                 "minimum": 500,
                 "maximum": 600000,
-                "default": 600000,
-                "description": "Request timeout in milliseconds (default and maximum: 600000, i.e. 10 minutes). Lower it when you want the test to give up early; a test that hits the limit returns HTTP 504."
+                "default": 300000,
+                "description": "Request timeout in milliseconds. Default: 300000 (5 minutes); maximum: 600000 (10 minutes). Lower it when you want the test to give up early; a test that hits the limit returns HTTP 504."
               }
             }
           }
@@ -12711,7 +12716,7 @@ export const system_app = {
         "enabled": true,
         "name": "get_interval_task_runs",
         "title": "Get Interval Task Runs",
-        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows. This is the tool that explains WHY a scheduled task is failing; 'list_interval_tasks' only shows the current state.\nReturns the execution history of one interval task, newest first. Each row carries `started_at`, `finished_at`, `duration_ms`, `status` (2 completed, 3 error, 4 timeout), `http_status`, `error` and the `response` body. Obtain `idtask` from 'list_interval_tasks'.\nRetention is per task and governed by its `history_limit`: older runs are pruned automatically, and a task with `history_limit: 0` keeps no history at all, so this tool returns an empty list even though the task is running. An empty list therefore means either no history kept or the task has never run — check `last_run` in 'list_interval_tasks' to tell them apart.\nLarge payloads are not stored verbatim: a response over 4096 characters is replaced by `{truncated: true, size, preview}`, and `error` is capped at 2000 characters.",
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows. This is the tool that explains WHY a scheduled task is failing; 'list_interval_tasks' only shows the current state.\nReturns the execution history of one interval task, newest first. Each row carries the telemetry (idrun, `started_at`, `finished_at`, `duration_ms`, `status` (2 completed, 3 error, 4 timeout), `http_status`); the error message and the `response` body are large, so they are omitted by default and included only when you set `include_response: true`. Obtain `idtask` from 'list_interval_tasks'.\nRetention is per task and governed by its `history_limit`: older runs are pruned automatically, and a task with `history_limit: 0` keeps no history at all, so this tool returns an empty list even though the task is running. An empty list therefore means either no history kept or the task has never run — check `last_run` in 'list_interval_tasks' to tell them apart.\nLarge payloads are not stored verbatim: a response over 4096 characters is replaced by `{truncated: true, size, preview}`, and `error` is capped at 2000 characters.",
         "operation_mode": "read",
         "requires_explicit_confirmation": false,
         "side_effects": "No persistent write side effects expected.",
@@ -12742,6 +12747,16 @@ export const system_app = {
                 "maximum": 500,
                 "default": 100,
                 "description": "Maximum number of executions to return (newest first). Values outside 1-500 are clamped rather than rejected."
+              },
+              "status": {
+                "type": "integer",
+                "enum": [2, 3, 4],
+                "description": "Optional. Filter runs by outcome: 2 completed, 3 error, 4 timeout. Omit to return all outcomes."
+              },
+              "include_response": {
+                "type": "boolean",
+                "default": false,
+                "description": "Defaults false: rows come compact with telemetry only (idrun, idtask, started_at, finished_at, duration_ms, status, http_status). Set true to also include the `error` and `response` fields, which can be large (response is stored truncated to 4096 characters)."
               }
             }
           }
@@ -13764,7 +13779,7 @@ export const system_app = {
         "enabled": true,
         "name": "bot_lifecycle_logs",
         "title": "Bot Lifecycle Logs",
-        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Returns the lifecycle event history of a specific bot (starts, stops, errors, retries). Default window is 24 hours, configurable up to 72. Requires 'idbot'.",
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Returns the lifecycle event history of a specific bot (starts, stops, errors, retries). Default window is 24 hours, configurable up to 72. Requires 'idbot'.\nRows come compact by default (identity, `event`, `log_level`, `status_code`, `error_type`, `duration_ms`, snapshots) — the larger fields (`message`, `stack`, `provider_response`, `metadata`) are omitted unless you set `lightweight: false`.",
         "operation_mode": "read",
         "requires_explicit_confirmation": false,
         "side_effects": "No persistent write side effects expected.",
@@ -13789,12 +13804,41 @@ export const system_app = {
                 "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
                 "description": "Bot UUID whose logs should be returned (required)."
               },
+              "idapp": {
+                "type": "string",
+                "description": "Optional. Application UUID to narrow the bot's logs to one app."
+              },
+              "provider": {
+                "type": "string",
+                "description": "Optional. Platform/provider name (telegram, whatsapp, ms_teams...)."
+              },
+              "environment": {
+                "type": "string",
+                "enum": ["dev", "qa", "prd"],
+                "description": "Optional. Bot environment. 'prd' also matches legacy rows without an environment."
+              },
+              "trace_id": {
+                "type": "string",
+                "description": "Optional. Correlation ID of a single bot start attempt and its worker lifetime."
+              },
+              "error_type": {
+                "type": "string",
+                "description": "Optional. Classified error type, or comma-separated list (e.g. 'INVALID_TOKEN,CONNECTION_ERROR')."
+              },
               "last_hours": {
                 "type": "integer",
                 "default": 24,
                 "minimum": 1,
                 "maximum": 72,
-                "description": "Hours to look back (1-72, default 24)."
+                "description": "Hours to look back (1-72, default 24). Use start_date/end_date instead for an explicit range."
+              },
+              "start_date": {
+                "type": "string",
+                "description": "Optional. Start datetime (inclusive). Send together with end_date for an explicit range."
+              },
+              "end_date": {
+                "type": "string",
+                "description": "Optional. End datetime (inclusive). Send together with start_date for an explicit range."
               },
               "limit": {
                 "type": "integer",
@@ -13809,6 +13853,17 @@ export const system_app = {
                 "minimum": 0,
                 "description": "Offset for pagination."
               },
+              "order": {
+                "type": "string",
+                "default": "timestamp",
+                "description": "Field used for sorting."
+              },
+              "orderDirection": {
+                "type": "string",
+                "enum": ["ASC", "DESC"],
+                "default": "DESC",
+                "description": "Sort direction."
+              },
               "event": {
                 "type": "string",
                 "description": "Filter by event name or comma-separated list (e.g. 'bot_started,bot_stopped')."
@@ -13818,6 +13873,11 @@ export const system_app = {
                 "minimum": 0,
                 "maximum": 5,
                 "description": "Minimum log level (0=TRACE..5=FATAL). Default returns all."
+              },
+              "lightweight": {
+                "type": "boolean",
+                "default": true,
+                "description": "When true (default), omits the large fields (message, stack, provider_response, metadata) to save tokens. Set false only when you need the event detail or stack traces."
               }
             },
             "required": ["idbot"],

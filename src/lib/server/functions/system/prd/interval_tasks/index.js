@@ -104,7 +104,13 @@ export async function fnGetIntervalTaskRuns(params) {
   let r = { code: 200, data: undefined };
   try {
     const query = params.request.query || {};
-    r.data = await getIntervalTaskRuns(query.idtask, { limit: query.limit });
+    const body = params.request.body || {};
+    const merged = { ...query, ...body };
+    r.data = await getIntervalTaskRuns(merged.idtask, {
+      limit: merged.limit,
+      status: merged.status !== undefined ? Number(merged.status) : undefined,
+      include_response: merged.include_response === true,
+    });
     r.code = 200;
   } catch (error) {
     console.log(error);

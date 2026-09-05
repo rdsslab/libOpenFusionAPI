@@ -73,6 +73,9 @@ const DOMAIN_IDENTIFIERS = new Set([
   "last_healthy_at",
   "disabled_by",
   "disabled_reason",
+  // Columnas del modelo de logs de bots (ofapi_botlog) y de endpoints (ofapi_log).
+  "status_code",
+  "provider_response",
   // Telemetría de las interval tasks, que se cita al describir la respuesta.
   "task_enabled",
   "last_run",

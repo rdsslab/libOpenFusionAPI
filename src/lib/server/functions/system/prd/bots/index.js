@@ -410,6 +410,8 @@ export async function fnGetBotLogs(params) {
   let r = { code: 204, data: undefined };
   try {
     const query = params.request.query || {};
+    const body = params.request.body || {};
+    const merged = { ...query, ...body };
     const {
       idbot,
       idapp,
@@ -422,7 +424,12 @@ export async function fnGetBotLogs(params) {
       last_hours,
       limit,
       offset,
-    } = query;
+      start_date,
+      end_date,
+      order,
+      orderDirection,
+      lightweight,
+    } = merged;
 
     if (!idbot) {
       r.code = 400;
@@ -442,6 +449,11 @@ export async function fnGetBotLogs(params) {
       last_hours: last_hours !== undefined ? Number(last_hours) : 24,
       limit: limit !== undefined ? Number(limit) : 200,
       offset: offset !== undefined ? Number(offset) : 0,
+      start_date,
+      end_date,
+      order,
+      orderDirection,
+      lightweight: lightweight !== false,
     });
 
     r.data = { success: true, data: logs };

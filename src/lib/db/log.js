@@ -179,7 +179,7 @@ export const getLogs = async (options = {}) => {
       orderDirection = "DESC",
       trace_id,
       raw = true, // Si quieres objetos planos en lugar de instancias de Sequelize
-      lightweight = false, // Si true, omite campos grandes (req_headers, res_headers, response_data, message)
+      lightweight = true, // Si true, omite campos grandes (req_headers, res_headers, response_data, message)
     } = options;
 
     //
