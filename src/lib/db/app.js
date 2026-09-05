@@ -537,6 +537,8 @@ export const getAppWithEndpoints = async (
         "code",
         "description",
         "keywords",
+        "title",
+        "timeout",
         "json_schema",
         "headers_test",
         "data_test",

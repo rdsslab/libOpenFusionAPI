@@ -1012,8 +1012,8 @@ async function generateFavicon() {
     ctx.closePath();
 
     const gradient = ctx.createLinearGradient(0, 0, size, size);
-    gradient.addColorStop(0, "#1e5eff");
-    gradient.addColorStop(1, "#00a58f");
+    gradient.addColorStop(0, "#FF7A00");
+    gradient.addColorStop(1, "#F05000");
     ctx.fillStyle = gradient;
     ctx.fill();
 
