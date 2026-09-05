@@ -658,7 +658,10 @@ export const CreateMCPHandler = async (app_name, environment) => {
     inputSchema,
     endpointUpsertDescriptionAddon,
   }) => {
-    const requiredFields = getRequiredFields(inputSchema);
+    const rootSchemaKind = getRootSchemaKind(inputSchema);
+    const requiredFields = rootSchemaKind === "array"
+      ? ["value"]
+      : getRequiredFields(inputSchema);
     const fallbackDescription = `Calls ${endpoint.method} ${endpoint.resource} for application ${app_name} in ${endpoint.environment}.`;
     const purpose = (effectiveDescription && effectiveDescription.trim().length > 0)
       ? stripRedundantModePrefix(effectiveDescription.trim())
@@ -677,6 +680,10 @@ export const CreateMCPHandler = async (app_name, environment) => {
       `Environment: ${endpoint.environment}`,
       `Required fields: ${requiredFields.length > 0 ? requiredFields.join(", ") : "none"}`,
     ];
+
+    if (rootSchemaKind === "array") {
+      lines.push("Agent guidance: this tool's input is an array of items. Send it wrapped as {\"value\": [...]}\u2014MCP wraps single-value payloads in a `value` object field.");
+    }
 
     if (hasStructuredRuntimeSpecificPayload(endpoint.handler)) {
       lines.push(`Agent guidance: this handler uses runtime-specific payload structure; call handler_documentation with handler=${endpoint.handler} before composing complex payloads.`);

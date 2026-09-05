@@ -245,7 +245,8 @@ export const system_app = {
               "phone": { "type": "string", "description": "Phone number." },
               "startAt": { "type": "string", "format": "date-time", "description": "Validity start date." },
               "endAt": { "type": ["string", "null"], "format": "date-time", "description": "Validity end date. Null means no expiration." },
-              "exp_time": { "type": "integer", "minimum": 1, "description": "Token expiration time in seconds." }
+              "exp_time": { "type": "integer", "minimum": 1, "description": "Token expiration time in seconds." },
+              "custom_data": { "type": "object", "description": "Custom data (JSON)." }
             }
           }
         },
@@ -337,7 +338,10 @@ export const system_app = {
               "email": { "type": "string", "description": "Email address." },
               "enabled": { "type": ["boolean", "integer"], "enum": [true, false, 0, 1], "description": "Enable or disable the user. Defaults to true." },
               "ctrl": { "type": "object", "description": "Access control attributes (JSON)." },
-              "exp_time": { "type": "integer", "minimum": 1, "description": "Token expiration time in seconds. Defaults to 3600." }
+              "exp_time": { "type": "integer", "minimum": 1, "description": "Token expiration time in seconds. Defaults to 3600." },
+              "start_date": { "type": "string", "format": "date", "description": "Validity start date. Defaults to 2000-01-01." },
+              "end_date": { "type": "string", "format": "date", "description": "Validity end date. Defaults to 9999-12-31." },
+              "custom_data": { "type": "object", "description": "Custom data (JSON)." }
             }
           }
         },
