@@ -951,6 +951,22 @@ export async function fnEndpointTest(params) {
     const methodSupportsBody = (httpMethod) =>
       ["POST", "PUT", "PATCH", "DELETE", "QUERY"].includes(String(httpMethod || "").toUpperCase());
 
+    const isEmptyPayloadValue = (value) => {
+      if (value === null || value === undefined) {
+        return true;
+      }
+      if (typeof value === "string") {
+        return value.trim() === "";
+      }
+      if (Array.isArray(value)) {
+        return value.length === 0;
+      }
+      if (typeof value === "object") {
+        return Object.keys(value).length === 0;
+      }
+      return false;
+    };
+
     const isStructuredPayloadValue = (value) =>
       value !== null &&
       (Array.isArray(value) ||
@@ -1040,6 +1056,9 @@ export async function fnEndpointTest(params) {
 
       const jsonCode = bodyCfg?.json?.code;
       if (jsonCode != null) {
+        if (isEmptyPayloadValue(jsonCode)) {
+          return { payload: null, parse_error: null };
+        }
         if (typeof jsonCode === "object") {
           return { payload: jsonCode, parse_error: null };
         }
@@ -1072,7 +1091,7 @@ export async function fnEndpointTest(params) {
       bearer_token = null,
       timeout_ms = 600000,
     } = body;
-    const environment = explicitEnvironment || "dev";
+    let environment = explicitEnvironment || "dev";
 
     const warnings = [];
     const hasMethodInput = hasOwn(body, "method");
@@ -1302,7 +1321,7 @@ export async function fnEndpointTest(params) {
       resolved_inputs: {
         from_data_test: {
           query_params: allowDataTestFallback && !hasQueryParamsInput,
-          payload: allowDataTestFallback && !hasPayloadInput,
+          payload: allowDataTestFallback && !hasPayloadInput && payloadFromDataTest.payload !== null,
           headers: allowDataTestFallback && !hasHeadersInput,
         },
         query_params: autoQueryParams,
