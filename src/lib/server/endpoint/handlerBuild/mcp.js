@@ -802,18 +802,19 @@ export const CreateMCPHandler = async (app_name, environment) => {
 1. Choose the handler first.
 2. Read the input schema and field descriptions from this tool before building the payload.
 3. Call \`handler_documentation\` with the chosen handler whenever the handler expects a structured JSON payload or database-specific rules.
-4. When you create a JSON Schema that will be stored in OpenFusionAPI, call \`validate_json_schema_for_mcp\` before publishing it.
-5. If updating an existing endpoint, call \`read_endpoint_data\` first and modify the current structure instead of rebuilding it from memory.
-6. Run \`endpoint_upsert\` with all required fields.
-7. Call \`read_endpoint_data\` again to verify the persisted structure.
-8. Test the endpoint via its HTTP URL before exposing it as an MCP tool.
+4. Define a \`json_schema\` (input request schema) for the endpoint so MCP publishes a usable input schema and the agent can send parameters. If you create a JSON Schema to store in OpenFusionAPI, call \`validate_json_schema_for_mcp\` before publishing it.
+5. Provide a \`data_test\` (an example request body/query) so the endpoint carries a saved test payload for the editor and for \`execute_endpoint_test\`.
+6. If updating an existing endpoint, call \`read_endpoint_data\` first and modify the current structure instead of rebuilding it from memory.
+7. Run \`endpoint_upsert\` with all required fields.
+8. Call \`read_endpoint_data\` again to verify the persisted structure, including the stored \`json_schema\` and \`data_test\`.
+9. Test the endpoint via its HTTP URL before exposing it as an MCP tool.
 `;
   };
 
   const getEndpointUpsertDescriptionAddon = (endpoint) => {
     if (!isEndpointUpsertEndpoint(endpoint)) return "";
 
-    return " Handler-specific note: `handler` defines the shape of `code` and related fields. Use the input schema field descriptions for the stored contract, and call `handler_documentation` before composing payloads for SQL_BULK_I, SOAP, HANA, MONGODB, MCP, or other handler-specific structures. Messaging bots are not endpoints: use `get_bot_skill` and `upsert_bot` instead.";
+    return " Handler-specific note: `handler` defines the shape of `code` and related fields. Use the input schema field descriptions for the stored contract, and call `handler_documentation` before composing payloads for SQL_BULK_I, SOAP, HANA, MONGODB, MCP, or other handler-specific structures. Messaging bots are not endpoints: use `get_bot_skill` and `upsert_bot` instead. Recommendation: when creating or updating an endpoint, also define a `json_schema` (so MCP publishes a usable input schema and agents can send parameters) and a `data_test` (a saved example request). Call `validate_json_schema_for_mcp` before publishing any JSON Schema.";
   };
 
   // Guard against missing endpoint collections when an app is partially configured.
