@@ -44,7 +44,16 @@ export const CreateMCPHandler = async (app_name, environment) => {
     name: "get_handler_skill",
     info: {
       title: "AI Agent Skill Instructions for Endpoint Handler",
-      description: "Returns the expert persona, guidelines, constraints, and templates for creating or modifying endpoints of the given handler type.",
+      description: [
+        "Purpose: Returns the expert persona, guidelines, constraints, and templates for creating or modifying endpoints of the given handler type.",
+        `Access: public`,
+        `HTTP target: GET /api/handler/skill`,
+        `Environment: ${environment}`,
+        "Required fields: handler.",
+        "Top-level input fields: handler.",
+        "Output: markdown skill guide (persona, guidelines, constraints, templates) for the requested handler type.",
+        "Agent guidance: call this before composing payloads when creating or modifying an endpoint, and never guess the payload structure for handlers you have not read a skill for.",
+      ].join("\n"),
       inputSchema: {
         handler: z.enum(handlerKeys).describe("Endpoint handler type to get the skill guide for."),
       },
@@ -1196,6 +1205,19 @@ ${endpointUpsertHandlerGuide}
     registerEndpointTool(safeToolName);
   }
 
+  markdown_api_catalog_rows.push([
+    "get_handler_skill",
+    "GET",
+    "/api/handler/skill",
+    "FUNCTION",
+  ]);
+  markdown_api_catalog_rows.push([
+    "validate_json_schema_for_mcp",
+    "N/A",
+    "internal (static, no HTTP endpoint)",
+    "JS",
+  ]);
+
   const md_resource = `
 # API Documentation for ${app_name} on ${environment} environment
 
@@ -1223,6 +1245,9 @@ _mcpConfig.tools.push({
     title: "Validate JSON Schema For MCP",
     description: [
       "Purpose: validate whether a JSON Schema is operationally compatible with OpenFusionAPI MCP.",
+      `Access: public`,
+      `HTTP target: internal (computed in-process; no HTTP endpoint)`,
+      `Environment: ${environment}`,
       "Required fields: schema.",
       "Top-level input fields: schema, schema_text, include_normalized_schema, include_serialized_schema.",
       "Output: JSON report with compatibility status, stage-by-stage results, warnings, errors, and recommendations.",

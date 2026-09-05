@@ -174,7 +174,19 @@ export const system_app = {
         "side_effects": "No persistent write side effects expected.",
         "safe_alternative": "N/A"
       },
-      "json_schema": {},
+      "json_schema": {
+        "in": {
+          "enabled": true,
+          "schema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+          }
+        },
+        "out": {
+          "enabled": false
+        }
+      },
       "custom_data": {},
       "headers_test": {},
       "data_test": {},
@@ -214,7 +226,31 @@ export const system_app = {
         "side_effects": "Creates a new ApiClient row. The plaintext password is returned only in this response and cannot be recovered.",
         "safe_alternative": "Call 'list_api_clients' first to check whether the client already exists."
       },
-      "json_schema": {},
+      "json_schema": {
+        "in": {
+          "enabled": true,
+          "schema": {
+            "title": "ApiClientCreateRequest",
+            "type": "object",
+            "required": ["email"],
+            "additionalProperties": false,
+            "properties": {
+              "email": { "type": "string", "description": "Client email address (required)." },
+              "username": { "type": "string", "description": "Username. Defaults to the email prefix if omitted." },
+              "first_name": { "type": "string", "description": "First name." },
+              "last_name": { "type": "string", "description": "Last name." },
+              "status": { "type": "string", "enum": ["initial", "active", "suspended", "inactive"], "description": "Client status." },
+              "document_id": { "type": "string", "description": "Document ID number." },
+              "document_type": { "type": "string", "enum": ["passport", "unknown", "id_card", "driver_license", "tax_id", "social_security", "other"], "description": "Document type." },
+              "phone": { "type": "string", "description": "Phone number." },
+              "startAt": { "type": "string", "format": "date-time", "description": "Validity start date." },
+              "endAt": { "type": ["string", "null"], "format": "date-time", "description": "Validity end date. Null means no expiration." },
+              "exp_time": { "type": "integer", "minimum": 1, "description": "Token expiration time in seconds." }
+            }
+          }
+        },
+        "out": { "enabled": false }
+      },
       "custom_data": {},
       "headers_test": {},
       "data_test": {},
@@ -285,7 +321,28 @@ export const system_app = {
         "side_effects": "Creates a new user row in the database. The user can then log in to the platform.",
         "safe_alternative": "Call 'list_users' first to verify the username is not already taken."
       },
-      "json_schema": {},
+      "json_schema": {
+        "in": {
+          "enabled": true,
+          "schema": {
+            "title": "UserCreateRequest",
+            "type": "object",
+            "required": ["username"],
+            "additionalProperties": false,
+            "properties": {
+              "username": { "type": "string", "description": "Login username (required, unique)." },
+              "password": { "type": "string", "minLength": 8, "description": "Password. Stored hashed. If omitted, login is disabled." },
+              "first_name": { "type": "string", "description": "First name." },
+              "last_name": { "type": "string", "description": "Last name." },
+              "email": { "type": "string", "description": "Email address." },
+              "enabled": { "type": ["boolean", "integer"], "enum": [true, false, 0, 1], "description": "Enable or disable the user. Defaults to true." },
+              "ctrl": { "type": "object", "description": "Access control attributes (JSON)." },
+              "exp_time": { "type": "integer", "minimum": 1, "description": "Token expiration time in seconds. Defaults to 3600." }
+            }
+          }
+        },
+        "out": { "enabled": false }
+      },
       "custom_data": {},
       "headers_test": {},
       "data_test": {},
@@ -813,7 +870,23 @@ export const system_app = {
         "side_effects": "Updates the password hash in the database. The user must use the new password on next login.",
         "safe_alternative": "Call 'list_users' first to confirm the user exists and is active."
       },
-      "json_schema": {},
+      "json_schema": {
+        "in": {
+          "enabled": true,
+          "schema": {
+            "title": "UserChangePasswordRequest",
+            "type": "object",
+            "required": ["username", "oldPassword", "newPassword"],
+            "additionalProperties": false,
+            "properties": {
+              "username": { "type": "string", "description": "Username of the system user whose password will change (required)." },
+              "oldPassword": { "type": "string", "description": "Current password (required)." },
+              "newPassword": { "type": "string", "minLength": 8, "description": "New password (required). Must meet security requirements and differ from the old one." }
+            }
+          }
+        },
+        "out": { "enabled": false }
+      },
       "custom_data": {},
       "headers_test": {},
       "data_test": {},
@@ -922,7 +995,19 @@ export const system_app = {
       },
       "cors": {},
       "mcp": {},
-      "json_schema": {},
+      "json_schema": {
+        "in": {
+          "enabled": true,
+          "schema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+          }
+        },
+        "out": {
+          "enabled": false
+        }
+      },
       "custom_data": {},
       "headers_test": {},
       "data_test": {},
@@ -5722,7 +5807,27 @@ export const system_app = {
         "side_effects": "Updates the password hash in the database. The client must use the new password on next login.",
         "safe_alternative": "Call 'list_api_clients' first to confirm the client exists and is active."
       },
-      "json_schema": {},
+      "json_schema": {
+        "in": {
+          "enabled": true,
+          "schema": {
+            "title": "ApiClientChangePasswordRequest",
+            "type": "object",
+            "required": [
+              "username",
+              "oldPassword",
+              "newPassword"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "username": { "type": "string", "description": "Username of the external API client whose password will change (required)." },
+              "oldPassword": { "type": "string", "description": "Current password (required)." },
+              "newPassword": { "type": "string", "minLength": 8, "description": "New password (required). Must meet security requirements and differ from the old one." }
+            }
+          }
+        },
+        "out": { "enabled": false }
+      },
       "custom_data": {},
       "headers_test": {},
       "data_test": {},
@@ -6911,7 +7016,7 @@ export const system_app = {
         "name": "cache_invalidate",
         "destructive": false,
         "title": "Invalidate Endpoint Cache",
-        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nInvalidates endpoint cache entries by `idapp` (optionally `environment`) or by a specific `idendpoint`. Use this when endpoint definitions or app variables changed and you need fresh data on next request.",
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nInvalidates endpoint cache entries by `idapp` (optionally narrowed with `environment`) or by a specific `idendpoint`. Provide AT LEAST ONE of `idapp` or `idendpoint`; `environment`, `reason` and the other field are optional refinements. Use this when endpoint definitions or app variables changed and you need fresh data on next request.",
         "operation_mode": "write",
         "requires_explicit_confirmation": true,
         "side_effects": "Drops cached endpoint entries so the next request rebuilds them from the database. No definition, variable or data is modified: the only visible effect is a slower first request after the invalidation.",
@@ -10889,7 +10994,10 @@ export const system_app = {
         "operation_mode": "write",
         "requires_explicit_confirmation": true,
         "side_effects": "With `dry_run: false` there are no side effects: the code is only parsed. With `dry_run: true` the code runs for real and whatever it writes to databases, files or third-party services persists.",
-        "safe_alternative": "Call it with `dry_run: false` for the static analysis, which answers most questions without executing anything."
+        "safe_alternative": "Call it with `dry_run: false` for the static analysis, which answers most questions without executing anything.",
+        "notes": [
+          "Confirmation is requested because the tool CAN execute code (dry_run: true). With the default dry_run: false the call is a pure static analysis: no confirmation friction is needed and nothing runs."
+        ]
       },
       "json_schema": {
         "in": {
