@@ -11151,11 +11151,11 @@ export const system_app = {
         "enabled": true,
         "name": "execute_endpoint_test",
         "title": "Execute Endpoint Test",
-        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nRUNS THE ENDPOINT FOR REAL. This is not a simulation: the endpoint executes against its real databases and external services, so testing a POST, PUT, PATCH or DELETE endpoint inserts, updates or deletes real data, sends real messages and calls real third-party APIs. There is no rollback. Only GET and HEAD endpoints are safe to run unattended; for anything else confirm with the user first, and prefer a dev or qa environment when one exists.\nExecutes the endpoint via an internal HTTP call and returns status_code, response_time_ms and the response body — useful to verify an endpoint you just created or modified. Simplest usage: provide only `idendpoint` and the tool resolves app name, resource and method from the database. Optionally override `environment` (default: prd), send `payload` for request bodies, `query_params` for GET, `headers` for custom request headers, `bearer_token` for authenticated endpoints and `timeout_ms` to cap the wait. The wait defaults to 600000 ms (10 minutes) so long batch endpoints can be tested end to end; that is also the maximum, and a test that reaches it returns HTTP 504. Lower `timeout_ms` when you do not want to hold the connection open that long. Saved test metadata (`data_test` / `headers_test`) is used only when `use_data_test_fallback` is true. When testing by explicit `app` + `resource`, always send `method` if you also send `payload`. The result includes the resolved query params, payload, headers, payload source, warnings and the serialized request body actually sent, so request forwarding can be debugged without writing local scripts. Endpoints that require auth and have no public access need a valid `bearer_token`.",
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nRUNS THE ENDPOINT FOR REAL. This is not a simulation: the endpoint executes against its real databases and external services, so testing a POST, PUT, PATCH or DELETE endpoint inserts, updates or deletes real data, sends real messages and calls real third-party APIs. There is no rollback. Only GET and HEAD endpoints are safe to run unattended; for anything else confirm with the user first.\nExecutes the endpoint via an internal HTTP call and returns status_code, response_time_ms and the response body — useful to verify an endpoint you just created or modified.\nSimplest usage: provide only `idendpoint`. The tool auto-resolves the app name, resource, method AND environment from the database, so you test the endpoint in the environment it actually lives in. To test a different environment, set `environment` explicitly. If you test by explicit `app` + `resource` (no idendpoint) and omit `environment`, the default is 'dev'. When `idendpoint` is omitted and you send `payload`, always send `method` too.\nDANGER: testing the `prd` (production) environment runs real writes against production data with no rollback. Confirm with the user before targeting `prd`; prefer a dev or qa environment when one exists. A warning is included in the result whenever the resolved environment is `prd`.\nBuild the payload yourself: read the endpoint's expected parameters first (e.g. with 'read_endpoint_data' or 'app_endpoints', looking at its json_schema) and pass them via `payload`, `query_params`, `headers` and/or `bearer_token`. The endpoint's saved `data_test` is NEVER used automatically; it is only inherited if you explicitly set `use_data_test_fallback: true`, which is discouraged and emits a severe warning on `prd` because the saved test payload may be inappropriate or destructive.\nYou can also pass `timeout_ms` to cap the wait (default 600000 ms / 10 minutes; a test reaching it returns HTTP 504), and `bearer_token` for authenticated, non-public endpoints.\nThe result includes the resolved query params, payload, headers, payload source, warnings and the serialized request body actually sent, so request forwarding can be debugged without writing local scripts. When `idendpoint` was resolved, the target_endpoint output field also returns the endpoint's environment, json_schema and whether a data_test exists.\nExample (GET with idendpoint): {\"idendpoint\": \"<uuid>\", \"environment\": \"dev\"}.\nExample (POST by idendpoint): {\"idendpoint\": \"<uuid>\", \"environment\": \"dev\", \"payload\": {\"name\": \"test\"}}.",
         "operation_mode": "write",
         "requires_explicit_confirmation": true,
         "side_effects": "Executes the target endpoint with real effects: any write the endpoint performs (database rows, files, messages, third-party API calls) actually happens and cannot be undone from here. Read-only endpoints (GET/HEAD) have no persistent effect.",
-        "safe_alternative": "Inspect the logic first with 'endpoint_get_code', check the code statically with 'validate_endpoint_code' (`dry_run: false`), and run the test against a dev or qa `environment` before prd."
+        "safe_alternative": "Inspect the logic and expected parameters first with 'endpoint_get_code' and 'read_endpoint_data' (its json_schema), check the code statically with 'validate_endpoint_code' (`dry_run: false`), and prefer running the test against a dev or qa environment before prd."
       },
       "json_schema": {
         "in": {
@@ -11168,7 +11168,7 @@ export const system_app = {
               "idendpoint": {
                 "type": "string",
                 "format": "uuid",
-                "description": "UUID of the endpoint to test. Auto-resolves app, resource and method. Recommended over explicit fields."
+                "description": "UUID of the endpoint to test. Auto-resolves app, resource, method AND environment. Recommended over explicit fields."
               },
               "app": {
                 "type": "string",
@@ -11198,8 +11198,8 @@ export const system_app = {
                   "qa",
                   "prd"
                 ],
-                "default": "prd",
-                "description": "Target environment. Defaults to 'prd'."
+                "default": "dev",
+                "description": "Target environment. If `idendpoint` is provided and this field is omitted, defaults to that endpoint's own environment. If `idendpoint` is omitted, defaults to 'dev'. Testing 'prd' modifies production data and requires explicit confirmation."
               },
               "payload": {
                 "anyOf": [
@@ -11223,7 +11223,7 @@ export const system_app = {
                     "type": "null"
                   }
                 ],
-                "description": "Request body to send for POST / PUT / PATCH / DELETE requests. If you send 'payload': null explicitly, the tool will not inherit the saved data_test body for that execution."
+                "description": "Request body to send for POST / PUT / PATCH / DELETE requests. Provide the body yourself matching the endpoint's json_schema; the endpoint's saved data_test is only used if you explicitly enable `use_data_test_fallback`, which is discouraged and unsafe on prd. If you send 'payload': null explicitly, the tool will not inherit the saved data_test body for that execution."
               },
               "headers": {
                 "type": "object",
@@ -11242,7 +11242,7 @@ export const system_app = {
               "use_data_test_fallback": {
                 "type": "boolean",
                 "default": false,
-                "description": "When true, missing payload/query_params/headers can be inherited from the endpoint's saved data_test and headers_test metadata. Recommended only for legacy/editor-style flows."
+                "description": "Defaults false. When true, missing payload/query_params/headers can be inherited from the endpoint's saved data_test and headers_test metadata. Discouraged because the saved data_test may be inappropriate or destructive; never rely on it for prd (a severe warning is emitted). Prefer providing your own payload."
               },
               "bearer_token": {
                 "type": [
@@ -11335,6 +11335,36 @@ export const system_app = {
               },
               "response": {
                 "description": "The actual response from the endpoint (JSON or text)."
+              },
+              "target_endpoint": {
+                "type": "object",
+                "description": "Resolved target endpoint metadata (only present when an endpoint was resolved).",
+                "properties": {
+                  "idendpoint": {
+                    "type": "string"
+                  },
+                  "app": {
+                    "type": "string"
+                  },
+                  "resource": {
+                    "type": "string"
+                  },
+                  "method": {
+                    "type": "string"
+                  },
+                  "environment": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "data_test_present": {
+                    "type": "boolean"
+                  },
+                  "json_schema": {
+                    "description": "The endpoint's published json_schema (if any), useful to build the payload."
+                  }
+                }
               }
             }
           }

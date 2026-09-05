@@ -817,6 +817,41 @@ export const CreateMCPHandler = async (app_name, environment) => {
     return " Handler-specific note: `handler` defines the shape of `code` and related fields. Use the input schema field descriptions for the stored contract, and call `handler_documentation` before composing payloads for SQL_BULK_I, SOAP, HANA, MONGODB, MCP, or other handler-specific structures. Messaging bots are not endpoints: use `get_bot_skill` and `upsert_bot` instead. Recommendation: when creating or updating an endpoint, also define a `json_schema` (so MCP publishes a usable input schema and agents can send parameters) and a `data_test` (a saved example request). Call `validate_json_schema_for_mcp` before publishing any JSON Schema.";
   };
 
+  const isEndpointTestEndpoint = (endpoint) => {
+    const mcpName = (endpoint?.mcp?.name ?? "").toString().trim().toLowerCase();
+    return (
+      mcpName === "execute_endpoint_test" ||
+      (
+        endpoint?.resource === "/api/endpoint/test" &&
+        endpoint?.method === "POST"
+      )
+    );
+  };
+
+  const getEndpointTestHandlerGuide = (endpoint) => {
+    if (!isEndpointTestEndpoint(endpoint)) return "";
+
+    return `
+## How to use execute_endpoint_test (Agent Guide)
+
+This tool lets you test an endpoint over HTTP without writing a local script (Python/Node.js). The endpoint runs for real, so any write it performs actually happens.
+
+### Steps
+
+1. **Resolve the endpoint**: pass \`idendpoint\` (preferred). It auto-resolves the app name, resource, method AND environment from the database. Alternatively pass explicit \`app\` + \`resource\` (+ \`method\` when you also send \`payload\`).
+2. **Learn the expected parameters**: read the endpoint's \`json_schema\` (e.g. with \`read_endpoint_data\` or \`app_endpoints\`) to know which fields are required and build a correct request.
+3. **Provide the payload yourself** via \`payload\` (body), \`query_params\` (GET), \`headers\` and \`bearer_token\`. Do NOT rely on the endpoint's saved \`data_test\`: it may be inappropriate or destructive. Only inherit it if you explicitly set \`use_data_test_fallback: true\`, and never do so on \`prd\` without explicit confirmation.
+4. **Choose the environment consciously**: by default the tool uses the endpoint's own environment (from \`idendpoint\`), or \`dev\` when you resolve by \`app\`+\`resource\`. Testing \`prd\` modifies production data with no rollback — confirm with the user first.
+5. **Run the test** and read the result: \`status_code\`, \`error_type\` (e.g. \`auth_required\`, \`missing_params\`, \`invalid_json_or_appvar\`), \`response_time_ms\`, \`target_endpoint.json_schema\` and \`resolved_inputs\` (\`payload_source\`, \`serialized_body\`, \`warnings\`).
+
+### Safety
+
+- A write on \`prd\` is irreversible. Only GET and HEAD endpoints are safe to run unattended.
+- The saved \`data_test\` belongs to the editor workflow and may not be a valid test for your case; always prefer your own \`payload\`.
+- If it makes sense, first validate the code statically with \`validate_endpoint_code\` (\`dry_run: false\`).
+`;
+  };
+
   // Guard against missing endpoint collections when an app is partially configured.
   if (!app || !Array.isArray(app?.endpoints)) {
     console.warn("[MCP] No endpoints were found for application:", app_name);
@@ -896,6 +931,7 @@ export const CreateMCPHandler = async (app_name, environment) => {
       endpoint?.json_schema?.in?.schema?.properties?.vars?.deprecated === true;
     const endpointUpsertHandlerGuide = getEndpointUpsertHandlerGuide(endpoint);
     const endpointUpsertDescriptionAddon = getEndpointUpsertDescriptionAddon(endpoint);
+    const endpointTestHandlerGuide = getEndpointTestHandlerGuide(endpoint);
     // Prefer canonical docs from system.js (endpoint.mcp.description / endpoint.description)
     // and only use mcp.js override descriptions as fallback.
     const baseDescription = endpoint?.mcp?.description && endpoint?.mcp?.description.length > 0
@@ -1037,6 +1073,7 @@ ${toPrettyText(exampleResponse)}
     })}
 
 ${endpointUpsertHandlerGuide}
+${endpointTestHandlerGuide}
 `);
 
     let zod_inputSchema = z.object({}).describe("Data to send to the endpoint.");

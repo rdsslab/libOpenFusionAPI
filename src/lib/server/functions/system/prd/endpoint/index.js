@@ -1062,7 +1062,7 @@ export async function fnEndpointTest(params) {
     const {
       idendpoint,
       app,
-      environment = "prd",
+      environment: explicitEnvironment,
       resource,
       method,
       payload = null,
@@ -1072,12 +1072,14 @@ export async function fnEndpointTest(params) {
       bearer_token = null,
       timeout_ms = 600000,
     } = body;
+    const environment = explicitEnvironment || "dev";
 
     const warnings = [];
     const hasMethodInput = hasOwn(body, "method");
     const hasQueryParamsInput = hasOwn(body, "query_params");
     const hasPayloadInput = hasOwn(body, "payload");
     const hasHeadersInput = hasOwn(body, "headers");
+    const hasEnvironmentInput = hasOwn(body, "environment");
     const allowDataTestFallback = use_data_test_fallback === true;
 
     if (!idendpoint && hasPayloadInput && !hasMethodInput) {
@@ -1106,6 +1108,11 @@ export async function fnEndpointTest(params) {
       endpointData = epData;
       resolvedResource = resolvedResource || epData.resource;
       resolvedMethod = epData.method || resolvedMethod;
+
+      // Si el caller no fijó environment explícitamente, usar el del endpoint objetivo.
+      if (!hasEnvironmentInput && epData.environment) {
+        environment = epData.environment;
+      }
 
       // Obtener el nombre de la app desde idapp si no se provee
       if (!resolvedApp) {
@@ -1136,6 +1143,13 @@ export async function fnEndpointTest(params) {
           `Application '${resolvedApp}' was not found while resolving saved test metadata; proceeding without data_test fallback.`,
         );
       }
+    }
+
+    // Advertencia dura si la prueba apunta a producción.
+    if (String(environment).toLowerCase() === "prd") {
+      warnings.push(
+        "Targeting the 'prd' (production) environment: any write this endpoint performs affects real data and cannot be undone. Ensure this is explicitly intended.",
+      );
     }
 
     if (!resolvedResource || !resolvedApp) {
@@ -1184,6 +1198,12 @@ export async function fnEndpointTest(params) {
 
     if (!allowDataTestFallback && endpointData?.data_test && !hasQueryParamsInput && !hasPayloadInput && !hasHeadersInput) {
       warnings.push("Saved data_test/query/header metadata exists but was ignored because use_data_test_fallback=false.");
+    }
+
+    if (allowDataTestFallback && String(environment).toLowerCase() === "prd") {
+      warnings.push(
+        "SEVERE: use_data_test_fallback=true on the 'prd' environment. The saved data_test may be inappropriate or destructive; it will be sent as-is to a production endpoint. Ensure this is explicitly intended.",
+      );
     }
 
     // Añadir query params para GET
@@ -1255,6 +1275,19 @@ export async function fnEndpointTest(params) {
       responseData = await response.text();
     }
 
+    const targetEndpoint = endpointData
+      ? {
+          idendpoint: endpointData.idendpoint || idendpoint || null,
+          app: resolvedApp,
+          resource: resolvedResource,
+          method: resolvedMethod,
+          environment,
+          title: endpointData.title || "",
+          data_test_present: Boolean(endpointData.data_test),
+          json_schema: endpointData.json_schema != null ? endpointData.json_schema : null,
+        }
+      : null;
+
     r.code = 200;
     r.data = {
       tested_url: url,
@@ -1265,6 +1298,7 @@ export async function fnEndpointTest(params) {
       error_type: response.status >= 200 && response.status < 300
         ? null
         : classifyFailure(response.status, responseData),
+      target_endpoint: targetEndpoint,
       resolved_inputs: {
         from_data_test: {
           query_params: allowDataTestFallback && !hasQueryParamsInput,
