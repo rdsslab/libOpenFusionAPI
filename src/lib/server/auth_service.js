@@ -34,6 +34,16 @@ export class AuthService {
 
       const userCtrl = user.ctrl || {};
 
+      // Self-service password change (`/user/changepassword`): any user with a
+      // valid session may change their own password. Access control here is the
+      // current-password validation performed by `updateUserPassword` (old
+      // password must match), NOT the generic `users:<action>` resource
+      // permission — otherwise users with an empty/limited ctrl cannot comply
+      // with a forced password change on first login.
+      if (handler.params.resource === "/user/changepassword") {
+        return true;
+      }
+
       // as_admin — global bypass (backward-compatible)
       if (userCtrl.as_admin === true) {
         check = true;
