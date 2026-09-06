@@ -23,6 +23,13 @@ Recurring automation is also supported. After creating an endpoint, you can sche
 
 A task schedules an existing endpoint and holds no code of its own. The full contract — scheduling modes, execution windows, the `params` payload shape, ApiKey authentication, timeouts, backoff and the diagnostics runbook — lives in [../interval_tasks/AI_SKILL.md](../interval_tasks/AI_SKILL.md) so that there is a single source of truth; this manual only points at it.
 
+Access levels (`access`) map to the authentication policy: `0` = public, `1` = Basic,
+`2` = Bearer (default), `3` = Bearer with Basic fallback. The `system` application always
+requires a valid Bearer token. The user-management endpoints (`/user/*`) and the
+password-recovery flow are documented in [../auth/USER_RECOVERY.md](../auth/USER_RECOVERY.md),
+and their request pipeline is diagrammed in [../flows/AUTH.md](../flows/AUTH.md) and
+[../flows/RUNTIME.md](../flows/RUNTIME.md).
+
 ---
 
 ## 1. Selecting the Application

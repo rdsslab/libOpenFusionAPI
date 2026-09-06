@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | **Subject** | libOpenFusionAPI (OpenFusionAPI core server) |
-| **Version** | 12.1.13 |
+| **Version** | 13.0.3 |
 | **Validation date** | 2026-09-05 |
 | **Validation scope** | OWASP Top 10 (2021) + security hardening packet |
 | **Environment** | Local E2E, isolated SQLite database (`BUILD_DB=true`), port 3000 |
@@ -83,6 +83,21 @@ test harness, not a finding against the server code.
 - `X-Frame-Options: DENY`
 - `Referrer-Policy: no-referrer`
 - `Permissions-Policy: geolocation=(), microphone=(), camera=()`
+
+### 3.5 Password-recovery hardening (OTP)
+
+- `/user/forgotpassword` **never** reveals whether an account exists or a code was
+  sent: it always returns `200` with a generic message (anti account-enumeration,
+  covers A07/A08).
+- Recovery requests are rate-limited to **5 per 15 minutes per `ip::username`** in a
+  dedicated in-memory limiter, separate from the brute-force limiter of §3.2; blocked
+  requests are answered silently with the generic message and no code is generated.
+- OTPs are 6 digits, **single-use**, expire after **30 minutes** and are burned after
+  **5 failed attempts**; they are stored only as an HMAC-SHA256 hash (never plaintext).
+- An OTP is delivered through **one channel only** (email or Telegram); the alternative
+  channel is used only as a fallback for a failed delivery and only when viable.
+- Delivery channels can be disabled per channel via the AppVars
+  `$_VAR_RESET_EMAIL_ENABLED` / `$_VAR_RESET_TELEGRAM_ENABLED` (default: enabled).
 
 ---
 

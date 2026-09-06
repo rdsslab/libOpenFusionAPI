@@ -81,6 +81,8 @@ For AI workflows, the speed gain is even more pronounced:
 - [Creating Applications](./src/docs/App/README.md)
 - [Creating Endpoints](./src/docs/endpoint/README.md)
 - [Handler Reference](./src/docs/handlers/README.md)
+- [Auth & Users (login, password recovery, admin reset)](./src/docs/auth/USER_RECOVERY.md)
+- [Internal flow diagrams (Mermaid, human reference)](./src/docs/flows/README.md)
 - [Documentation System Architecture](./src/docs/DOCUMENTATION_SYSTEM_REPORT.md)
 
 Each guide provides step-by-step instructions, screenshots, and best practices to ensure a smooth development experience.
@@ -89,6 +91,7 @@ Important operational note:
 
 - Some bundled applications such as `demo` are restored from repository defaults on server startup. If you customize a seeded endpoint and need the change to survive restarts, update the corresponding default app definition in `src/lib/db/default/` as well.
 - Messaging bots are not endpoints: they are stored in the dedicated `ofapi_bot` table and each enabled bot runs in its own worker thread. Manage them with the bot tools (`list_bots`, `upsert_bot`, `enable_disable_bot`, `delete_bot`) and confirm startup in the logs (`method = BOT`, `idendpoint = idbot`), not in the tool response. See `src/docs/bots/`.
+- Password recovery and user self-service are built in: authenticated users can change their own password (`/user/changepassword`), administrators can reset a user without the current password (`/user/resetpassword`), and forgot-password users receive a single-use 6-digit OTP by email and/or Telegram through the seeded **Recovery Password Bot**. See `src/docs/auth/USER_RECOVERY.md`.
 
 ## 🧑‍💻 Ideal For
 

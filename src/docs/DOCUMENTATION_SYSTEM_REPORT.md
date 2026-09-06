@@ -120,6 +120,13 @@ When an application is configured to run as an MCP server, endpoints are dynamic
   - `list_api_endpoints_<app_name>`: Full documentation dump of all endpoints (including raw schemas, descriptions, and examples).
   - `api-docs-<app_name>` and `api-docs-catalog-<app_name>`: Exposed as standard MCP Resources returning the same markdown dumps.
 
+> **Human-only section:** `src/docs/flows/` (internal process Mermaid diagrams) and
+> `src/docs/auth/` are deliberately **not** exposed through any MCP tool, REST
+> documentation endpoint, or `AI_SKILL.md`. They are authored for human developers and
+> operators. `docsInclude.js` expansion only resolves includes from `AI_SKILL.md` files that
+> explicitly reference them, which the flows/auth files never do — so AI agents never pay
+> the token cost of the diagrams. See [flows/README.md](flows/README.md).
+
 ---
 
 ## ⚡ 5. Active Handlers Summary
