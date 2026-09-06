@@ -1,18 +1,18 @@
 /**
- * Extrae database, schema y table de un nombre calificado como:
- * "[DB].[schema].[table]" o "DB.schema.table"
+ * Extract database, schema and table from a qualified name like:
+ * "[DB].[schema].[table]" or "DB.schema.table"
  * @param {string} qualifiedName - 
  * @returns {{ database: string, schema: string, table: string }}
  */
 export function parseQualifiedName(qualifiedName) {
-  // Elimine espacios
+  // Trim spaces
   const cleaned = qualifiedName.trim();
 
-  // Reemplace corchetes por nada y divida por punto
+  // Remove brackets and split by dot
   const parts = cleaned.replace(/\[/g, "").replace(/\]/g, "").split(".");
 
   if (parts.length !== 3) {
-    throw new Error(`Formato inválido: ${qualifiedName}`);
+    throw new Error(`Invalid format: ${qualifiedName}`);
   }
 
   const [database, schema, table] = parts;
@@ -43,10 +43,10 @@ export function AppToTable(json) {
     rowkey,
     description: data && data.description ? data.description : "",
   };
-  //console.warn("Inicila => ", idapp, app, rowkey, data);//
+  //console.warn("Initial => ", idapp, app, rowkey, data);//
   let ns = data && data.namespaces ? data.namespaces : [];
 
-  // Recorrer los datos para construir la matriz
+  // Iterate over the data to build the matrix
   for (const d in ns) {
     // console.warn("->", d, ns[d]);
 
@@ -96,20 +96,20 @@ export function TableToApp(objeto) {
     let row = objeto[i];
     //  console.log("row>", row);
 
-    // Buscamos el namespace, sino existe se la crea
+    // Find the namespace; create it if it does not exist
     let ns = nuevoObjeto.data.namespaces.find(
       // @ts-ignore
       (element) => element.namespace == row.namespace
     );
 
     if (ns) {
-      //      console.log("existe > ", ns);
+      //      console.log("exists > ", ns);
 
-      // Verifica si existe o no el name
+      // Check if the name exists or not
 
       // @ts-ignore
       if (ns.names) {
-        // Existe names
+        // names exists
         // console.log("names >> EXISTE", ns.names);
 
         // @ts-ignore
@@ -149,7 +149,7 @@ export function TableToApp(objeto) {
           ns.names.push({ name: row.name, versions: [version] });
         }
       } else {
-        // Buscamos el namespace, sino existe se la crea
+        // Find the namespace; create it if it does not exist
         let version = {
           version: row.version,
           dev: row.dev,
@@ -182,29 +182,29 @@ export function TableToApp(objeto) {
 
 
 /**
- * Valida políticas de seguridad para contraseñas
+ * Validates security policies for passwords
  */
 export const validatePasswordSecurity = (password) => {
   const errors = [];
 
   if (password.length < 8) {
-    errors.push("Mínimo 8 caracteres");
+    errors.push("Minimum 8 characters");
   }
 
   if (!/(?=.*[a-z])/.test(password)) {
-    errors.push("Al menos una minúscula");
+    errors.push("At least one lowercase letter");
   }
 
   if (!/(?=.*[A-Z])/.test(password)) {
-    errors.push("Al menos una mayúscula");
+    errors.push("At least one uppercase letter");
   }
 
   if (!/(?=.*\d)/.test(password)) {
-    errors.push("Al menos un número");
+    errors.push("At least one number");
   }
 
   if (!/(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?])/.test(password)) {
-    errors.push("Al menos un carácter especial");
+    errors.push("At least one special character");
   }
 
   return {
