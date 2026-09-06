@@ -1,4 +1,4 @@
-import { login } from "../db/user.js";
+import { login, getUserById } from "../db/user.js";
 import { getUserPasswordTokenFromRequest } from "./auth.js";
 import { hasPermission, actionFromMethod } from "./permissions.js";
 import { resolveResource } from "./resourceMapper.js";
@@ -9,28 +9,33 @@ export class AuthService {
    *
    * Priority:
    *   1. ApiKey token → access granted if token's idapp matches the endpoint's idapp
-   *   2. Internal user → superuser bypass, then as_admin bypass, then ctrl.env evaluation
+   *   2. Internal user → as_admin bypass, then ctrl.env evaluation (no hardcoded super users)
    */
-  static check_auth_Bearer(handler, data_aut) {
+  static async check_auth_Bearer(handler, data_aut) {
     let check = false;
 
     // ── ApiKey path ──
     if (data_aut?.Bearer?.data?.apikey?.idapp == handler.params.idapp) {
       check = true;
     } else if (data_aut?.Bearer?.data?.admin && handler.params) {
-      const user = data_aut.Bearer.data.admin;
+      const tokenUser = data_aut.Bearer.data.admin;
+
+      // For system endpoints re-read the user from the DB on every request so
+      // permission changes (as_admin / ctrl.env) take effect immediately and
+      // not only at the next login. If the user no longer exists or was
+      // disabled → deny.
+      let user = tokenUser;
+      if (handler.params.app === "system") {
+        const fresh = await AuthService.freshUser(tokenUser);
+        if (!fresh) return false;
+        if (fresh.enabled === false) return false;
+        user = fresh;
+      }
+
       const userCtrl = user.ctrl || {};
 
-      // Super users — hardcoded bypass
-      if (
-        (user.username === "superopenfusionapi" ||
-          user.username === "superuser") &&
-        user.enabled
-      ) {
-        check = true;
-      }
       // as_admin — global bypass (backward-compatible)
-      else if (userCtrl.as_admin === true) {
+      if (userCtrl.as_admin === true) {
         check = true;
       }
       // Granular ctrl.env evaluation
@@ -54,6 +59,21 @@ export class AuthService {
     return check;
   }
 
+  /**
+   * Re-reads the user from the DB using the JWT admin claim.
+   * Returns null if the user no longer exists or the lookup fails.
+   */
+  static async freshUser(tokenUser) {
+    if (!tokenUser?.iduser) return null;
+    try {
+      const fresh = await getUserById(tokenUser.iduser);
+      return fresh ? (fresh.toJSON ? fresh.toJSON() : fresh) : null;
+    } catch (error) {
+      console.error("AuthService.freshUser:", error);
+      return null;
+    }
+  }
+
   static async check_auth_Basic(handler, data_aut) {
     const user = await login(data_aut.Basic.username, data_aut.Basic.password);
 
@@ -70,7 +90,7 @@ export class AuthService {
       const data_aut = getUserPasswordTokenFromRequest(request);
 
       if (handler.params.app === "system") {
-        if (AuthService.check_auth_Bearer(handler, data_aut)) {
+        if (await AuthService.check_auth_Bearer(handler, data_aut)) {
           request.openfusionapi.user = data_aut.Bearer.data;
         } else {
           reply.code(401).send({
@@ -105,7 +125,7 @@ export class AuthService {
             break;
 
           case 3:
-            if (AuthService.check_auth_Bearer(handler, data_aut)) {
+            if (await AuthService.check_auth_Bearer(handler, data_aut)) {
               request.openfusionapi.user = data_aut.Bearer.data;
             } else if (data_aut.Basic.username && data_aut.Basic.password) {
               const checkbasic = await AuthService.check_auth_Basic(
@@ -130,7 +150,7 @@ export class AuthService {
             break;
 
           default:
-            if (AuthService.check_auth_Bearer(handler, data_aut)) {
+            if (await AuthService.check_auth_Bearer(handler, data_aut)) {
               request.openfusionapi.user = data_aut.Bearer.data;
             } else {
               reply.code(401).send({

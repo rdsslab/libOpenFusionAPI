@@ -917,6 +917,61 @@ export const system_app = {
     },
     {
       "ctrl": {
+        "admin": true
+      },
+      "cors": {},
+      "mcp": {
+        "enabled": true,
+        "name": "user_reset_password",
+        "title": "Reset User Password",
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution.\nResets the password of a system user without requiring the current password. Requires iduser and newPassword. The new password must meet security requirements. Marks the user so they must change the password on their next login.",
+        "operation_mode": "write",
+        "requires_explicit_confirmation": true,
+        "side_effects": "Sets a temporary password hash in the database and flags the user to force a password change on next login.",
+        "safe_alternative": "Call 'list_users' first to confirm the user exists and is active."
+      },
+      "json_schema": {
+        "in": {
+          "enabled": true,
+          "schema": {
+            "title": "UserResetPasswordRequest",
+            "type": "object",
+            "required": ["iduser", "newPassword"],
+            "additionalProperties": false,
+            "properties": {
+              "iduser": { "type": "number", "description": "ID of the system user whose password will be reset (required)." },
+              "newPassword": { "type": "string", "minLength": 8, "description": "Temporary new password (required). Must meet security requirements. The user will be forced to change it on next login." }
+            }
+          }
+        },
+        "out": { "enabled": false }
+      },
+      "custom_data": {},
+      "headers_test": {},
+      "data_test": {},
+      "idendpoint": "f0c9dd41-2b4a-4e8e-9c1e-5d2b7a3f6e01",
+      "rowkey": 843,
+      "enabled": true,
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "environment": "prd",
+      "timeout": 30,
+      "resource": "/user/resetpassword",
+      "method": "POST",
+      "handler": "FUNCTION",
+      "access": 2,
+      "title": "Reset User Password",
+      "description": "Reset user password without the current password. Sets change_password flag so the user must change it on next login.",
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "keywords": "",
+      "code": "fnResetUserPassword",
+      "cache_time": 0,
+      "createdAt": "2026-09-05T00:00:00.000Z",
+      "updatedAt": "2026-09-05T00:00:00.000Z"
+    },
+    {
+      "ctrl": {
         "admin": true,
         "users": [],
         "log": {}

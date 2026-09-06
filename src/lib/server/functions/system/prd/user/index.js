@@ -1,12 +1,13 @@
+import { getUserPasswordTokenFromRequest } from "../../../../auth.js";
 import {
   createUser,
   login,
   getAllUsers,
   updateUserPassword,
+  resetUserPassword,
   updateUser,
   deleteUser,
 } from "../../../../../db/user.js";
-import {getUserPasswordTokenFromRequest} from "../../../../auth.js";
 
 export async function fnCreateUser(params) {
   let r = { data: undefined, code: 204 };
@@ -100,6 +101,9 @@ export async function fnGetUsersList(params) {
         username: u.username,
         name: u.last_name + " " + u.first_name,
         email: u.email,
+        ctrl: u.ctrl
+          ? JSON.parse(JSON.stringify(u.ctrl))
+          : { as_admin: false, env: {} },
       };
     });
 
@@ -122,6 +126,32 @@ export async function fnUpdateUserPassword(params) {
     r.code = 200;
   } catch (error) {
     r.data = error;
+    r.code = 500;
+  }
+  return r;
+}
+
+export async function fnResetUserPassword(params) {
+  let r = { data: undefined, code: 204 };
+  try {
+    const iduser = params?.request?.body?.iduser || params?.request?.query?.iduser;
+    const newPassword = params?.request?.body?.newPassword || params?.request?.query?.newPassword;
+    if (!iduser || !newPassword) {
+      r.data = { error: "iduser and newPassword are required." };
+      r.code = 400;
+      return r;
+    }
+
+    let data = await resetUserPassword(iduser, newPassword);
+    if (data.success) {
+      r.data = data;
+      r.code = 200;
+    } else {
+      r.data = data;
+      r.code = 400;
+    }
+  } catch (error) {
+    r.data = { error: error.message };
     r.code = 500;
   }
   return r;

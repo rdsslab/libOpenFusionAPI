@@ -244,6 +244,7 @@ export async function login(username, password) {
         "email",
         "ctrl",
         "exp_time",
+        "change_password",
       ],
     });
 
@@ -341,10 +342,11 @@ export async function updateUserPassword({
     // 4. Hashear nueva contraseña
     const hashedNewPassword = EncryptPwd(newPassword);
 
-    // 5. Actualizar contraseña
+    // 5. Actualizar contraseña y desactivar la marca de cambio obligatorio
     const [affectedRows] = await User.update(
       {
         password: hashedNewPassword,
+        change_password: false,
       },
       {
         where: { username },
@@ -408,6 +410,7 @@ export async function createUser(data) {
       email: data.email || null,
       enabled: data.enabled ?? true,
       ctrl: data.ctrl || {},
+      change_password: data.change_password ?? true,
       start_date: data.start_date || "2000-01-01",
       end_date: data.end_date || "9999-12-31",
       exp_time: data.exp_time ?? 3600,
@@ -437,4 +440,45 @@ export async function createUser(data) {
       error: err.message,
     };
   }
+}
+
+/**
+ * Resetea la contraseña de un usuario interno sin validar la clave anterior.
+ * A diferencia de updateUserPassword (self-service), esta operación la realiza
+ * un administrador: asigna una clave temporal y marca change_password = true
+ * para que el usuario deba cambiarla en su próximo ingreso.
+ *
+ * @param {number} iduser - ID del usuario.
+ * @param {string} newPassword - Clave temporal que cumpla la política de seguridad.
+ * @returns {Promise<object>} { success, username, message } o { success:false, error }.
+ */
+export async function resetUserPassword(iduser, newPassword) {
+  if (!iduser || !newPassword) {
+    return {
+      success: false,
+      error: "Los parámetros 'iduser' y 'newPassword' son obligatorios.",
+    };
+  }
+
+  const validationSecurity = validatePasswordSecurity(newPassword);
+  if (!validationSecurity.isValid) {
+    return { success: false, error: validationSecurity.errors[0] };
+  }
+
+  const user = await User.findByPk(iduser);
+  if (!user) {
+    return { success: false, error: "Usuario no encontrado." };
+  }
+
+  await user.update({
+    password: EncryptPwd(newPassword),
+    change_password: true,
+  });
+
+  return {
+    success: true,
+    message: "Contraseña reiniciada. El usuario deberá cambiarla en su siguiente ingreso.",
+    username: user.username,
+    iduser: user.iduser,
+  };
 }
