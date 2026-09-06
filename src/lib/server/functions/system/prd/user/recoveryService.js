@@ -42,11 +42,11 @@ export function markRecoveryAttempt(ip, username) {
 export function otpEmailHtml({ otp, username }) {
   const safeUsername = String(username || "").replace(/[<>&"]/g, "");
   return `<!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Recuperación de contraseña</title>
+  <title>Password recovery</title>
 </head>
 <body style="margin:0;padding:0;background:#f4f5f7;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f5f7;padding:24px 0;">
@@ -60,13 +60,13 @@ export function otpEmailHtml({ otp, username }) {
           </tr>
           <tr>
             <td style="padding:32px;">
-              <h1 style="margin:0 0 16px;font-size:20px;color:#111827;">Recuperación de contraseña</h1>
+              <h1 style="margin:0 0 16px;font-size:20px;color:#111827;">Password recovery</h1>
               <p style="margin:0 0 16px;color:#374151;font-size:15px;line-height:1.5;">
-                Hola <strong>${safeUsername}</strong>, hemos recibido una solicitud para restablecer tu contraseña.
+                Hello <strong>${safeUsername}</strong>, we received a request to reset your password.
               </p>
               <p style="margin:0 0 24px;color:#374151;font-size:15px;line-height:1.5;">
-                Usa el siguiente código de verificación para continuar. Es válido por
-                <strong>30 minutos</strong> y de un solo uso.
+                Use the following verification code to continue. It is valid for
+                <strong>30 minutes</strong> and for one-time use.
               </p>
               <table role="presentation" align="center" cellpadding="0" cellspacing="0" style="margin:0 auto 24px;">
                 <tr>
@@ -76,10 +76,10 @@ export function otpEmailHtml({ otp, username }) {
                 </tr>
               </table>
               <p style="margin:0 0 8px;color:#6b7280;font-size:13px;line-height:1.5;">
-                Si no solicitaste este cambio, ignora este correo. Nunca compartas el código con nadie.
+                If you did not request this change, ignore this email. Never share the code with anyone.
               </p>
               <p style="margin:0;color:#6b7280;font-size:12px;line-height:1.5;">
-                El personal de la plataforma jamás te pedirá este código.
+                Platform staff will never ask you for this code.
               </p>
             </td>
           </tr>
@@ -91,7 +91,7 @@ export function otpEmailHtml({ otp, username }) {
 </html>`;
 }
 
-const EMAIL_SUBJECT = "Recuperación de contraseña - OpenFusionAPI";
+const EMAIL_SUBJECT = "Password recovery - OpenFusionAPI";
 
 /**
  * Envía el OTP por email usando nodemailer con la configuración del transporte.
@@ -117,7 +117,7 @@ export async function deliverOtpByEmail({ transport, from, to, otp, username }) 
 }
 
 const TELEGRAM_OTP_TEXT = (otp, username) =>
-  `Hola ${username}! Aqui tenes tu codigo de verificacion para restablecer tu contrasena de OpenFusionAPI:\n\n<code>${otp}</code>\n\nValido por 30 minutos y de un solo uso. Si no lo pediste, ignora este mensaje.`;
+  `Hi ${username}! Here is your verification code to reset your OpenFusionAPI password:\n\n<code>${otp}</code>\n\nValid for 30 minutes and for one-time use. If you did not request it, ignore this message.`;
 
 /**
  * Envía el OTP por Telegram usando la Bot API directamente (HTTP).

@@ -31,15 +31,15 @@ const setState = (chatId, s) => {
 const getState = (chatId) => states.get(String(chatId));
 
 const HELP_TEXT = [
-  "Soy el asistente de recuperación de cuenta.",
+  "I'm the account recovery assistant.",
   "",
-  "Comandos:",
-  "/link - Vincular este chat a tu cuenta",
-  "/forgot - Pedir un código para restablecer la contraseña",
-  "/changepassword - Cambiar tu contraseña",
-  "/health - Estado del sistema",
+  "Commands:",
+  "/link - Link this chat to your account",
+  "/forgot - Request a code to reset your password",
+  "/changepassword - Change your password",
+  "/health - System status",
   "",
-  "Usa estos comandos en un chat privado conmigo.",
+  "Use these commands in a private chat with me.",
 ].join("\n");
 
 // ── Llamadas internas a los endpoints del app system ─────────────────────────
@@ -96,7 +96,7 @@ $BOT.command("start", async (ctx) => {
   setState(ctx.chat.id, null);
   await ctx.reply(
     [
-      "Hola, soy el asistente de recuperación de contraseña de OpenFusionAPI.",
+      "Hello, I'm the OpenFusionAPI password recovery assistant.",
       "",
       HELP_TEXT,
     ].join("\n")
@@ -109,31 +109,31 @@ $BOT.command("help", async (ctx) => {
 
 $BOT.command("cancel", async (ctx) => {
   setState(ctx.chat.id, null);
-  await ctx.reply("Operación cancelada.");
+  await ctx.reply("Operation cancelled.");
 });
 
 $BOT.command("link", async (ctx) => {
   setState(ctx.chat.id, STATE.LINK_USERNAME);
-  await ctx.reply("Vamos a vincular este chat a tu cuenta.\nEscribí tu nombre de usuario:");
+  await ctx.reply("Let's link this chat to your account.\nType your username:");
 });
 
 $BOT.command("forgot", async (ctx) => {
   setState(ctx.chat.id, STATE.FORGOT_USERNAME);
-  await ctx.reply("Escribí tu nombre de usuario y te enviaré un código de verificación:");
+  await ctx.reply("Type your username and I will send you a verification code:");
 });
 
 $BOT.command("changepassword", async (ctx) => {
   setState(ctx.chat.id, STATE.CHANGE_USERNAME);
-  await ctx.reply("Vamos a cambiar tu contraseña.\nEscribí tu nombre de usuario:");
+  await ctx.reply("Let's change your password.\nType your username:");
 });
 
 $BOT.command("health", async (ctx) => {
   try {
     const r = await api("/system/health/stats", "get");
-    await ctx.reply(`Estado del sistema (HTTP ${r.status}).`);
+    await ctx.reply(`System status (HTTP ${r.status}).`);
   } catch (error) {
     ofapi.log({ message: `health: ${error?.message}` });
-    await ctx.reply("No se pudo consultar el estado del sistema.");
+    await ctx.reply("Could not query the system status.");
   }
 });
 
@@ -141,7 +141,7 @@ $BOT.command("health", async (ctx) => {
 $BOT.on("message:text", async (ctx) => {
   const s = getState(ctx.chat.id);
   if (!s) {
-    await ctx.reply("Enviá /start para ver los comandos disponibles.");
+    await ctx.reply("Send /start to see the available commands.");
     return;
   }
   const text = String(ctx.message.text || "").trim();
@@ -150,7 +150,7 @@ $BOT.on("message:text", async (ctx) => {
     case STATE.LINK_USERNAME:
       s.username = text.replace(/\s+/g, "");
       s.step = STATE.LINK_PASSWORD;
-      await ctx.reply("Ahora tu contraseña (si es posible) o /cancel:");
+      await ctx.reply("Now your password (if possible) or /cancel:");
       break;
 
     case STATE.LINK_PASSWORD: {
@@ -159,16 +159,16 @@ $BOT.on("message:text", async (ctx) => {
       try {
         const l = await login(username, text);
         if (!l.ok) {
-          await ctx.reply("No se pudo iniciar sesión. Verificá tus credenciales.");
+          await ctx.reply("Login failed. Check your credentials.");
           return;
         }
         const token = l.data?.token || l.token;
         const res = await linkTelegram(token, ctx.chat.id);
-        if (res.ok) await ctx.reply("Chat vinculado a tu cuenta correctamente.");
-        else await ctx.reply("No se pudo vincular el chat. Verificá que tu cuenta esté activa.");
+        if (res.ok) await ctx.reply("Chat linked to your account successfully.");
+        else await ctx.reply("Could not link the chat. Make sure your account is active.");
       } catch (error) {
         ofapi.log({ message: `link flow: ${error?.message}` });
-        await ctx.reply("Ocurrió un error inesperado. Intentalo de nuevo.");
+        await ctx.reply("An unexpected error occurred. Try again.");
       }
       break;
     }
@@ -180,20 +180,20 @@ $BOT.on("message:text", async (ctx) => {
         const res = await forgotPassword(username);
         if (res.ok) {
           if (res.body?.channel === "telegram") {
-            await ctx.reply("Te enviamos un código de verificación por este chat.");
+            await ctx.reply("We sent you a verification code to this chat.");
           } else {
             await ctx.reply(
-              "Si la cuenta existe y un canal está disponible, recibirás el código por ese canal."
+              "If the account exists and a channel is available, you will receive the code on that channel."
             );
           }
         } else {
           await ctx.reply(
-            "Si la cuenta existe y un canal está disponible, recibirás el código por ese canal."
+            "If the account exists and a channel is available, you will receive the code on that channel."
           );
         }
       } catch (error) {
         ofapi.log({ message: `forgot flow: ${error?.message}` });
-        await ctx.reply("Ocurrió un error inesperado. Intentalo de nuevo.");
+        await ctx.reply("An unexpected error occurred. Try again.");
       }
       break;
     }
@@ -201,24 +201,24 @@ $BOT.on("message:text", async (ctx) => {
     case STATE.CHANGE_USERNAME:
       s.username = text.replace(/\s+/g, "");
       s.step = STATE.CHANGE_PASSWORD;
-      await ctx.reply("Tu contraseña actual:");
+      await ctx.reply("Your current password:");
       break;
 
     case STATE.CHANGE_PASSWORD:
       s.oldPassword = text;
       s.step = STATE.CHANGE_NEWPASSWORD;
-      await ctx.reply("La nueva contraseña (mínimo 8 caracteres):");
+      await ctx.reply("The new password (minimum 8 characters):");
       break;
 
     case STATE.CHANGE_NEWPASSWORD:
       s.newPassword = text;
       s.step = STATE.CHANGE_CONFIRM;
-      await ctx.reply("Confirmá la nueva contraseña:");
+      await ctx.reply("Confirm the new password:");
       break;
 
     case STATE.CHANGE_CONFIRM: {
       if (text !== s.newPassword) {
-        await ctx.reply("Las contraseñas no coinciden. Cancelá y volvé a intentarlo.");
+        await ctx.reply("Passwords do not match. Cancel and try again.");
         setState(ctx.chat.id, null);
         return;
       }
@@ -229,22 +229,22 @@ $BOT.on("message:text", async (ctx) => {
       try {
         const l = await login(username, oldPassword);
         if (!l.ok) {
-          await ctx.reply("Credenciales incorrectas. No se cambió la contraseña.");
+          await ctx.reply("Incorrect credentials. The password was not changed.");
           return;
         }
         const token = l.data?.token || l.token;
         const res = await changePassword(token, username, oldPassword, newPassword);
-        if (res.ok) await ctx.reply("Contraseña actualizada correctamente.");
-        else await ctx.reply("No se pudo cambiar la contraseña. Verificá los requisitos de seguridad.");
+        if (res.ok) await ctx.reply("Password updated successfully.");
+        else await ctx.reply("Could not change the password. Check the security requirements.");
       } catch (error) {
         ofapi.log({ message: `change flow: ${error?.message}` });
-        await ctx.reply("Ocurrió un error inesperado. Intentalo de nuevo.");
+        await ctx.reply("An unexpected error occurred. Try again.");
       }
       break;
     }
 
     default:
       setState(ctx.chat.id, null);
-      await ctx.reply("Operación cancelada. Enviá /start para los comandos.");
+      await ctx.reply("Operation cancelled. Send /start for the available commands.");
   }
 });

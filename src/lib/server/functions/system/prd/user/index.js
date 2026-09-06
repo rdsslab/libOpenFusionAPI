@@ -219,7 +219,7 @@ export async function fnDeleteUser(params) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const RECOVERY_GENERIC_MESSAGE =
-  "Si la cuenta existe y el canal seleccionado esta disponible, recibiras un codigo de verificacion.";
+  "If the account exists and the selected channel is available, you will receive a verification code.";
 
 const DEFAULT_RECOVERY_ENVIRONMENT = "prd";
 

@@ -547,7 +547,7 @@ export async function createUser(data) {
     if (err.name === "SequelizeUniqueConstraintError") {
       return {
         success: false,
-        message: `El usuario '${data.username}' ya existe.`,
+        message: `User '${data.username}' already exists.`,
         error: err.errors?.map((e) => e.message) || err.message,
       };
     }
@@ -555,7 +555,7 @@ export async function createUser(data) {
     // Otros errores
     return {
       success: false,
-      message: "Error al crear el usuario.",
+      message: "Error while creating the user.",
       error: err.message,
     };
   }
@@ -575,7 +575,7 @@ export async function resetUserPassword(iduser, newPassword) {
   if (!iduser || !newPassword) {
     return {
       success: false,
-      error: "Los parámetros 'iduser' y 'newPassword' son obligatorios.",
+      error: "The 'iduser' and 'newPassword' parameters are required.",
     };
   }
 
@@ -586,7 +586,7 @@ export async function resetUserPassword(iduser, newPassword) {
 
   const user = await User.findByPk(iduser);
   if (!user) {
-    return { success: false, error: "Usuario no encontrado." };
+    return { success: false, error: "User not found." };
   }
 
   await user.update({
@@ -596,7 +596,7 @@ export async function resetUserPassword(iduser, newPassword) {
 
   return {
     success: true,
-    message: "Contraseña reiniciada. El usuario deberá cambiarla en su siguiente ingreso.",
+    message: "Password reset. The user must change it on their next login.",
     username: user.username,
     iduser: user.iduser,
   };
