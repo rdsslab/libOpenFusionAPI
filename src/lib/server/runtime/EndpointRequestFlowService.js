@@ -8,6 +8,8 @@ export class EndpointRequestFlowService {
     getIPFromRequest,
     emitEndpointEvent,
     errorMapper,
+    rateLimitService,
+    getBasicUsernameFromRequest,
   }) {
     this.serverApi = serverApi;
     this.endpoints = endpoints;
@@ -15,6 +17,8 @@ export class EndpointRequestFlowService {
     this.getIPFromRequest = getIPFromRequest;
     this.emitEndpointEvent = emitEndpointEvent;
     this.errorMapper = errorMapper;
+    this.rateLimitService = rateLimitService;
+    this.getBasicUsernameFromRequest = getBasicUsernameFromRequest;
   }
 
   replyMappedError(error, request, reply) {
@@ -37,6 +41,40 @@ export class EndpointRequestFlowService {
     request.startTime = process.hrtime();
   }
 
+  /**
+   * Registra un fallo de autenticación (401) en el rate limiter. Al cruzar el
+   * umbral por primera vez emite un log de "posible ataque" con nivel 3.
+   */
+  trackAuthFailure(request, reply) {
+    if (!this.rateLimitService || reply.statusCode !== 401) return;
+
+    const ip = this.getIPFromRequest(request);
+    const username = this.getBasicUsernameFromRequest(request);
+    const result = this.rateLimitService.recordFailure(ip, username);
+
+    if (!result.lockoutStarted) return;
+
+    const handler_param = request?.openfusionapi?.handler?.params || {};
+    const endpoint_info = {
+      idapp: handler_param.idapp,
+      idendpoint: handler_param.idendpoint,
+      environment: handler_param.environment,
+      resource: handler_param.resource,
+      method: handler_param.method,
+    };
+
+    if (typeof this.endpoints.logPossibleAttack === "function") {
+      this.endpoints.logPossibleAttack(request, reply, {
+        reason: "auth_failure_threshold",
+        ip: ip ?? null,
+        username: username ?? null,
+        failures: result.failures,
+        retry_after_ms: result.retryAfterMs,
+        endpoint: endpoint_info,
+      });
+    }
+  }
+
   onResponse(request, reply) {
     if (request.method !== "OPTIONS") {
       const diff = process.hrtime(request.startTime);
@@ -54,6 +92,7 @@ export class EndpointRequestFlowService {
         reply.openfusionapi.lastResponse.responseTime = timeTaken;
       }
 
+      this.trackAuthFailure(request, reply);
       this.endpoints.saveLog(request, reply);
 
       let handler_param = request?.openfusionapi?.handler?.params || {};

@@ -1,3 +1,7 @@
+import { normalizeEndpointCors, isOriginAllowed } from "./endpointCorsPolicy.js";
+
+const corsDefaultDeny = process.env.CORS_DEFAULT_DENY === "true";
+
 export async function registerCorePlugins({
   fastify,
   maxBodyBytes,
@@ -43,12 +47,43 @@ export async function registerCorePlugins({
 
   fastify.addHook("onSend", async (request, reply, payload) => {
     const requestOrigin = request.headers.origin;
-    if ((resolvedCorsConfig?.origin === true || typeof resolvedCorsConfig?.origin === "function") && requestOrigin) {
-      reply.raw.removeHeader("Access-Control-Allow-Origin");
-      reply.raw.setHeader("Access-Control-Allow-Origin", requestOrigin);
-      if (resolvedCorsConfig?.credentials === true) {
+    const endpointCors = normalizeEndpointCors(
+      request?.openfusionapi?.handler?.params?.cors
+    );
+
+    if (requestOrigin) {
+      if (endpointCors) {
+        const allowed = isOriginAllowed(requestOrigin, endpointCors);
+
+        if (allowed) {
+          reply.raw.removeHeader("Access-Control-Allow-Origin");
+          reply.raw.setHeader(
+            "Access-Control-Allow-Origin",
+            endpointCors.origin === "*" || endpointCors.origin === true
+              ? "*"
+              : requestOrigin
+          );
+          if (endpointCors.credentials) {
+            reply.raw.removeHeader("Access-Control-Allow-Credentials");
+            reply.raw.setHeader("Access-Control-Allow-Credentials", "true");
+          }
+        } else {
+          reply.raw.removeHeader("Access-Control-Allow-Origin");
+          reply.raw.removeHeader("Access-Control-Allow-Credentials");
+        }
+      } else if (corsDefaultDeny) {
+        reply.raw.removeHeader("Access-Control-Allow-Origin");
         reply.raw.removeHeader("Access-Control-Allow-Credentials");
-        reply.raw.setHeader("Access-Control-Allow-Credentials", "true");
+      } else if (
+        resolvedCorsConfig?.origin === true ||
+        typeof resolvedCorsConfig?.origin === "function"
+      ) {
+        reply.raw.removeHeader("Access-Control-Allow-Origin");
+        reply.raw.setHeader("Access-Control-Allow-Origin", requestOrigin);
+        if (resolvedCorsConfig?.credentials === true) {
+          reply.raw.removeHeader("Access-Control-Allow-Credentials");
+          reply.raw.setHeader("Access-Control-Allow-Credentials", "true");
+        }
       }
     }
 

@@ -3,6 +3,8 @@ import { defaultAuthPolicy } from "./policies.js";
 import { mapOperationalError } from "./ErrorMapper.js";
 import { EndpointPreValidationService } from "./EndpointPreValidationService.js";
 import { EndpointRequestFlowService } from "./EndpointRequestFlowService.js";
+import { RateLimitService } from "./RateLimitService.js";
+import { getBasicUsernameFromRequest } from "./rateLimitPolicy.js";
 
 export class EndpointRuntimeService {
   constructor({
@@ -16,6 +18,7 @@ export class EndpointRuntimeService {
     emitEndpointEvent,
     authPolicy = defaultAuthPolicy,
     errorMapper = mapOperationalError,
+    rateLimitService,
   }) {
     validateEndpointRuntimeDependencies({
       serverApi,
@@ -40,6 +43,7 @@ export class EndpointRuntimeService {
     this.emitEndpointEvent = emitEndpointEvent;
     this.authPolicy = authPolicy;
     this.errorMapper = errorMapper;
+    this.rateLimitService = rateLimitService ?? new RateLimitService();
 
     this.preValidationService = new EndpointPreValidationService({
       endpoints: this.endpoints,
@@ -48,6 +52,9 @@ export class EndpointRuntimeService {
       authService: this.authService,
       authPolicy: this.authPolicy,
       errorMapper: this.errorMapper,
+      rateLimitService: this.rateLimitService,
+      getIPFromRequest: this.getIPFromRequest,
+      getBasicUsernameFromRequest,
     });
 
     this.requestFlowService = new EndpointRequestFlowService({
@@ -57,6 +64,8 @@ export class EndpointRuntimeService {
       getIPFromRequest: this.getIPFromRequest,
       emitEndpointEvent: this.emitEndpointEvent,
       errorMapper: this.errorMapper,
+      rateLimitService: this.rateLimitService,
+      getBasicUsernameFromRequest,
     });
   }
 

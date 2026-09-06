@@ -805,16 +805,18 @@ export const CreateMCPHandler = async (app_name, environment) => {
 4. Define a \`json_schema\` (input request schema) for the endpoint so MCP publishes a usable input schema and the agent can send parameters. If you create a JSON Schema to store in OpenFusionAPI, call \`validate_json_schema_for_mcp\` before publishing it.
 5. Provide a \`data_test\` (an example request body/query) so the endpoint carries a saved test payload for the editor and for \`execute_endpoint_test\`.
 6. If updating an existing endpoint, call \`read_endpoint_data\` first and modify the current structure instead of rebuilding it from memory.
-7. Run \`endpoint_upsert\` with all required fields.
-8. Call \`read_endpoint_data\` again to verify the persisted structure, including the stored \`json_schema\` and \`data_test\`.
-9. Test the endpoint via its HTTP URL before exposing it as an MCP tool.
+7. Optional \`cors\` allowlist: pass it only when browser clients must call the endpoint cross-origin. Send an array of allowed origins (e.g. \`["https://app.example.com"]\`) or an object \`{"origin": [...], "credentials": true}\`. Omit it (or send \`{}\`) to keep the deployment-wide default policy. Requests from an Origin outside the allowlist are denied and receive no \`Access-Control-Allow-Origin\` header.
+8. Run \`endpoint_upsert\` with all required fields.
+9. Call \`read_endpoint_data\` again to verify the persisted structure, including the stored \`json_schema\`, \`cors\` and \`data_test\`.
+10. Test the endpoint via its HTTP URL before exposing it as an MCP tool.
+11. Expect a \`429 Too Many Requests\` with \`Retry-After\` when authentication failures from the same source are throttled (see the runtime note about rate limiting). Never loop-retry a 429.
 `;
   };
 
   const getEndpointUpsertDescriptionAddon = (endpoint) => {
     if (!isEndpointUpsertEndpoint(endpoint)) return "";
 
-    return " Handler-specific note: `handler` defines the shape of `code` and related fields. Use the input schema field descriptions for the stored contract, and call `handler_documentation` before composing payloads for SQL_BULK_I, SOAP, HANA, MONGODB, MCP, or other handler-specific structures. Messaging bots are not endpoints: use `get_bot_skill` and `upsert_bot` instead. Recommendation: when creating or updating an endpoint, also define a `json_schema` (so MCP publishes a usable input schema and agents can send parameters) and a `data_test` (a saved example request). Call `validate_json_schema_for_mcp` before publishing any JSON Schema.";
+    return " Handler-specific note: `handler` defines the shape of `code` and related fields. Use the input schema field descriptions for the stored contract, and call `handler_documentation` before composing payloads for SQL_BULK_I, SOAP, HANA, MONGODB, MCP, or other handler-specific structures. CORS is enforced per endpoint: set the `cors` field only to allowlist specific browser origins (array of origins or an object with `origin`, `credentials`, `allowedHeaders`, `methods`, `maxAge`); omitting `cors`/`{}` keeps the deployment-wide default policy and disallowed origins receive no `Access-Control-Allow-Origin`. Messaging bots are not endpoints: use `get_bot_skill` and `upsert_bot` instead. Repeated failed authentication attempts are throttled: after several 401 responses from the same source, the IP (and IP+username pair) enters a lockout with exponential backoff and the runtime answers 429 with `Retry-After`, logging `{type:'posible_ataque'}` entries at log level 3 in `ofapi_log`. If a test or a client receives a 429, wait until `Retry-After` elapses instead of retrying in a loop or changing credentials. Recommendation: when creating or updating an endpoint, also define a `json_schema` (so MCP publishes a usable input schema and agents can send parameters) and a `data_test` (a saved example request). Call `validate_json_schema_for_mcp` before publishing any JSON Schema.";
   };
 
   const isEndpointTestEndpoint = (endpoint) => {

@@ -9,10 +9,20 @@ async function runAllTests() {
 
   // 1. Start the server
   console.log("Starting server...");
+  // AUTH_MAX_FAILURES se eleva para que la auditoría OWASP no se autobloquee:
+  // el harness dispara decenas de 401 intencionados desde la misma IP y el rate
+  // limiter (por defecto 5 fallos) devolvería 429 en lugar de los 401 esperados.
+  // El rate limiting en sí se valida con rate_limit_policy_test.js e
+  // rate_limit_integration_test.js.
   const server = spawn("node", ["--max-old-space-size=4096", "../../src/server.js"], {
     cwd: __dirname,
     stdio: "inherit",
-    env: { ...process.env, PORT: "3000", BUILD_DB: "true" }
+    env: {
+      ...process.env,
+      PORT: "3000",
+      BUILD_DB: "true",
+      AUTH_MAX_FAILURES: process.env.AUTH_MAX_FAILURES || "1000",
+    }
   });
 
   // Wait for server to be ready
@@ -83,6 +93,16 @@ async function runAllTests() {
         label: "fetch_timeout_test.js",
         command: "node",
         args: ["fetch_timeout_test.js"],
+      },
+      {
+        label: "rate_limit_policy_test.js",
+        command: "node",
+        args: ["rate_limit_policy_test.js"],
+      },
+      {
+        label: "rate_limit_integration_test.js",
+        command: "node",
+        args: ["rate_limit_integration_test.js"],
       },
       {
         label: "cache_validation.js",

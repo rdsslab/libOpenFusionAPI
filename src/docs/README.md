@@ -2,6 +2,7 @@
 
 ## Documentation Notes
 
+- Security validation certificate (OWASP Top 10 + hardening packet): see [security/SECURITY_CERTIFICATE.md](security/SECURITY_CERTIFICATE.md).
 - Handler docs index: see [handlers/README.md](handlers/README.md).
 - External dependency doc template (hybrid local + upstream model): see [templates/EXTERNAL_DEPENDENCY_DOC_TEMPLATE.md](templates/EXTERNAL_DEPENDENCY_DOC_TEMPLATE.md).
 - uFetch dependency guide (instantiated template): see [dependencies/uFetch.md](dependencies/uFetch.md).

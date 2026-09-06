@@ -68,6 +68,7 @@ async function ensureServer() {
       ...process.env,
       PORT: new URL(BASE_URL).port || "3000",
       BUILD_DB: process.env.BUILD_DB || "true",
+      AUTH_MAX_FAILURES: process.env.AUTH_MAX_FAILURES || "1000",
     },
   });
 

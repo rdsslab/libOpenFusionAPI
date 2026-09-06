@@ -105,6 +105,26 @@ if (!JWT_KEY) {
 
 const PORT = process.env.PORT || default_port;
 
+const parseTrustProxy = (value) => {
+  if (value === undefined || value === null || value === "") {
+    return false;
+  }
+  const normalized = String(value).trim().toLowerCase();
+  if (normalized === "true" || normalized === "1") {
+    return true;
+  }
+  if (normalized === "false" || normalized === "0") {
+    return false;
+  }
+  const numeric = Number(normalized);
+  if (Number.isFinite(numeric) && normalized !== "") {
+    return numeric;
+  }
+  return normalized; // "loopback", "linklocal", "uniquelocal", IP/CIDR, etc.
+};
+
+const TRUST_PROXY = parseTrustProxy(process.env.TRUST_PROXY);
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
@@ -198,6 +218,7 @@ export default class ServerAPI extends EventEmitter {
     this.fastify = Fastify({
       logger: false,
       bodyLimit: this.maxBodyBytes,
+      trustProxy: TRUST_PROXY,
     });
 
     this.fastify.addHook("onClose", async () => {

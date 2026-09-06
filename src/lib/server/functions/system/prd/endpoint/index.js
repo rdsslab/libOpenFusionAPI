@@ -16,6 +16,7 @@ import { Endpoint, Application, AppVars } from "../../../../../db/models.js";
 import { Op } from "sequelize";
 import { createHash } from "node:crypto";
 import { internal_url_http } from "../../../../utils_path.js";
+import { validateEndpointCors } from "../../../../runtime/endpointCorsPolicy.js";
 
 export async function fnGetEndpointBackupByIdEndpoint(params) {
   let r = { code: 200, data: undefined };
@@ -100,6 +101,19 @@ export async function fnEndpointUpsert(params) {
       customData.isBase64 = true;
       
       body.custom_data = customData;
+    }
+
+    if (body && body.cors !== undefined && body.cors !== null) {
+      const corsValidation = validateEndpointCors(body.cors);
+
+      if (!corsValidation.valid) {
+        r.data = {
+          error: corsValidation.error,
+          code: "INVALID_CORS_CONFIG",
+        };
+        r.code = 400;
+        return r;
+      }
     }
 
     r.data = await upsertEndpoint(body);

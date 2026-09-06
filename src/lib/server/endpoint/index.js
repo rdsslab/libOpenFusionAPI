@@ -61,6 +61,27 @@ export default class Endpoint extends EventEmitter {
     return this._logger.saveLog(request, reply);
   }
 
+  /**
+   * Emite un log estructurado de "posible ataque" con `log_level = 3`.
+   * Usa el mismo canal de persistencia que `saveLog` (evento "log" → TasksInterval)
+   * para que quede en de `ofapi_log` con idapp/idendpoint y headers depurados.
+   *
+   * @param {object} request request de Fastify
+   * @param {object} reply reply de Fastify
+   * @param {object} [details] campos adicionales del `message`
+   */
+  logPossibleAttack(request, reply, details = {}) {
+    try {
+      const data = this._logger.getDataLog(3, request, reply);
+      if (!data) return;
+      data.log_level = 3;
+      data.message = { type: "posible_ataque", ...details };
+      this.emit("log", data);
+    } catch (error) {
+      console.error("logPossibleAttack error:", error);
+    }
+  }
+
   // ── EndpointLoader ─────────────────────────────────────────────────────────
 
   getFnNames() {

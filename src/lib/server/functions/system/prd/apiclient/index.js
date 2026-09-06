@@ -107,7 +107,7 @@ export async function fnLoginApiClient(params) {
       maxAge: 5,
     });
 
-    if (data.login) {
+    if (data && data.login) {
       let aut = `Bearer ${data.token}`;
       params.reply.header("Authorization", aut);
 
