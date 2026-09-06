@@ -1,14 +1,133 @@
 import { customError } from "../server/utils.js";
 import { EncryptPwd } from "../server/auth.js";
-import { GenToken } from "../server/functionVars.js";
+import { GenToken, JWTKEY } from "../server/functionVars.js";
 import { validatePasswordSecurity } from "./utils.js";
 import { validateCtrlSchema, fullAccessCtrl, emptyCtrl } from "../server/permissions.js";
-import { User } from "./models.js";
+import { User, PasswordRecovery } from "./models.js";
 import dbsequelize from "./sequelize.js";
 import { Op } from "sequelize";
+import { createHmac, randomInt } from "crypto";
+import { getAppVarsByIdApp } from "./appvars.js";
 
 const DEFAULT_TOKEN_SECONDS = 3600; // 1 hora
 const REFRESH_TOKEN_SECONDS = 3600; // 1 hora
+
+// Recuperación de contraseña (OTP)
+const SYSTEM_IDAPP = "cfcd2084-95d5-65ef-66e7-dff9f98764da";
+const OTP_TTL_MS = 30 * 60 * 1000; // 30 minutos
+const OTP_MAX_ATTEMPTS = 5;
+const VAR_SMTP_TRANSPORT = "$_VAR_EMAIL_TRANSPORT";
+const VAR_EMAIL_FROM = "$_VAR_EMAIL_FROM";
+const VAR_TELEGRAM_TOKEN = "$_VAR_TELEGRAM_TOKEN";
+const FLAG_EMAIL = "$_VAR_RESET_EMAIL_ENABLED";
+const FLAG_TELEGRAM = "$_VAR_RESET_TELEGRAM_ENABLED";
+
+const findVar = (rows, name, environment) => {
+  if (!Array.isArray(rows)) return undefined;
+  const env = String(environment || "").trim().toLowerCase();
+  return rows.find(
+    (row) =>
+      row?.name === name &&
+      String(row?.environment || "").trim().toLowerCase() === env,
+  );
+};
+
+const isFlagEnabled = (rows, name, environment) => {
+  const row = findVar(rows, name, environment);
+  if (!row || row.value === undefined || row.value === null) return true;
+  if (typeof row.value === "boolean") return row.value;
+  const s = String(row.value).trim().toLowerCase();
+  return ["true", "1", "yes", "on"].includes(s);
+};
+
+const parseTransport = (value) => {
+  if (!value || value === "") return null;
+  if (typeof value === "object") return value;
+  if (typeof value === "string") {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return null;
+    }
+  }
+  return null;
+};
+
+const transportConfigured = (transport) => {
+  return (
+    !!transport &&
+    typeof transport === "object" &&
+    typeof transport.host === "string" &&
+    transport.host.trim() !== ""
+  );
+};
+
+const getRecoveryVars = async (environment) => {
+  const rows = await getAppVarsByIdApp(SYSTEM_IDAPP);
+  const targetEnv = String(environment || "prd").trim().toLowerCase() || "prd";
+  const transport = parseTransport(findVar(rows, VAR_SMTP_TRANSPORT, targetEnv)?.value);
+  const telegramTokenRow = findVar(rows, VAR_TELEGRAM_TOKEN, targetEnv)?.value;
+  const telegramToken =
+    typeof telegramTokenRow === "string" && telegramTokenRow.trim() !== ""
+      ? telegramTokenRow.trim()
+      : null;
+
+  return {
+    rows,
+    targetEnv,
+    transport,
+    telegramToken,
+  };
+};
+
+/**
+ * Resuelve la configuración de los canales de recuperación para un environment.
+ * Un canal está habilitado cuando su flag lo permite Y su configuración es
+ * válida: email requiere transporte SMTP con host, telegram requiere token.
+ * La ausencia del flag se interpreta como habilitado por defecto.
+ */
+export async function getRecoveryChannelConfig(environment = "prd") {
+  const { rows, targetEnv, transport, telegramToken } = await getRecoveryVars(environment);
+
+  const emailEnabled =
+    isFlagEnabled(rows, FLAG_EMAIL, targetEnv) && transportConfigured(transport);
+
+  const telegramEnabled =
+    isFlagEnabled(rows, FLAG_TELEGRAM, targetEnv) && !!telegramToken;
+
+  const emailFromRow = findVar(rows, VAR_EMAIL_FROM, targetEnv);
+
+  return {
+    email: {
+      enabled: emailEnabled,
+      transport: emailEnabled ? transport : null,
+      from:
+        emailFromRow?.value ||
+        transport?.from ||
+        transport?.auth?.user ||
+        null,
+    },
+    telegram: {
+      enabled: telegramEnabled,
+      token: telegramEnabled ? telegramToken : null,
+    },
+  };
+}
+
+export const hashOtp = (otp) =>
+  createHmac("sha256", process.env.OTP_HASH_SECRET || `${JWTKEY}::otp`)
+    .update(String(otp))
+    .digest("hex");
+
+export async function cleanupExpiredRecoveryTokens() {
+  const before = new Date();
+  const deleted = await PasswordRecovery.destroy({
+    where: {
+      [Op.or]: [{ used: true }, { expires_at: { [Op.lt]: before } }],
+    },
+  });
+  return { deleted };
+}
 
 export const upsertUser = async (
   /** @type {import("sequelize").Optional<any, string>} */ userData
@@ -480,5 +599,175 @@ export async function resetUserPassword(iduser, newPassword) {
     message: "Contraseña reiniciada. El usuario deberá cambiarla en su siguiente ingreso.",
     username: user.username,
     iduser: user.iduser,
+  };
+}
+
+/**
+ * Localiza un usuario activo y vigente por username.
+ * Devuelve null si no existe, está deshabilitado o fuera de su rango de validez.
+ */
+async function findActiveUserByUsername(username) {
+  const clean = String(username || "").trim();
+  if (!clean) return null;
+
+  return User.findOne({
+    where: {
+      username: clean,
+      enabled: true,
+      start_date: { [Op.lte]: new Date() },
+      end_date: { [Op.gte]: new Date() },
+    },
+  });
+}
+
+/**
+ * Genera una solicitud de recuperación (OTP de 6 dígitos) para un usuario.
+ * Invalida cualquier OTP previo pendiente del usuario. Nunca devuelve datos del
+ * usuario si la cuenta no existe (found: false) para no filtrar la existencia.
+ *
+ * @param {object} input - { username, channel: "email"|"telegram", ttlMs }
+ * @returns {Promise<object>} { found, otp?, user? } con user = { iduser, username, email, custom_data }
+ */
+export async function createPasswordRecovery({
+  username,
+  channel,
+  ttlMs = OTP_TTL_MS,
+}) {
+  const user = await findActiveUserByUsername(username);
+  if (!user) {
+    return { found: false };
+  }
+
+  await PasswordRecovery.update(
+    { used: true },
+    { where: { iduser: user.iduser, used: false } },
+  );
+
+  const otp = String(randomInt(100000, 999999));
+  const row = await PasswordRecovery.create({
+    iduser: user.iduser,
+    otp_hash: hashOtp(otp),
+    channel: String(channel || "").trim() || "email",
+    expires_at: new Date(Date.now() + ttlMs),
+  });
+
+  return {
+    found: true,
+    idrecovery: row.idrecovery,
+    otp,
+    user: {
+      iduser: user.iduser,
+      username: user.username,
+      email: user.email,
+      custom_data: user.custom_data || {},
+    },
+  };
+}
+
+/**
+ * Actualiza el canal registrado de una solicitud de recuperación (informativo).
+ * Se usa cuando la entrega cae en el canal alternativo de respaldo.
+ */
+export async function updatePasswordRecoveryChannel(idrecovery, channel) {
+  if (!idrecovery) return false;
+  const [updated] = await PasswordRecovery.update(
+    { channel: String(channel || "").trim() || "email" },
+    { where: { idrecovery } },
+  );
+  return updated > 0;
+}
+
+/**
+ * Consume un OTP y, si es válido, cambia la contraseña del usuario.
+ * El OTP es de un solo uso, expira y admite un número limitado de intentos.
+ *
+ * @param {object} input - { username, otp, newPassword }
+ * @returns {Promise<object>} { success, message?, error? }
+ */
+export async function consumePasswordRecovery({ username, otp, newPassword }) {
+  const transaction = await dbsequelize.transaction();
+
+  try {
+    const user = await findActiveUserByUsername(username);
+    if (!user) {
+      await transaction.rollback();
+      return { success: false, error: "INVALID_OTP" };
+    }
+
+    const row = await PasswordRecovery.findOne({
+      where: { iduser: user.iduser, used: false, expires_at: { [Op.gt]: new Date() } },
+      order: [["createdAt", "DESC"]],
+      transaction,
+    });
+
+    if (!row) {
+      await transaction.rollback();
+      return { success: false, error: "INVALID_OTP" };
+    }
+
+    if (row.otp_hash !== hashOtp(otp)) {
+      const attempts = Number(row.attempts || 0) + 1;
+      await row.update({ attempts }, { transaction });
+      if (attempts >= OTP_MAX_ATTEMPTS) {
+        await row.update({ used: true }, { transaction });
+      }
+      await transaction.commit();
+      return {
+        success: false,
+        error: "INVALID_OTP",
+        attemptsLeft: Math.max(0, OTP_MAX_ATTEMPTS - attempts),
+      };
+    }
+
+    const validationSecurity = validatePasswordSecurity(newPassword);
+    if (!validationSecurity.isValid) {
+      await transaction.rollback();
+      return { success: false, error: validationSecurity.errors[0], code: "WEAK_PASSWORD" };
+    }
+
+    await user.update(
+      { password: EncryptPwd(newPassword), change_password: false },
+      { transaction },
+    );
+    await row.update({ used: true }, { transaction });
+
+    await transaction.commit();
+
+    return {
+      success: true,
+      message: "Password successfully updated",
+      username: user.username,
+      updatedAt: new Date(),
+    };
+  } catch (error) {
+    await transaction.rollback();
+    console.error("Password recovery consume error:", error.message);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Vincula el chat_id de Telegram del usuario almacenándolo en su custom_data
+ * (sin modificar el modelo). El iduser corresponde al usuario autenticado.
+ */
+export async function linkTelegramChat(iduser, chatId) {
+  const clean = String(chatId || "").trim();
+  if (!/^-?\d+$/.test(clean)) {
+    return { success: false, error: "Invalid chat_id." };
+  }
+
+  const user = await User.findByPk(iduser);
+  if (!user) {
+    return { success: false, error: "User not found." };
+  }
+
+  const customData = { ...(user.custom_data || {}) };
+  customData.telegram_chat_id = clean;
+
+  const updated = await updateUser(iduser, { custom_data: customData });
+  return {
+    success: true,
+    message: "Telegram chat linked.",
+    user: updated,
   };
 }

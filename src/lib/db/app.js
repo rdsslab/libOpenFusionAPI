@@ -13,7 +13,7 @@ import {
   getEndpointByIdApp,
   upsertEndpoint,
 } from "./endpoint.js";
-import { getAppVarsByIdApp, upsertAppVar } from "./appvars.js";
+import { getAppVarsByIdApp, upsertAppVar, ensureAppVarOnce } from "./appvars.js";
 import { upsertBot, BOT_RUNTIME_ATTRIBUTES } from "./bot.js";
 import {
   upsertIntervalTask,
@@ -746,6 +746,15 @@ export const restoreAppFromBackup = async (app) => {
         }
       }
 
+      // Solo la app `system` protege sus AppVars (create-once): su configuración
+      // (SMTP, tokens, flags) la ajusta el dueño del despliegue y no debe volver al
+      // valor del seed en cada boot/restore. Cualquier otra aplicación se restaura
+      // completa, tal como se entregó el backup, incluidas sus variables. El corte es
+      // por nombre para sobrevivir al remapeo de idapp que ocurrió más arriba.
+      const protectAppVars =
+        String(app?.app || "").trim().toLowerCase() === "system" ||
+        app?.idapp === SYSTEM_APP_ID;
+
       // Upsert a la tabla de aplicaciones
       let restore_app = await upsertApp(app);
 
@@ -805,7 +814,9 @@ export const restoreAppFromBackup = async (app) => {
                 value: app.vars[env_name][name_var],
               };
               sources_vars.push(v);
-              promises_vars.push(upsertAppVar(v));
+              promises_vars.push(
+                protectAppVars ? ensureAppVarOnce(v) : upsertAppVar(v),
+              );
             }
           }
 
@@ -818,7 +829,7 @@ export const restoreAppFromBackup = async (app) => {
         if (Array.isArray(app.vrs) && app.vrs.length > 0) {
           // Hacemos un upsert de las variables de aplicación
           let promises_appvars = app.vrs.map((v) => {
-            return upsertAppVar(v);
+            return protectAppVars ? ensureAppVarOnce(v) : upsertAppVar(v);
           });
 
           collectAppVarRejections(
@@ -1236,30 +1247,142 @@ function ValidateEndpoint(default_endpoints, system_endpoints) {
   return result;
 }
 
+const SYSTEM_APP_ID = "cfcd2084-95d5-65ef-66e7-dff9f98764da";
+
+/**
+ * Validación de existencia (solo presencia) de las AppVars del seed.
+ * NUNCA compara contenido: las variables guardan configuración del dueño
+ * del despliegue y su valor puede (y debe) diferir del seed.
+ */
+async function validateSystemAppVars(seed_vrs, db_vrs) {
+  const result = { valid: true, differences: [] };
+  if (!Array.isArray(seed_vrs) || seed_vrs.length === 0) return result;
+
+  const existing = new Set(
+    (db_vrs || []).map(
+      (v) => `${String(v.environment).trim().toLowerCase()}::${v.name}`,
+    ),
+  );
+
+  for (const sv of seed_vrs) {
+    const key = `${String(sv.environment).trim().toLowerCase()}::${sv.name}`;
+    if (!existing.has(key)) {
+      result.valid = false;
+      result.differences.push({
+        type: "missing",
+        name: sv.name,
+        environment: sv.environment,
+        message: `AppVar ${sv.name} (${sv.environment}) not found`,
+      });
+    }
+  }
+  return result;
+}
+
+/**
+ * Validación de existencia de los bots sembrados por (name + environment).
+ * No compara código ni token.
+ */
+function validateSystemBots(seed_bots, db_bots) {
+  const result = { valid: true, differences: [] };
+  if (!Array.isArray(seed_bots) || seed_bots.length === 0) return result;
+
+  const names = (db_bots || []).map(
+    (b) => `${String(b.environment).trim().toLowerCase()}::${b.name}`,
+  );
+
+  for (const sb of seed_bots) {
+    const key = `${String(sb.environment).trim().toLowerCase()}::${sb.name}`;
+    if (!names.includes(key)) {
+      result.valid = false;
+      result.differences.push({
+        type: "missing",
+        name: sb.name,
+        environment: sb.environment,
+        message: `Bot ${sb.name} (${sb.environment}) not found`,
+      });
+    }
+  }
+  return result;
+}
+
+/**
+ * Validación de existencia de las interval tasks sembradas por
+ * (idendpoint + note). La clave natural es estable entre instancias porque los
+ * endpoints seed usan idendpoints fijos.
+ */
+function validateSystemTasks(seed_tasks, db_tasks) {
+  const result = { valid: true, differences: [] };
+  if (!Array.isArray(seed_tasks) || seed_tasks.length === 0) return result;
+
+  const keys = new Set(
+    (db_tasks || []).map((t) => `${t.idendpoint}::${t.note ?? ""}`),
+  );
+
+  for (const st of seed_tasks) {
+    const key = `${st.idendpoint}::${st.note ?? ""}`;
+    if (!keys.has(key)) {
+      result.valid = false;
+      result.differences.push({
+        type: "missing",
+        idendpoint: st.idendpoint,
+        note: st.note ?? "",
+        message: `Interval task for endpoint ${st.idendpoint} (${st.note || "no note"}) not found`,
+      });
+    }
+  }
+  return result;
+}
+
+async function buildSystemCheckReport() {
+  const data = await getApplicationTreeByFilters({ idapp: SYSTEM_APP_ID });
+
+  const diff = {
+    endpoints: ValidateEndpoint(
+      system_app.endpoints,
+      data?.endpoints || [],
+    ),
+    appvars: await validateSystemAppVars(system_app.vrs, data?.vrs || []),
+    bots: validateSystemBots(system_app.bots, data?.bots || []),
+    tasks: validateSystemTasks(system_app.tasks, data?.tasks || []),
+  };
+
+  const differences = Object.values(diff).flatMap(
+    (section) => (Array.isArray(section.differences) ? section.differences : []),
+  );
+
+  const valid = Object.values(diff).every((section) => section.valid !== false);
+
+  return {
+    valid,
+    message: differences.length
+      ? differences.map((d) => d.message).join("; ")
+      : "All system resources are correct.",
+    differences,
+    diff,
+  };
+}
+
 export async function checkSystemApp(restore = false, endpoint_class = null) {
   try {
-    let result = { valid: true, diff: {} };
+    let result = await buildSystemCheckReport();
 
-    // Obtener la data actual
-    const data = await getApplicationTreeByFilters({
-      idapp: "cfcd2084-95d5-65ef-66e7-dff9f98764da",
-    });
-
-    // Validar endpoints
-    result = ValidateEndpoint(system_app.endpoints, data.endpoints);
-
-    // Si se solicita sincronizar hacerlo
+    // Si se solicita sincronizar, restaurar lo que falte y volver a verificar.
     if (restore && !result.valid) {
-      let r = await restoreAppFromBackup(system_app);
-      result = ValidateEndpoint(system_app.endpoints, r.endpoints);
+      const restored = await restoreAppFromBackup(system_app);
 
-      // Invalidar caché en memoria para que el servidor sirva los endpoints restaurados
+      // Invalidar caché en memoria para que el servidor sirva lo restaurado
       if (endpoint_class?.deleteEndpointsByIdApp) {
-        endpoint_class.deleteEndpointsByIdApp("cfcd2084-95d5-65ef-66e7-dff9f98764da");
+        endpoint_class.deleteEndpointsByIdApp(SYSTEM_APP_ID);
+      }
+
+      result = await buildSystemCheckReport();
+      result.restored = true;
+      if (restored instanceof Error) {
+        result.restore_error = String(restored.message || restored);
       }
     }
 
-    // Devuelve si hay diferencias
     return result;
   } catch (error) {
     console.error("Error al verificar los datos del sistema:", error);

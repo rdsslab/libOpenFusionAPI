@@ -44,6 +44,16 @@ export class AuthService {
         return true;
       }
 
+      // Vincular Telegram (`/user/linktelegram`): cualquier usuario con sesión
+      // válida puede vincular su propio chat. El `admin` claim lo ata a su
+      // cuenta; sin él (token de ApiKey) la operación de usuario no aplica.
+      if (
+        handler.params.resource === "/user/linktelegram" &&
+        data_aut?.Bearer?.data?.admin
+      ) {
+        return true;
+      }
+
       // as_admin — global bypass (backward-compatible)
       if (userCtrl.as_admin === true) {
         check = true;
@@ -74,7 +84,19 @@ export class AuthService {
    * Returns null if the user no longer exists or the lookup fails.
    */
   static async freshUser(tokenUser) {
-    if (!tokenUser?.iduser) return null;
+    if (!tokenUser?.iduser) {
+      // Token interno de sistema creado por CreateOpenFusionAPIToken
+      // (index.js en el arranque): no corresponde a ninguna fila de usuario,
+      // por lo que no hay nada que releer de la BD. Es el token con el que el
+      // scheduler de interval tasks autentica los endpoints de la app system.
+      if (
+        tokenUser?.username === "openfusionapi" &&
+        tokenUser?.ctrl?.as_admin === true
+      ) {
+        return tokenUser;
+      }
+      return null;
+    }
     try {
       const fresh = await getUserById(tokenUser.iduser);
       return fresh ? (fresh.toJSON ? fresh.toJSON() : fresh) : null;

@@ -48,6 +48,7 @@ import {
   LogEntry,
   IntervalTask,
   IntervalTaskRun,
+  PasswordRecovery,
   tblDemo,
   modelHooks
 } from "./db/models.js";
@@ -556,6 +557,15 @@ export default class ServerAPI extends EventEmitter {
       await BotLog.sync();
     } catch (error) {
       log("Error ensuring bot log table:", error);
+    }
+
+    // Misma garantía para la tabla de recuperación de contraseña: sin ella los
+    // endpoints de forgot/reset fallan. `sync()` es un CREATE TABLE IF NOT EXISTS
+    // idempotente, no toca nada más.
+    try {
+      await PasswordRecovery.sync();
+    } catch (error) {
+      log("Error ensuring password recovery table:", error);
     }
 
     // Mismo criterio para las tareas programadas: sin estas columnas el worker de

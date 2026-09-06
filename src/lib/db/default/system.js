@@ -1,3 +1,15 @@
+import { readFileSync } from "node:fs";
+
+// Síntoma del seed: el código del bot se lee desde su archivo fuente, nunca se
+// duplica inline, así que la versión versionada y la desplegada no divergen.
+const recoveryBotSource = readFileSync(
+  new URL(
+    "../../server/functions/system/prd/user/recoveryBot.telegram.js",
+    import.meta.url,
+  ),
+  "utf8",
+);
+
 export const system_app = {
   "vars": {},
   "params": {
@@ -42,6 +54,88 @@ export const system_app = {
       "environment": "dev",
       "createdAt": "2026-03-28T23:51:55.035Z",
       "updatedAt": "2026-03-28T23:51:55.035Z"
+    },
+    {
+      "value": "true",
+      "idvar": "c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f",
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "name": "$_VAR_RESET_EMAIL_ENABLED",
+      "type": "boolean",
+      "environment": "prd",
+      "createdAt": "2026-09-06T00:00:00.000Z",
+      "updatedAt": "2026-09-06T00:00:00.000Z"
+    },
+    {
+      "value": "true",
+      "idvar": "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e",
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "name": "$_VAR_RESET_TELEGRAM_ENABLED",
+      "type": "boolean",
+      "environment": "prd",
+      "createdAt": "2026-09-06T00:00:00.000Z",
+      "updatedAt": "2026-09-06T00:00:00.000Z"
+    },
+    {
+      "value": "{\"host\":\"smtp.example.com\",\"port\":587,\"secure\":false,\"auth\":{\"user\":\"demo@example.com\",\"pass\":\"demo-pass\"}}",
+      "idvar": "255365e2-e4a3-4615-b86d-d655f14a604b",
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "name": "$_VAR_EMAIL_TRANSPORT",
+      "type": "json",
+      "environment": "prd",
+      "createdAt": "2026-09-06T00:00:00.000Z",
+      "updatedAt": "2026-09-06T00:00:00.000Z"
+    },
+    {
+      "value": "no-reply@openfusionapi.local",
+      "idvar": "c891381d-eb3a-45ef-9661-49000c43d1cd",
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "name": "$_VAR_EMAIL_FROM",
+      "type": "string",
+      "environment": "prd",
+      "createdAt": "2026-09-06T00:00:00.000Z",
+      "updatedAt": "2026-09-06T00:00:00.000Z"
+    },
+    {
+      "value": "PLACEHOLDER_REEMPLAZAR_CON_TOKEN_REAL",
+      "idvar": "64b65f1e-55c1-487f-959c-573717458984",
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "name": "$_VAR_TELEGRAM_TOKEN",
+      "type": "string",
+      "environment": "prd",
+      "createdAt": "2026-09-06T00:00:00.000Z",
+      "updatedAt": "2026-09-06T00:00:00.000Z"
+    }
+  ],
+  "bots": [
+    {
+      "idbot": "684e37c0-8135-4e68-ab6d-60d3f59b2d76",
+      "name": "Recovery Password Bot",
+      "provider": "telegram",
+      "environment": "prd",
+      "description": "Bot de Telegram de recuperacion de contrasena: /start, /help, /link, /forgot, /changepassword, /health y /cancel para usuarios internos de OpenFusionAPI.",
+      "token": "$_VAR_TELEGRAM_TOKEN",
+      "params": {},
+      "enabled": true,
+      "code": recoveryBotSource
+    }
+  ],
+  "tasks": [
+    {
+      "idtask": 2,
+      "idendpoint": "6a0e8a10-c0a1-4d2f-b3c4-9e0d8a7b6f05",
+      "schedule_mode": "cron",
+      "cron": "0 3 * * *",
+      "timezone": "America/Guayaquil",
+      "note": "Cleanup Password Recovery Tokens",
+      "enabled": true,
+      "interval": 300,
+      "params": {},
+      "exec_time_limit": 30,
+      "history_limit": 50,
+      "max_failed_attempts": 10,
+      "allow_concurrent": 0,
+      "iduser": null,
+      "idkey": null
     }
   ],
   "endpoints": [
@@ -14180,6 +14274,264 @@ export const system_app = {
       "cache_time": 0,
       "createdAt": "2026-08-26T00:00:00.000Z",
       "updatedAt": "2026-08-26T00:00:00.000Z"
+    },
+    {
+      "ctrl": {},
+      "cors": {},
+      "mcp": {},
+      "json_schema": {
+        "in": {
+          "enabled": false,
+          "schema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": true
+          }
+        },
+        "out": {
+          "enabled": false,
+          "schema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": true
+          }
+        }
+      },
+      "custom_data": {},
+      "headers_test": {},
+      "data_test": {},
+      "idendpoint": "6a0e8a10-c0a1-4d2f-b3c4-9e0d8a7b6f01",
+      "rowkey": 901,
+      "enabled": true,
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "environment": "prd",
+      "timeout": 15,
+      "resource": "/user/recovery/options",
+      "method": "GET",
+      "handler": "FUNCTION",
+      "access": 0,
+      "title": "Recovery Options (password reset channels)",
+      "description": "Returns which password recovery channels (email/telegram) are globally enabled for the platform, without per-user information. The GUI uses it to hide disabled channels on the forgot-password form.",
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "keywords": "password,recovery,forgot,options,channels",
+      "code": "fnRecoveryOptions",
+      "cache_time": 0,
+      "createdAt": "2026-09-06T00:00:00.000Z",
+      "updatedAt": "2026-09-06T00:00:00.000Z"
+    },
+    {
+      "ctrl": {},
+      "cors": {},
+      "mcp": {},
+      "json_schema": {
+        "in": {
+          "enabled": true,
+          "schema": {
+            "title": "ForgotPasswordRequest",
+            "type": "object",
+            "required": ["username"],
+            "additionalProperties": false,
+            "properties": {
+              "username": { "type": "string", "minLength": 1, "description": "Platform username requesting the password recovery." },
+              "channel": { "type": "string", "enum": ["email", "telegram"], "description": "Preferred delivery channel. Falls back to the other channel when not viable." },
+              "environment": { "type": "string", "enum": ["dev", "qa", "prd"], "description": "Environment whose AppVars configure the channels (default prd)." }
+            }
+          }
+        },
+        "out": {
+          "enabled": true,
+          "schema": {
+            "title": "ForgotPasswordResponse",
+            "type": "object",
+            "properties": {
+              "success": { "type": "boolean" },
+              "message": { "type": "string" },
+              "channel": { "type": ["string", "null"], "enum": ["email", "telegram", null] }
+            }
+          }
+        }
+      },
+      "custom_data": {},
+      "headers_test": {},
+      "data_test": {},
+      "idendpoint": "6a0e8a10-c0a1-4d2f-b3c4-9e0d8a7b6f02",
+      "rowkey": 902,
+      "enabled": true,
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "environment": "prd",
+      "timeout": 20,
+      "resource": "/user/forgotpassword",
+      "method": "POST",
+      "handler": "FUNCTION",
+      "access": 0,
+      "title": "Forgot Password (request OTP)",
+      "description": "Generates a 6-digit one-time code and delivers it by email or Telegram (channel selection with fallback). Response is intentionally generic to avoid leaking whether the account exists.",
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "keywords": "password,recovery,forgot,otp,reset",
+      "code": "fnForgotPassword",
+      "cache_time": 0,
+      "createdAt": "2026-09-06T00:00:00.000Z",
+      "updatedAt": "2026-09-06T00:00:00.000Z"
+    },
+    {
+      "ctrl": {},
+      "cors": {},
+      "mcp": {},
+      "json_schema": {
+        "in": {
+          "enabled": true,
+          "schema": {
+            "title": "ResetPasswordConfirmRequest",
+            "type": "object",
+            "required": ["username", "otp", "newPassword"],
+            "additionalProperties": false,
+            "properties": {
+              "username": { "type": "string", "minLength": 1, "description": "Platform username." },
+              "otp": { "type": "string", "minLength": 6, "maxLength": 6, "description": "6-digit one-time code received by email or Telegram." },
+              "newPassword": { "type": "string", "minLength": 8, "description": "New password. Must meet the security requirements." }
+            }
+          }
+        },
+        "out": {
+          "enabled": true,
+          "schema": {
+            "title": "ResetPasswordConfirmResponse",
+            "type": "object",
+            "properties": {
+              "success": { "type": "boolean" },
+              "message": { "type": ["string", "null"] },
+              "username": { "type": ["string", "null"] },
+              "error": { "type": ["string", "null"] }
+            }
+          }
+        }
+      },
+      "custom_data": {},
+      "headers_test": {},
+      "data_test": {},
+      "idendpoint": "6a0e8a10-c0a1-4d2f-b3c4-9e0d8a7b6f03",
+      "rowkey": 903,
+      "enabled": true,
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "environment": "prd",
+      "timeout": 15,
+      "resource": "/user/resetpassword/confirm",
+      "method": "POST",
+      "handler": "FUNCTION",
+      "access": 0,
+      "title": "Reset Password Confirm (redeem OTP)",
+      "description": "Redeems the one-time code and sets the new password for the user. The code is single-use, expires in 30 minutes and allows up to 5 attempts.",
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "keywords": "password,reset,recovery,otp,confirm",
+      "code": "fnResetPasswordConfirm",
+      "cache_time": 0,
+      "createdAt": "2026-09-06T00:00:00.000Z",
+      "updatedAt": "2026-09-06T00:00:00.000Z"
+    },
+    {
+      "ctrl": {},
+      "cors": {},
+      "mcp": {},
+      "json_schema": {
+        "in": {
+          "enabled": true,
+          "schema": {
+            "title": "LinkTelegramRequest",
+            "type": "object",
+            "required": ["chat_id"],
+            "additionalProperties": false,
+            "properties": {
+              "chat_id": { "type": ["string", "number"], "description": "Telegram chat id to link to the authenticated user account." }
+            }
+          }
+        },
+        "out": {
+          "enabled": true,
+          "schema": {
+            "title": "LinkTelegramResponse",
+            "type": "object",
+            "properties": {
+              "success": { "type": "boolean" },
+              "message": { "type": "string" }
+            }
+          }
+        }
+      },
+      "custom_data": {},
+      "headers_test": {},
+      "data_test": {},
+      "idendpoint": "6a0e8a10-c0a1-4d2f-b3c4-9e0d8a7b6f04",
+      "rowkey": 904,
+      "enabled": true,
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "environment": "prd",
+      "timeout": 15,
+      "resource": "/user/linktelegram",
+      "method": "POST",
+      "handler": "FUNCTION",
+      "access": 2,
+      "title": "Link Telegram Chat",
+      "description": "Links the Telegram chat where the user is talking with the bot to the authenticated user account, stored in custom_data.telegram_chat_id. Required for delivering recovery codes over Telegram.",
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "keywords": "telegram,link,chat,recovery,password",
+      "code": "fnLinkTelegram",
+      "cache_time": 0,
+      "createdAt": "2026-09-06T00:00:00.000Z",
+      "updatedAt": "2026-09-06T00:00:00.000Z"
+    },
+    {
+      "ctrl": {},
+      "cors": {},
+      "mcp": {},
+      "json_schema": {
+        "in": {
+          "enabled": false,
+          "schema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": true
+          }
+        },
+        "out": {
+          "enabled": false,
+          "schema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": true
+          }
+        }
+      },
+      "custom_data": {},
+      "headers_test": {},
+      "data_test": {},
+      "idendpoint": "6a0e8a10-c0a1-4d2f-b3c4-9e0d8a7b6f05",
+      "rowkey": 905,
+      "enabled": true,
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "environment": "prd",
+      "timeout": 15,
+      "resource": "/user/recoverycleanup",
+      "method": "POST",
+      "handler": "FUNCTION",
+      "access": 2,
+      "title": "Cleanup Recovery Tokens",
+      "description": "Deletes consumed/expired password recovery requests. Maintenance endpoint expected to be invoked periodically by an interval task.",
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "keywords": "password,recovery,cleanup,otp,maintenance",
+      "code": "fnCleanupRecoveryTokens",
+      "cache_time": 0,
+      "createdAt": "2026-09-06T00:00:00.000Z",
+      "updatedAt": "2026-09-06T00:00:00.000Z"
     }
   ]
 }

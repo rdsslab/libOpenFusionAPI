@@ -89,6 +89,46 @@ export const getAppVarsById = async (
   }
 };
 
+/**
+ * Semántica "crear una sola vez" para las AppVars de los seeds y de los restores
+ * de integridad. Las variables de aplicación guardan configuración que el dueño
+ * del despliegue ajusta (credenciales SMTP, tokens de Telegram, etc.), así que un
+ * restore nunca debe sobrescribir un valor ya colocado en el runtime.
+ *
+ * Resuelve la fila por la clave natural (idapp + name + environment). Si existe,
+ * la devuelve sin tocar nada. Si no existe, la crea. Cada restore posterior deja
+ * el valor del usuario intacto; el contenido NO se valida ni se compara.
+ *
+ * @param {import("sequelize").Optional<any, string>} data
+ * @returns {Promise<import("sequelize").Model>}
+ */
+export const ensureAppVarOnce = async (
+  /** @type {import("sequelize").Optional<any, string>} */ data
+) => {
+  const idapp = data?.idapp;
+  const name = data?.name;
+  const environment = data?.environment;
+
+  const existing = await AppVars.findOne({
+    where: { idapp, name, environment: environment ?? null },
+    attributes: ["idvar"],
+  });
+  if (existing) {
+    return existing;
+  }
+
+  return upsertAppVar({
+    // Solo los campos del negocio: el idvar del seed se deja que lo asigne la BD
+    // (en un despliegue nuevo el UUID del seed podría chocar con filas existentes).
+    ...(data?.idvar ? { idvar: data.idvar } : {}),
+    idapp,
+    name,
+    environment: environment ?? null,
+    type: data?.type ?? "json",
+    value: data?.value,
+  });
+};
+
 // DELETE
 export const deleteAppVar = async (
   /** @type {import("sequelize").Identifier | undefined} */ idappvar

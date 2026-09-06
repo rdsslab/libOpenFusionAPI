@@ -39,6 +39,7 @@ export const ModelNames = {
   Bot: prefixTableName("bot"),
   BotBackup: prefixTableName("bot_bkp"),
   BotLog: prefixTableName("bot_log"),
+  PasswordRecovery: prefixTableName("password_recovery"),
 };
 
 const default_json_schema = {
@@ -307,6 +308,73 @@ export const User = dbsequelize.define(
         randomRowKey(instance);
       },
     },
+  },
+);
+
+// Definir el modelo de la tabla 'PasswordRecovery'
+// Almacena solicitudes de recuperación de contraseña (OTP) de usuarios internos.
+// El OTP se guarda hasheado (HMAC-SHA256) y es de un solo uso con expiración.
+export const PasswordRecovery = dbsequelize.define(
+  ModelNames.PasswordRecovery,
+  {
+    idrecovery: {
+      type: DataTypes.UUID,
+      primaryKey: true,
+      allowNull: false,
+      unique: true,
+      defaultValue: DataTypes.UUIDV4,
+    },
+    iduser: {
+      type: DataTypes.BIGINT,
+      allowNull: false,
+      references: {
+        model: ModelNames.User,
+        key: "iduser",
+      },
+      onUpdate: "CASCADE",
+      onDelete: "CASCADE",
+    },
+    otp_hash: {
+      type: DataTypes.STRING(64),
+      allowNull: false,
+      comment: "HMAC-SHA256 hex del OTP. Nunca se guarda el OTP en claro.",
+    },
+    channel: {
+      type: DataTypes.STRING(10),
+      allowNull: false,
+      comment: "Canal por el que se pidió la entrega: email | telegram",
+    },
+    expires_at: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      comment: "Instante en que el OTP deja de ser válido.",
+    },
+    used: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
+    attempts: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
+      comment: "Intentos fallidos de canje.",
+    },
+  },
+  {
+    freezeTableName: true,
+    timestamps: true,
+    indexes: [
+      {
+        fields: ["iduser"],
+        name: "idx_password_recovery_iduser",
+      },
+      {
+        fields: ["expires_at"],
+        name: "idx_password_recovery_expires",
+      },
+    ],
+    hooks: {},
   },
 );
 
