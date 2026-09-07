@@ -18,7 +18,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { normalizeToolKey } from "../../src/lib/server/mcp/toolNames.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -111,9 +111,11 @@ const report = (rule, tool, message) => {
 
 function loadSeed() {
   const source = fs.readFileSync(SEED_PATH, "utf8");
-  const prefix = source.indexOf("{");
-  if (prefix < 0) throw new Error("No se encontró el objeto raíz en system.js");
-  return JSON.parse(source.slice(prefix));
+  const match = source.match(/export\s+const\s+(\w+)\s*=\s*\{/);
+  if (!match) throw new Error("No se encontró el objeto raíz en system.js");
+  return import(`${pathToFileURL(SEED_PATH).href}?t=${Date.now()}`).then(
+    (mod) => mod[match[1]]
+  );
 }
 
 /** Endpoints que el servidor MCP publica realmente (mismo filtro que mcp.js). */
@@ -420,9 +422,9 @@ function ruleNameUniqueness(tools) {
 
 // --- Ejecución --------------------------------------------------------------
 
-function main() {
+async function main() {
   const asJson = process.argv.includes("--json");
-  const app = loadSeed();
+  const app = await loadSeed();
   const tools = collectPublishedTools(app);
   const publishedNames = new Set([
     ...tools.map((tool) => tool.mcp.name),
@@ -474,7 +476,7 @@ function main() {
 }
 
 try {
-  main();
+  await main();
 } catch (error) {
   console.error("Error ejecutando la auditoría:", error?.message || error);
   process.exit(2);

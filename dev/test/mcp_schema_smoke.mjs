@@ -9,7 +9,7 @@
 // Uso: node dev/test/mcp_schema_smoke.mjs
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import * as z from "zod";
 import { jsonSchemaToZod } from "../../src/lib/server/mcp/server.js";
 
@@ -47,7 +47,12 @@ const normalizeSchemaForZod = (schema) => {
 };
 
 const source = fs.readFileSync(SEED, "utf8");
-const app = JSON.parse(source.slice(source.indexOf("{")));
+const match = source.match(/export\s+const\s+(\w+)\s*=\s*\{/);
+if (!match) throw new Error("No se encontró el objeto raíz en system.js");
+const seedModule = await import(
+  `${pathToFileURL(SEED).href}?t=${Date.now()}`
+);
+const app = seedModule[match[1]];
 
 const tools = app.endpoints.filter(
   (e) => e.method !== "WS" && e.handler !== "MCP" && e?.mcp?.enabled === true
