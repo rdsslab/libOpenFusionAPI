@@ -3552,6 +3552,276 @@ export const system_app = {
       },
       "cors": {},
       "mcp": {
+        "enabled": false,
+        "name": "",
+        "title": "",
+        "description": ""
+      },
+      "json_schema": {
+        "in": {
+          "enabled": false,
+          "schema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": true
+          }
+        }
+      },
+      "custom_data": {},
+      "headers_test": {},
+      "data_test": {
+        "query": [],
+        "body": {
+          "selection": 0,
+          "json": {
+            "code": {}
+          },
+          "xml": {
+            "code": ""
+          },
+          "text": {
+            "value": ""
+          },
+          "form": [],
+          "urlencoded": []
+        },
+        "headers": []
+      },
+      "idendpoint": "5c8e6b13-4d2a-4b6f-9d1c-1d4c9a61e9d1",
+      "rowkey": 0,
+      "enabled": true,
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "environment": "prd",
+      "timeout": 30,
+      "resource": "/security/password-migration/status",
+      "method": "GET",
+      "handler": "FUNCTION",
+      "access": 2,
+      "title": "Password Migration Status",
+      "description": "Admin diagnostic: classifies stored passwords of users and api_clients (plain/clear, HMAC hash, empty) and reports whether AUTH_LEGACY_KEYS is configured. Read only.",
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "keywords": "security,password,migration,status,jwt,authentication",
+      "code": "fnPasswordMigrationStatus",
+      "cache_time": 0,
+      "createdAt": "2026-09-07T10:00:00.000Z",
+      "updatedAt": "2026-09-07T10:00:00.000Z"
+    },
+    {
+      "ctrl": {
+        "admin": true,
+        "users": [],
+        "log": {
+          "status_client_error": 2,
+          "status_info": 1,
+          "status_redirect": 1,
+          "status_server_error": 3,
+          "status_success": 1
+        }
+      },
+      "cors": {},
+      "mcp": {
+        "enabled": false,
+        "name": "",
+        "title": "",
+        "description": ""
+      },
+      "json_schema": {
+        "in": {
+          "enabled": true,
+          "schema": {
+            "type": "object",
+            "properties": {
+              "dry_run": {
+                "type": "boolean",
+                "description": "Cuando es true solo calcula el plan (que se migraria a la JWT_KEY actual) sin escribir nada en BD."
+              },
+              "scope": {
+                "type": "string",
+                "enum": [
+                  "all",
+                  "users",
+                  "clients"
+                ],
+                "description": "Limita la conversion. Por defecto: all.",
+                "examples": [
+                  "all"
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "title": "Password Migration Run",
+            "description": "Re-hashea con la JWT_KEY actual todas las filas de users/api_clients cuyo password se almaceno en claro (alta/reset previo al fix de hashing). Los hashes HMAC-SHA256 validos no se tocan: esos migran solos en el primer login mediante AUTH_LEGACY_KEYS.",
+            "required": []
+          }
+        }
+      },
+      "custom_data": {},
+      "headers_test": {},
+      "data_test": {
+        "query": [],
+        "body": {
+          "selection": 0,
+          "json": {
+            "code": {
+              "dry_run": true
+            }
+          },
+          "xml": {
+            "code": ""
+          },
+          "text": {
+            "value": ""
+          },
+          "form": [],
+          "urlencoded": []
+        },
+        "headers": []
+      },
+      "idendpoint": "1d0e3a1b-2f8d-4c5b-9a6e-7a2c4d8a9b0c",
+      "rowkey": 0,
+      "enabled": true,
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "environment": "prd",
+      "timeout": 30,
+      "resource": "/security/password-migration/run",
+      "method": "POST",
+      "handler": "FUNCTION",
+      "access": 2,
+      "title": "Password Migration Run",
+      "description": "Admin operation: converts stored-in-clear passwords to the current JWT_KEY hash (transactional, dry_run supported). Reporta cuantas filas quedan pendientes de login para migrar por fallback AUTH_LEGACY_KEYS.",
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "keywords": "security,password,migration,run,jwt,authentication",
+      "code": "fnPasswordMigrationRun",
+      "cache_time": 0,
+      "createdAt": "2026-09-07T10:00:00.000Z",
+      "updatedAt": "2026-09-07T10:00:00.000Z"
+    },
+    {
+      "ctrl": {
+        "admin": true,
+        "users": [],
+        "log": {
+          "status_client_error": 2,
+          "status_info": 1,
+          "status_redirect": 1,
+          "status_server_error": 3,
+          "status_success": 1
+        }
+      },
+      "cors": {},
+      "mcp": {
+        "enabled": false,
+        "name": "",
+        "title": "",
+        "description": ""
+      },
+      "json_schema": {
+        "in": {
+          "enabled": true,
+          "schema": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "user",
+                  "client"
+                ],
+                "description": "Tipo de cuenta a validar. Por defecto: user.",
+                "examples": [
+                  "user"
+                ]
+              },
+              "username": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Username de la cuenta de prueba.",
+                "examples": [
+                  "superopenfusionapi"
+                ]
+              },
+              "password": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Password en claro de la cuenta de prueba (se comprueba contra el hash almacenado; no se persiste).",
+                "examples": [
+                  "Caracol@1980"
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "title": "Password Migration Validate",
+            "description": "Canary / dry-run de login: verifica que una credencial concreta pasara tras la rotacion de JWT_KEY (clave actual o fallback legacy/en claro) SIN modificar nada. El password enviado no se persiste ni se loguea.",
+            "required": [
+              "username",
+              "password"
+            ]
+          }
+        }
+      },
+      "custom_data": {},
+      "headers_test": {},
+      "data_test": {
+        "query": [],
+        "body": {
+          "selection": 0,
+          "json": {
+            "code": {
+              "type": "user",
+              "username": "superopenfusionapi",
+              "password": "Caracol@1980"
+            }
+          },
+          "xml": {
+            "code": ""
+          },
+          "text": {
+            "value": ""
+          },
+          "form": [],
+          "urlencoded": []
+        },
+        "headers": []
+      },
+      "idendpoint": "c39f1b2d-5a6e-4f7c-9b8a-2d4f6a8e0b1c",
+      "rowkey": 0,
+      "enabled": true,
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "environment": "prd",
+      "timeout": 30,
+      "resource": "/security/password-migration/validate",
+      "method": "POST",
+      "handler": "FUNCTION",
+      "access": 2,
+      "title": "Password Migration Validate",
+      "description": "Admin canary: comprueba que una credencial concreta seguira funcionando tras rotar JWT_KEY (valida con clave actual o fallback claro/legacy). Solo lectura, no persiste el password.",
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "keywords": "security,password,migration,validate,jwt,authentication",
+      "code": "fnPasswordMigrationValidate",
+      "cache_time": 0,
+      "createdAt": "2026-09-07T10:00:00.000Z",
+      "updatedAt": "2026-09-07T10:00:00.000Z"
+    },
+    {
+      "ctrl": {
+        "admin": true,
+        "users": [],
+        "log": {
+          "status_client_error": 2,
+          "status_info": 1,
+          "status_redirect": 1,
+          "status_server_error": 3,
+          "status_success": 1
+        }
+      },
+      "cors": {},
+      "mcp": {
         "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nConnects to a database using explicit Sequelize connection parameters, lists all tables (optional schema filter), and returns each table column structure.",
         "enabled": true,
         "name": "describe_all_tables",

@@ -21,6 +21,7 @@ import {
 import { getResponseOutcome } from "./responseOutcome.js";
 
 import { performance } from "perf_hooks";
+import { getSystemToken } from "../server/auth.js";
 import { URLAutoEnvironment } from "../server/functionVars.js";
 
 const fetchOFAPI = new URLAutoEnvironment({ environment: "no_env" });
@@ -88,8 +89,8 @@ function emitTaskEvent(payload) {
 /**
  * Token con el que se autentica la llamada al endpoint.
  *
- * - Endpoints de la app `system`: el token de sistema que ya crea el arranque
- *   (`CreateOpenFusionAPIToken`), único que `check_auth_Bearer` acepta para esa app.
+ * - Endpoints de la app `system`: el token de sistema emitido en memoria
+ *   (`getSystemToken`), único que `check_auth_Bearer` acepta para esa app.
  * - Resto de apps: el token de la ApiKey configurada en la tarea, que es la vía que la
  *   política de autorización ya admite (compara `apikey.idapp` con el de la app).
  *
@@ -97,7 +98,7 @@ function emitTaskEvent(payload) {
  */
 async function resolveAuthToken(task) {
   if (task.app === "system") {
-    return process.env.USER_OPENFUSIONAPI_TOKEN || null;
+    return getSystemToken() || null;
   }
 
   if (!task.idkey) return null;

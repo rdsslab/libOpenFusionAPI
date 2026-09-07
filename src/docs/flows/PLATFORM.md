@@ -35,7 +35,7 @@ flowchart TD
     I1 -- "no / afterwards" --> I3["Idempotent ensures"]
     I3 --> I4["ensureBotRuntimeColumns<br/>BotBackup.sync, BotLog.sync<br/>PasswordRecovery.sync<br/>ensureIntervalTaskColumns<br/>IntervalTaskRun.sync"]
     I4 --> I5["Seeds: defaultMethods, defaultUser, defaultApiClient, defaultApps"]
-    I5 --> I6["CreateOpenFusionAPIToken<br/>(system token to USER_OPENFUSIONAPI_TOKEN)"]
+    I5 --> I6["getSystemToken<br/>(system token kept in-memory)"]
 
     I6 --> J["loadFunctionFiles (fn/system, fn/public)"]
     J --> K["_addFunctions (fnSystem/fnPublic built-ins)"]

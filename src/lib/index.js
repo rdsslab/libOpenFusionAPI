@@ -63,7 +63,7 @@ import {
   getUUID,
   getAppVarsObject,
 } from "./server/utils.js";
-import { CreateOpenFusionAPIToken } from "./server/auth.js";
+import { getSystemToken } from "./server/auth.js";
 import { AuthService } from "./server/auth_service.js";
 
 import { validateSchemaMessageWebSocket } from "./server/schemas/index.js";
@@ -623,8 +623,9 @@ export default class ServerAPI extends EventEmitter {
       console.log(error);
     }
 
-    // Crea un token para tener acceso a los endpoints protegidos
-    CreateOpenFusionAPIToken();
+    // Pre-calienta el token de sistema (en memoria) para los endpoints protegidos
+    // de la app system y para el worker de interval tasks.
+    getSystemToken();
 
     return true;
   }

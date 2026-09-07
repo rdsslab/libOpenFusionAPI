@@ -1,5 +1,5 @@
 import { customError } from "../server/utils.js";
-import { EncryptPwd } from "../server/auth.js";
+import { EncryptPwd, passwordMatches } from "../server/auth.js";
 import { GenToken, JWTKEY } from "../server/functionVars.js";
 import { validatePasswordSecurity } from "./utils.js";
 import { validateCtrlSchema, fullAccessCtrl, emptyCtrl } from "../server/permissions.js";
@@ -350,56 +350,55 @@ export async function login(username, password) {
     let user = await User.findOne({
       where: {
         username: username || "",
-        password: EncryptPwd(password || ""),
         enabled: true,
         start_date: { [Op.lte]: new Date() },
         end_date: { [Op.gte]: new Date() },
       },
-      attributes: [
-        "iduser",
-        "enabled",
-        "username",
-        "first_name",
-        "last_name",
-        "email",
-        "ctrl",
-        "exp_time",
-        "change_password",
-      ],
     });
 
-    if (user) {
-      let u = user.toJSON();
-      const tokenSeconds =
-        Number.isFinite(Number(u.exp_time)) && Number(u.exp_time) > 0
-          ? Number(u.exp_time)
-          : DEFAULT_TOKEN_SECONDS;
-
-      let token = GenToken({ admin: u }, tokenSeconds);
-      let refresh_token = GenToken(
-        {
-          api: {
-            username: u.username,
-            iduser: u.iduser,
-            email: u.email,
-            now: Date.now(),
-          },
-        },
-        REFRESH_TOKEN_SECONDS
-      ); // Válido por una hora
-
-      await user.update({ last_login: new Date() });
-
-      return {
-        login: true,
-        user: u,
-        token: token,
-        refresh_token: refresh_token,
-        exp_seconds: tokenSeconds,
-      };
-    } else {
+    if (!user) {
       return customError(2);
     }
+
+    const { valid, needsRehash } = passwordMatches(String(password ?? ""), user.password);
+    if (!valid) {
+      return customError(2);
+    }
+
+    // Migración perezosa: hash legacy (en claro o con otra JWT_KEY) -> formato actual
+    if (needsRehash) {
+      await user.update({ password: EncryptPwd(String(password ?? "")) });
+    }
+
+    let u = user.toJSON();
+    delete u.password;
+    const tokenSeconds =
+      Number.isFinite(Number(u.exp_time)) && Number(u.exp_time) > 0
+        ? Number(u.exp_time)
+        : DEFAULT_TOKEN_SECONDS;
+
+    let token = GenToken({ admin: u }, tokenSeconds);
+    let refresh_token = GenToken(
+      {
+        api: {
+          username: u.username,
+          iduser: u.iduser,
+          email: u.email,
+          now: Date.now(),
+        },
+      },
+      REFRESH_TOKEN_SECONDS
+    ); // Válido por una hora
+
+    await user.update({ last_login: new Date() });
+
+    return {
+      login: true,
+      user: u,
+      token: token,
+      refresh_token: refresh_token,
+      exp_seconds: tokenSeconds,
+    };
   } catch (error) {
     return error;
   }
@@ -451,9 +450,10 @@ export async function updateUserPassword({
       throw new Error("User not found or inactive");
     }
 
-    const oldPasswordHash = EncryptPwd(oldPassword || "");
-    // 3. Verificar contraseña actual
-    const isCurrentPasswordValid = oldPasswordHash == user.password;
+    const { valid: isCurrentPasswordValid } = passwordMatches(
+      String(oldPassword || ""),
+      user.password
+    );
 
     if (!isCurrentPasswordValid) {
       throw new Error("The current password is incorrect.");

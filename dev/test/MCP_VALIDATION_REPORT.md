@@ -38,7 +38,7 @@
 **Antes:** el código del endpoint `POST /email/smtp` referencia `$_VAR_SMTP_TRANSPORT` (`src/lib/db/default/system.js`), variable que **no existe** en `ofapi_appvars`; el error se arrastraba en el 200 de `apiclient_create` como `email.error`. Además el nombre chocaba con `$_VAR_EMAIL_TRANSPORT` (la variable de la recuperación de clave, sí seedeada).
 **Fix (naming unificado):** el código de `/email/smtp` ahora usa `$_VAR_EMAIL_TRANSPORT` — la AppVar ya existente en el seed (`{"host":"smtp.example.com",...}`, usada también por `src/lib/db/user.js:19`). Aplicado en el seed y en el row vivo de la DB.
 **Estado:** en local el transporte demo (`smtp.example.com`) no entrega (ENOTFOUND) — comportamiento esperado que la suite registra como NOTE, no como fallo. Requiere un SMTP real en `$_VAR_EMAIL_TRANSPORT` para entrega efectiva.
-**Pendiente recomendado (NOTEs asociadas):** `apiclient/index.js:42` hardcodea `to: "edwinspire@gmail.com"` y el envío depende de `process.env.USER_OPENFUSIONAPI_TOKEN` — artefactos de dev que deben salir de la config en producción, junto con remover el `// TODO: guardar el fallo de email en log`.
+**Pendiente recomendado (NOTEs asociadas):** `apiclient/index.js:42` hardcodea `to: "edwinspire@gmail.com"` — artefacto de dev que debe salir de la config en producción, junto con remover el `// TODO: guardar el fallo de email en log`. El token de autenticación del envío ya no es una variable de entorno: usa `getSystemToken()` (en memoria, `process.env.USER_OPENFUSIONAPI_TOKEN` eliminado).
 
 ### H3 (era BUG-7): `apiclient_login` MCP lanzaba 500 crudo con esquema vacío
 
@@ -90,7 +90,7 @@ if (!username || !password) {
 
 ## Observaciones (NOTE, baja severidad — ningún FAIL)
 
-- **SMTP demo:** el transporte semilla apunta a `smtp.example.com` (no entrega en local). Para producción: definir `$_VAR_EMAIL_TRANSPORT` real; quitar el `to` hardcodeado y el uso de `USER_OPENFUSIONAPI_TOKEN` de `fnCreateApiClient`; loguear los fallos de email (`// TODO` en `apiclient/index.js:59`).
+- **SMTP demo:** el transporte semilla apunta a `smtp.example.com` (no entrega en local). Para producción: definir `$_VAR_EMAIL_TRANSPORT` real; quitar el `to` hardcodeado de `fnCreateApiClient`; loguear los fallos de email (`// TODO` en `apiclient/index.js:59`). La auth interna del envío usa `getSystemToken()` en memoria (ya no `USER_OPENFUSIONAPI_TOKEN`).
 - **`apiclient_login` MCP:** el tool sigue sin inputSchema (`json_schema.in` vacío) → no usable vía MCP; no 500ea (400 ahora). Pendiente de declarar props para habilitarlo en agentes.
 - **Rate limiter por IP global:** `RateLimitService` cuenta por IP (e IP+usuario), no por credencial. Un batch de 401 legítimos desde una IP dispara 429 para todo esa IP durante el lockout (backoff exponencial). Defensivo; documentar para no ponerlo detrás de redes compartidas sin un proxy de límites.
 - **`upsert_bot` sin validación estática:** código inválido se acepta en el upsert y solo falla en runtime (el arranque registra `bot_startup_error`; el servidor sobrevive). Considerarlo como mejora.
@@ -129,6 +129,50 @@ if (!username || !password) {
 | `src/lib/server/mcp/utils.js` | BUG-8 (`passthrough` de ctrl) |
 | `src/lib/server/functions/system/prd/apiclient/index.js` | H1 (devolver `password`), H3 (400 actionable sin credenciales) |
 | `src/lib/db/default/system.js` | `/email/smtp` usa `$_VAR_EMAIL_TRANSPORT` (seed); misma corrección aplicada al row vivo de `temporales/ofapi12.sqlite` |
+| `src/lib/server/functions/system/prd/security/index.js` | **Nuevo**: `fnPasswordMigrationStatus/Run/Validate` (endpoints admin de migración de contraseñas) + export en `prd/index.js` |
+| `src/lib/server/functions/system/prd/security/index.js` → seed | 3 endpoints `/security/password-migration/{status,run,validate}` en `system.js` y en la DB viva (ver runbook más abajo) |
+
+---
+
+## Nota de migración: hashes de contraseña (servidores en versión anterior)
+
+`EncryptPwd` siempre ha sido `HMAC-SHA256(JWTKEY)`; el riesgo real de migración es el valor de `JWT_KEY`, no el algoritmo.
+
+- **Regla nº 1:** desplegar la nueva versión con la **misma `JWT_KEY`** del servidor anterior (hashes, tokens de sesión, api keys firmadas y OTPs dependen de ella). No rotar la clave en el mismo cambio de versión.
+- **Regla nº 2:** en migraciones en las que algún servidor corrió sin `JWT_KEY` (fallback `oy8632rcv"$/8`) o con un `.env` distinto, definir `AUTH_LEGACY_KEYS` (separadas por coma) con la/s clave/s antiguas. El login (`src/lib/db/user.js`, `src/lib/db/apiclient.js`) acepta el hash como fallback, re-hashea con la clave actual y devuelve 200 — migración perezosa, sin bloquear usuarios ni sumar 401 al rate limiter.
+- **Caso BUG-5 cubierto:** filas cuya columna `password` guarda la contraseña en claro (altas/resets de una versión con el bug) también se detectan (`plain === storedHash`) y re-hashean en el primer login.
+- Verificado: `dev/test` + E2E (fila en claro → login 200 → hash re-escrito con el algoritmo actual) + suite 77/77 sin regresiones.
+
+### Runbook de rotación de `JWT_KEY` (producción)
+
+Re-encripar hashes HMAC de la clave vieja a la nueva **sin la contraseña en claro es criptográficamente imposible** (el hash es unidireccional). Por eso la rotación segura es de **doble clave con ventana de migración**, no un re-hash offline.
+
+Pasos (servidores sin recuperación de claves configurada — no la necesitan):
+
+1. **Desplegar** esta versión con la `JWT_KEY` **actual** (sin cambios) y verificar `GET /api/system/security/password-migration/status/prd`.
+2. **Sanear** filas en claro con `POST /api/system/security/password-migration/run/prd` (opcional: `{"dry_run":true}` primero; `{"scope":"users"}` limita). Solo convierte filas almacenadas en claro (bug BUG-5); los hashes no se tocan.
+3. **Canario** antes de reiniciar: `POST /api/system/security/password-migration/validate/prd` con `{"type":"user","username":"X","password":"Y"}` de una cuenta real → devuelve `verifies_with: "current_key" | "legacy_or_clear"` y `would_rehash_on_login`.
+4. **Rotar**: en `.env` poner `JWT_KEY=<nueva-fuerte>` Y `AUTH_LEGACY_KEYS=<la-que-tenías>`. Reiniciar. El login valida por fallback y re-hashea al primer login de cada usuario (200, sin 401s que alimenten el rate limiter).
+5. **Cerrar** la ventana: cuando la población activa ya se haya logueado, quitar `AUTH_LEGACY_KEYS` del `.env` y reiniciar.
+
+Impactos de la rotación que son **esperados** (y por qué):
+
+- Tokens/sesiones de sistema (cookie `OFAPI_TOKEN`, `Authorization: Bearer` del sistema) quedan inválidos → los usuarios re-loguean. Es el objetivo de la rotación.
+- Hashes OTP (`${JWTKEY}::otp`) ya emitidos quedan inválidos; expirarían igual (respaldos de seguridad).
+- **Las api keys (`ofapi_api_key`) NO se invalidan**: se firman con el `jwt_key` de cada app (p.ej. `SYSTEM_JWT_KEY`), no con la `JWT_KEY` del servidor.
+- `USER_OPENFUSIONAPI_TOKEN` ya no existe como variable: el token de sistema se emite y cachea en memoria (`getSystemToken()` en `auth.js`) y lo usan el worker de interval tasks (`timer/worker.js`) y el envío del password del apiclient (`prd/apiclient/index.js:49`). Al no pasar por `.env`, una rotación de `JWT_KEY` lo regenera automáticamente en el siguiente arranque (sin tokens viejos colgando).
+
+### Endpoints de administración de migración de contraseñas
+
+Añadidos en la app `system`, entorno `prd`, `handler=FUNCTION`, `access=2`, `ctrl.admin=true` (Bearer de sistema con `as_admin`, o usuario con permiso). No se publican como tools MCP (`mcp.enabled=false`).
+
+| Método | Endpoint | Función | Comportamiento |
+|---|---|---|---|
+| GET | `/api/system/security/password-migration/status/prd` | `fnPasswordMigrationStatus` | Conteo por formato de `users` y `api_clients`: `hashed` (HMAC 64-hex), `clear` (en claro, migrable offline), `empty`; más `legacy_keys.configured`/`count`. Solo lectura. |
+| POST | `/api/system/security/password-migration/run/prd` | `fnPasswordMigrationRun` | Re-hashea a la `JWT_KEY` actual todas las filas en claro (transacción). `{"dry_run":true}` calcula sin escribir; `{"scope":"users"|"clients"|"all"}` limita. Devuelve las cuentas migradas. |
+| POST | `/api/system/security/password-migration/validate/prd` | `fnPasswordMigrationValidate` | Canario de login (users o api_clients) replicando los filtros reales de login. Devuelve `valid`, `format`, `verifies_with`, `would_rehash_on_login`. No modifica nada y el password no se persiste ni se loguea. `400` si faltan `username`/`password`. |
+
+Verificado E2E contra el servidor vivo: fila en claro creada a propósito → `status` la clasifica como `clear` → `run` la convierte (el hash en DB pasa a `HMAC(JWT_KEY actual)`) → el login posterior responde 200 → `status` ya no muestra `clear`. Suite completa **77/77** sin regresiones.
 
 ---
 

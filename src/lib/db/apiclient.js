@@ -1,6 +1,6 @@
 import { Op } from "sequelize";
 import { ApiClient, ApiKey, Application } from "./models.js";
-import { EncryptPwd, CreateRandomPassword } from "../server/auth.js";
+import { EncryptPwd, CreateRandomPassword, passwordMatches } from "../server/auth.js";
 import { GenToken } from "../server/functionVars.js";
 import { validatePasswordSecurity } from "./utils.js";
 import dbsequelize from "./sequelize.js";
@@ -101,49 +101,56 @@ export async function loginApiClient(username, password) {
   const client = await ApiClient.findOne({
     where: {
       username,
-      password: EncryptPwd(password),
       status: ["active", "initial"],
       startAt: { [Op.lte]: now },
       [Op.or]: [{ endAt: null }, { endAt: { [Op.gte]: now } }],
     },
-    attributes: {
-      exclude: ["password"],
-    },
   });
 
-  if (client) {
-    let u = client.toJSON();
-    const tokenSeconds =
-      Number.isFinite(Number(u.exp_time)) && Number(u.exp_time) > 0
-        ? Number(u.exp_time)
-        : 60 * 60; // Una hora por defecto
-    // Aqui se asigan los endpoints a los que el cliente tiene acceso (Son definidos desde el sistema y son fijos)
-    u.Authorized = AuthorizedEnpointsClient;
-    let token = GenToken({ apiclient: u }, tokenSeconds);
-    let refresh_token = GenToken(
-      {
-        api: {
-          username: u.username,
-          status: u.status,
-          email: u.email,
-          now: Date.now(),
-        },
-      },
-      tokenSeconds
-    ); // Misma vigencia que el token principal
-
-    await client.update({ last_login: new Date() });
-
-    return {
-      login: true,
-      user: u,
-      token: token,
-      refresh_token: refresh_token,
-      exp_seconds: tokenSeconds,
-    };
+  if (!client) {
+    return null;
   }
 
-  return client;
+  const { valid, needsRehash } = passwordMatches(String(password ?? ""), client.password);
+  if (!valid) {
+    return null;
+  }
+
+  // Migración perezosa: hash legacy (en claro o con otra JWT_KEY) -> formato actual
+  if (needsRehash) {
+    await client.update({ password: EncryptPwd(String(password ?? "")) });
+  }
+
+  let u = client.toJSON();
+  delete u.password;
+  const tokenSeconds =
+    Number.isFinite(Number(u.exp_time)) && Number(u.exp_time) > 0
+      ? Number(u.exp_time)
+      : 60 * 60; // Una hora por defecto
+  // Aqui se asigan los endpoints a los que el cliente tiene acceso (Son definidos desde el sistema y son fijos)
+  u.Authorized = AuthorizedEnpointsClient;
+  let token = GenToken({ apiclient: u }, tokenSeconds);
+  let refresh_token = GenToken(
+    {
+      api: {
+        username: u.username,
+        status: u.status,
+        email: u.email,
+        now: Date.now(),
+      },
+    },
+    tokenSeconds
+  ); // Misma vigencia que el token principal
+
+  await client.update({ last_login: new Date() });
+
+  return {
+    login: true,
+    user: u,
+    token: token,
+    refresh_token: refresh_token,
+    exp_seconds: tokenSeconds,
+  };
 }
 
 /**
@@ -192,9 +199,11 @@ export async function updateAPIClientPassword({
       throw new Error("APIClient not found or inactive");
     }
 
-    const oldPasswordHash = EncryptPwd(oldPassword || "");
-    // 3. Verificar contraseña actual
-    const isCurrentPasswordValid = oldPasswordHash == user.password;
+    // 3. Verificar contraseña actual (con compatibilidad legacy)
+    const { valid: isCurrentPasswordValid } = passwordMatches(
+      String(oldPassword || ""),
+      user.password
+    );
 
     if (!isCurrentPasswordValid) {
       throw new Error("The current password is incorrect.");

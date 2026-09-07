@@ -1,4 +1,4 @@
-import { getUserPasswordTokenFromRequest } from "../../../../auth.js";
+import { getSystemToken, getUserPasswordTokenFromRequest } from "../../../../auth.js";
 import { GenToken } from "../../../../functionVars.js";
 import { GetSystemPaths } from "../../../../utils_path.js";
 import uFetch from "@rdsslab/uFetch";
@@ -44,9 +44,9 @@ export async function fnCreateApiClient(params) {
         html: userRegister(data.client.username, data.password),
       };
 
-      // Enviar por email la clave al usuario
+      // Enviar por email la clave al usuario (token de sistema, en memoria)
       const uF = new uFetch(SYSTEM_PATHS.SEND_EMAIL.PATH);
-      uF.setBearerAuthorization(process.env.USER_OPENFUSIONAPI_TOKEN);
+      uF.setBearerAuthorization(getSystemToken());
       const req = await uF[SYSTEM_PATHS.SEND_EMAIL.METHOD]({ data: mail });
       const res = await req.json();
 
