@@ -264,6 +264,12 @@ function makeObject(schema, root, context) {
     out = out.passthrough();
   } else if (schema.additionalProperties && typeof schema.additionalProperties === "object") {
     out = out.catchall(jsonSchemaToZod(schema.additionalProperties, root, context));
+  } else if (Object.keys(shape).length === 0) {
+    // JSON Schema: un objeto sin `properties` ni `additionalProperties` restringido
+    // es un objeto abierto (default adicionalProperties=true). z.object({}) por
+    // defecto DESCARTA las claves entrantes, lo que hacía perder datos como
+    // `ctrl.as_admin` en user_create vía MCP. Passthrough conserva el contenido.
+    out = out.passthrough();
   }
 
   if (schema.nullable) out = out.nullable();
