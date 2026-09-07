@@ -160,9 +160,15 @@ export async function fndeleteIntervalTask(params) {
     // body entero como valor del `where`, lo que obligaba a enviar el id pelado
     // y hacía imposible declarar un json_schema de objeto para la tool MCP.
     // Se acepta el body crudo como respaldo para los clientes HTTP antiguos.
+    //
+    // Un endpoint DELETE nunca llega por MCP con body: el handler de MCP (mcp.js)
+    // usa uFetch, que para GET/HEAD/DELETE serializa el payload como query string.
+    // Si no se lee también de `request.query`, `idtask` es siempre undefined y la
+    // tool `delete_interval_task` falla con "invalid undefined value".
     const body = params.request.body;
     const idtask =
-      body && typeof body === "object" && !Array.isArray(body) ? body.idtask : body;
+      (body && typeof body === "object" && !Array.isArray(body) ? body.idtask : body)
+      ?? params.request.query?.idtask;
 
     r.data = await deleteIntervalTask(idtask);
     r.code = 200;
