@@ -171,6 +171,7 @@ export const deleteUser = async (
   try {
     const user = await User.findByPk(userId);
     if (user) {
+      await PasswordRecovery.destroy({ where: { iduser: userId } });
       await user.destroy();
       return true; // Deletion successful
     }
@@ -523,7 +524,7 @@ export async function createUser(data) {
     // Crear usuario
     const newUser = await User.create({
       username: data.username,
-      password: data.password || null,
+      password: data.password ? EncryptPwd(data.password) : null,
       first_name: data.first_name || null,
       last_name: data.last_name || null,
       email: data.email || null,

@@ -53,7 +53,12 @@ export async function fnCreateApiClient(params) {
       let token = GenToken({ api: data.client }, 10 * 60); // Valido por 10 minutos
 
       // TODO: Si falla el envio al correo guardar en log
-      r.data = { client: data.client, token: token, email: res };
+      r.data = {
+        client: data.client,
+        password: data.password, // Contraseña generada; se muestra una sola vez
+        token: token,
+        email: res,
+      };
       r.code = 200;
     } else {
       r.data = { error: "Client not saved." };
@@ -85,6 +90,16 @@ export async function fnLoginApiClient(params) {
   let r = { data: undefined, code: 204 };
 
   let auth_data = getUserPasswordTokenFromRequest(params.request);
+  const username = auth_data?.Basic?.username;
+  const password = auth_data?.Basic?.password;
+  if (!username || !password) {
+    r.data = {
+      login: false,
+      error: "username and password are required (Basic Auth) to login.",
+    };
+    r.code = 400;
+    return r;
+  }
   //const xForwardedProto = params?.request?.headers?.["x-forwarded-proto"];
   const isHttpsRequest = false;
   /*
@@ -93,10 +108,7 @@ export async function fnLoginApiClient(params) {
     */
 
   try {
-    let data = await loginApiClient(
-      auth_data.Basic.username,
-      auth_data.Basic.password
-    );
+    let data = await loginApiClient(username, password);
 
     // Establecer una cookie básica
     params.reply.setCookie("OFAPI_TOKEN", "", {
