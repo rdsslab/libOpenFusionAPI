@@ -129,7 +129,16 @@ $BOT.command("changepassword", async (ctx) => {
 
 $BOT.command("health", async (ctx) => {
   try {
-    const r = await api("/system/health/stats", "get");
+    const sysToken = ofapi.genToken(
+      {
+        admin: {
+          username: "openfusionapi",
+          ctrl: { as_admin: true },
+        },
+      },
+      60 * 5
+    );
+    const r = await api("/system/health/stats", "get", { token: sysToken });
     await ctx.reply(`System status (HTTP ${r.status}).`);
   } catch (error) {
     ofapi.log({ message: `health: ${error?.message}` });
