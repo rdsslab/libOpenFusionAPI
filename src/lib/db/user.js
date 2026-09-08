@@ -2,7 +2,7 @@ import { customError } from "../server/utils.js";
 import { EncryptPwd, passwordMatches } from "../server/auth.js";
 import { GenToken, JWTKEY } from "../server/functionVars.js";
 import { validatePasswordSecurity } from "./utils.js";
-import { validateCtrlSchema, fullAccessCtrl, emptyCtrl } from "../server/permissions.js";
+import { validateCtrlSchema, fullAccessCtrl, adminCtrl, emptyCtrl } from "../server/permissions.js";
 import { User, PasswordRecovery } from "./models.js";
 import dbsequelize from "./sequelize.js";
 import { Op } from "sequelize";
@@ -259,7 +259,8 @@ const DEFAULT_USERS = [
   {
     username: "superopenfusionapi",
     password: "superopenfusionapi",
-    data: { first_name: "super", last_name: "user", email: "superopenfusionapi@example.com", ctrl: fullAccessCtrl() },
+    systemAdmin: true,
+    data: { first_name: "super", last_name: "user", email: "superopenfusionapi@example.com", ctrl: adminCtrl() },
   },
   {
     username: "client_api",
@@ -269,7 +270,8 @@ const DEFAULT_USERS = [
   {
     username: "admin",
     password: "admin@admin",
-    data: { first_name: "admin", last_name: "user", email: "admin@example.com", ctrl: fullAccessCtrl() },
+    systemAdmin: true,
+    data: { first_name: "admin", last_name: "user", email: "admin@example.com", ctrl: adminCtrl() },
   },
   {
     username: "demo",
@@ -303,7 +305,7 @@ export const defaultUser = async () => {
     for (const def of DEFAULT_USERS) {
       const existingUser = await User.findOne({
         where: { username: def.username },
-        attributes: ["iduser", "password"],
+        attributes: ["iduser", "password", "ctrl"],
       });
 
       if (!existingUser) {
@@ -323,6 +325,22 @@ export const defaultUser = async () => {
         console.warn(
           `[${new Date().toISOString()}] Seed: el usuario default '${def.username}' tenia la clave vacia; se restauro la clave por defecto.`
         );
+      }
+
+      // Las cuentas admin por defecto (superopenfusionapi, admin) deben tener
+      // as_admin:true en ctrl. Fila creada en arranques previos al fix queda
+      // con as_admin:false y sin acceso a nada; se corrige solo si falta.
+      if (def.systemAdmin) {
+        const storedCtrl =
+          existingUser.getDataValue?.("ctrl") && typeof existingUser.getDataValue("ctrl") === "object"
+            ? existingUser.getDataValue("ctrl")
+            : {};
+        if (storedCtrl.as_admin !== true) {
+          await existingUser.update({ ctrl: { ...storedCtrl, as_admin: true } });
+          console.warn(
+            `[${new Date().toISOString()}] Seed: se otorgo as_admin:true a la cuenta default '${def.username}'.`
+          );
+        }
       }
     }
 

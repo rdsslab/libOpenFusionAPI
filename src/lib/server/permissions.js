@@ -122,6 +122,15 @@ export function emptyCtrl() {
 }
 
 /**
+ * Builds a full-access ctrl with global admin bypass (as_admin: true).
+ * Uso: cuentas por defecto del sistema (superopenfusionapi, admin).
+ */
+export function adminCtrl() {
+  const full = fullAccessCtrl();
+  return { as_admin: true, env: full.env };
+}
+
+/**
  * Builds a full-access ctrl for all environments.
  */
 export function fullAccessCtrl() {
