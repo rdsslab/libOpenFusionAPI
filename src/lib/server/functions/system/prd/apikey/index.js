@@ -8,6 +8,7 @@ import {
   deleteApiKey,
   getApiKeyByFilters,
 } from "../../../../../db/apikey.js";
+import { getAppById } from "../../../../../db/app.js";
 
 
 export async function fnUpsertApiKey(params) {
@@ -38,15 +39,27 @@ export async function fnUpsertApiKey(params) {
     ak.startAt = new Date(ak.startAt || new Date());
     ak.endAt = new Date(ak.endAt || new Date(ak.startAt.getTime() + 30 * 24 * 60 * 60 * 1000)); // 1 month
 
-    const raw_key = params?.request?.openfusionapi?.handler?.params?.jwt_key;
+    let key = params?.request?.openfusionapi?.handler?.params?.jwt_key;
 
-    if (!raw_key) {
+    // La key debe firmarse con la jwt_key de la aplicación destino (ak.idapp),
+    // no con la del app que sirve el endpoint: al consumir un endpoint protegido
+    // la validación usa la jwt_key de la app dueña del endpoint. Sin esto, una
+    // key creada desde el endpoint de sistema para otra app quedaría firmada con
+    // la clave del sistema y sería inválida en la app destino.
+    if (ak.idapp) {
+      try {
+        const app = await getAppById(ak.idapp);
+        if (app?.jwt_key) key = app.jwt_key;
+      } catch (error) {
+        console.error("Error resolving jwt_key for apikey:", error?.message || error);
+      }
+    }
+
+    if (!key) {
       r.data = "Application jwt_key is not created.";
       r.code = 400;
       return r;
     }
-
-    const key = raw_key;
 
     //ak.token = 'OFAPI_KEY@' + GenTokenJWT({ apikey: { idapp: ak.idapp, idclient: ak.idclient } }, ak.startAt, ak.endAt, key);
     ak.token = GenTokenJWT({ apikey: { idapp: ak.idapp, idclient: ak.idclient } }, ak.startAt, ak.endAt, key);
