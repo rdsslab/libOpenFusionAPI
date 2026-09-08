@@ -34,6 +34,10 @@ export async function fnUpsertApiKey(params) {
       return r;
     }
 
+    // idkey vacío (""/null/undefined) => fila nueva: se elimina para que el
+    // autoincrement del PK la genere. Antes se pasaba "" y SQLite respondía
+    // SQLITE_MISMATCH al guardarlo en una columna BIGINT PRIMARY KEY.
+    if (!ak.idkey) delete ak.idkey;
 
     ak.enabled = true;
     ak.startAt = new Date(ak.startAt || new Date());
