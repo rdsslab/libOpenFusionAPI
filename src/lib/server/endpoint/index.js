@@ -75,7 +75,7 @@ export default class Endpoint extends EventEmitter {
       const data = this._logger.getDataLog(3, request, reply);
       if (!data) return;
       data.log_level = 3;
-      data.message = { type: "posible_ataque", ...details };
+      data.message = { type: "possible_attack", ...details };
       this.emit("log", data);
     } catch (error) {
       console.error("logPossibleAttack error:", error);

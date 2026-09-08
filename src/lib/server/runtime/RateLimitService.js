@@ -8,7 +8,7 @@
  * El `preValidation` consulta `isBlocked()` antes de validar credenciales: si hay
  * lockout activo responde 429 con `Retry-After`. El `onResponse` registra los 401
  * (`recordFailure`) para alimentar las ventanas. Al cruzar el umbral por primera vez
- * (`lockoutStarted`) se emite un log de nivel 3 con `{type:"posible_ataque",...}`.
+ * (`lockoutStarted`) se emite un log de nivel 3 con `{type:"possible_attack",...}`.
  */
 
 import {

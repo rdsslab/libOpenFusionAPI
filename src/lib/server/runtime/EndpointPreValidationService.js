@@ -76,7 +76,7 @@ export class EndpointPreValidationService {
       reply.openfusionapi.lastResponse = {};
     }
     reply.openfusionapi.lastResponse.exception = {
-      type: "posible_ataque",
+      type: "possible_attack",
       reason: "auth_rate_limit",
       ip,
       username: username ?? null,

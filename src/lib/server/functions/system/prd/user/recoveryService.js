@@ -1,4 +1,5 @@
 import nodemailer from "nodemailer";
+import { sendTelegramMessage } from "./sendTelegramMessage.js";
 
 /**
  * Entrega de OTP para recuperación de contraseña (email / telegram).
@@ -127,31 +128,9 @@ export async function deliverOtpByTelegram({ token, chatId, otp, username }) {
   if (!token || !chatId) {
     return { ok: false, error: "NO_TELEGRAM_TARGET" };
   }
-  try {
-    const url = `https://api.telegram.org/bot${token}/sendMessage`;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 10000);
-    try {
-      const response = await fetch(url, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          chat_id: String(chatId),
-          text: TELEGRAM_OTP_TEXT(otp, username),
-          parse_mode: "HTML",
-        }),
-        signal: controller.signal,
-      });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        return { ok: false, error: `TELEGRAM_HTTP_${response.status}${body?.description ? ": " + body.description : ""}` };
-      }
-      return { ok: true, body };
-    } finally {
-      clearTimeout(timer);
-    }
-  } catch (error) {
-    console.error("[OTP telegram delivery] error:", error.message);
-    return { ok: false, error: error.message };
-  }
+  return sendTelegramMessage({
+    token,
+    chatId,
+    text: TELEGRAM_OTP_TEXT(otp, username),
+  });
 }

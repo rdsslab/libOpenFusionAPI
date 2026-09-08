@@ -63,7 +63,7 @@ test harness, not a finding against the server code.
   backoff; blocked requests receive **429** with `Retry-After` **before** any
   credential comparison happens.
 - Every threshold crossing and every blocked request is logged at level 3 as
-  `{ type: 'posible_ataque' }` into `ofapi_log`, so brute-force attacks are
+  `{ type: 'possible_attack' }` into `ofapi_log`, so brute-force attacks are
   distinguishable from misconfigured clients.
 - Configurable via `AUTH_MAX_FAILURES`, `AUTH_WINDOW_MS`,
   `AUTH_LOCKOUT_BASE_MS`, `AUTH_LOCKOUT_MAX_MS`, `AUTH_PRUNING_AGE_MS`.

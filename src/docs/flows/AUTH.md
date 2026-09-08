@@ -119,7 +119,7 @@ flowchart TD
         W2 -- "no" --> W3{"failures >= AUTH_MAX_FAILURES (5)?"}
         W3 -- "no" --> WN["blocked: false"]
         W3 -- "yes" --> W4["lockoutDurationMs = base·2^(n−1)<br/>capped at AUTH_LOCKOUT_MAX_MS (24 h)"]
-        W4 --> W5["lockedUntil = now + duration<br/>log posible_ataque on first crossing"]
+        W4 --> W5["lockedUntil = now + duration<br/>log possible_attack on first crossing"]
     end
 
     RB --> OUT["Request blocked → 429 + Retry-After"]

@@ -88,6 +88,17 @@ src/docs/bots/
 
 `AI_SKILL.md` embeds the shared JavaScript core with `<!-- include: skills/JS_CORE.md -->`, expanded at read time by `src/lib/server/docsInclude.js`, so an agent gets one self-contained document per tool call.
 
+## Admin notifications
+
+Two bots live under `src/lib/server/functions/system/prd/user/` and their source is read from disk by the system seed (`src/lib/db/default/system.js`), never inlined:
+
+| Bot | Commands | Purpose |
+|---|---|---|
+| `recoveryBot.telegram.js` | `/link /forgot /changepassword /health` | Password recovery for internal users |
+| `adminNotifierBot.telegram.js` | `/help /subscribe /unsubscribe /health /errors /intrusions /logs` | Proactive admin alerts on a Telegram group |
+
+Both share Telegram delivery through `src/lib/server/functions/system/prd/user/sendTelegramMessage.js` (HTML safe, 10 s timeout). Proactive alerts are **not** sent from the bot worker: the `Admin Alerts - events scan` (every 5 min) and `Admin Alerts - system digest` (hourly) interval tasks call the internal `POST /system/admin/alerts` endpoint (`fnAdminAutoAlerts` in `src/lib/server/functions/system/prd/alerts/index.js`), which queries `ofapi_log` / `ofapi_bot_log` in-process and pushes via `sendTelegramMessage`. See [admin-notifications.md](admin-notifications.md).
+
 ## Backup and restore
 
 ### Per-bot version history

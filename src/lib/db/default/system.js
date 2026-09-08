@@ -10,6 +10,14 @@ const recoveryBotSource = readFileSync(
   "utf8",
 );
 
+const adminNotifierBotSource = readFileSync(
+  new URL(
+    "../../server/functions/system/prd/user/adminNotifierBot.telegram.js",
+    import.meta.url,
+  ),
+  "utf8",
+);
+
 export const system_app = {
   "vars": {},
   "params": {
@@ -104,6 +112,36 @@ export const system_app = {
       "environment": "prd",
       "createdAt": "2026-09-06T00:00:00.000Z",
       "updatedAt": "2026-09-06T00:00:00.000Z"
+    },
+    {
+      "value": "",
+      "idvar": "3a4b5c6d-7e8f-4a9b-b0c1-d2e3f4a5b6c7",
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "name": "$_VAR_ADMIN_GROUP_CHAT_ID",
+      "type": "string",
+      "environment": "prd",
+      "createdAt": "2026-09-08T00:00:00.000Z",
+      "updatedAt": "2026-09-08T00:00:00.000Z"
+    },
+    {
+      "value": "",
+      "idvar": "4b5c6d7e-8f9a-4b0c-b1d2-e3f4a5b6c7d8",
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "name": "$_VAR_ADMIN_ALERT_CURSOR",
+      "type": "string",
+      "environment": "prd",
+      "createdAt": "2026-09-08T00:00:00.000Z",
+      "updatedAt": "2026-09-08T00:00:00.000Z"
+    },
+    {
+      "value": "20",
+      "idvar": "5c6d7e8f-9a0b-4c1d-b2e3-f4a5b6c7d8e9",
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "name": "$_VAR_ALERT_4XX_THRESHOLD",
+      "type": "string",
+      "environment": "prd",
+      "createdAt": "2026-09-08T00:00:00.000Z",
+      "updatedAt": "2026-09-08T00:00:00.000Z"
     }
   ],
   "bots": [
@@ -117,6 +155,17 @@ export const system_app = {
       "params": {},
       "enabled": true,
       "code": recoveryBotSource
+    },
+    {
+      "idbot": "2f6a3b7c-8d9e-4f0a-a1b2-c3d4e5f6a7b8",
+      "name": "Admin Notifications Bot",
+      "provider": "telegram",
+      "environment": "prd",
+      "description": "Bot de notificaciones de administracion de OpenFusionAPI: /help, /subscribe, /unsubscribe, /health, /errors, /intrusions y /logs.",
+      "token": "$_VAR_TELEGRAM_TOKEN",
+      "params": {},
+      "enabled": true,
+      "code": adminNotifierBotSource
     }
   ],
   "tasks": [
@@ -131,6 +180,45 @@ export const system_app = {
       "interval": 300,
       "params": {},
       "exec_time_limit": 30,
+      "history_limit": 50,
+      "max_failed_attempts": 10,
+      "allow_concurrent": 0,
+      "iduser": null,
+      "idkey": null
+    },
+    {
+      "idtask": 3,
+      "idendpoint": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "schedule_mode": "interval",
+      "interval": 300,
+      "note": "Admin Alerts - events scan",
+      "enabled": true,
+      "params": {
+        "data": {
+          "mode": "events"
+        }
+      },
+      "exec_time_limit": 60,
+      "history_limit": 50,
+      "max_failed_attempts": 10,
+      "allow_concurrent": 0,
+      "iduser": null,
+      "idkey": null
+    },
+    {
+      "idtask": 4,
+      "idendpoint": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "schedule_mode": "interval",
+      "interval": 3600,
+      "note": "Admin Alerts - system digest",
+      "enabled": true,
+      "params": {
+        "data": {
+          "mode": "digest",
+          "window_hours": 24
+        }
+      },
+      "exec_time_limit": 60,
       "history_limit": 50,
       "max_failed_attempts": 10,
       "allow_concurrent": 0,
@@ -1798,7 +1886,7 @@ export const system_app = {
       "price_kb_request": 0,
       "price_kb_response": 0,
       "keywords": "onboarding,guide,agent,AI,best practices",
-      "code": "const trace_id = request?.headers?.['ofapi-trace-id'] || '';\n$_RETURN_DATA_ = {\n  summary: \`1. Always inspect each tool description and input schema first; treat the system catalog as source of truth. 2. Every resource belongs to an application: start with apps_list to resolve the target idapp before creating endpoints, application variables or bots. 3. For endpoint creation/updates, choose handler first and match payload shape to that handler. 4. Read current endpoint data before updates and patch incrementally. 5. Validate JSON Schema with validate_json_schema_for_mcp before publishing. 6. Use trace_id in logs to follow one execution path end to end. 7. OpenFusionAPI supports recurring interval tasks: a task schedules an EXISTING endpoint to run unattended and holds no code of its own, so it is never created with endpoint_upsert. If the user asks to schedule an endpoint or to diagnose a task that is not running, call get_interval_task_skill FIRST; then inspect with list_interval_tasks and get_interval_task_runs (read-only) and, only with explicit user authorization, write with upsert_interval_task, run_interval_task_now, reset_interval_task_attempts or delete_interval_task. 8. OpenFusionAPI also runs long-lived messaging bots (Telegram today). Bots are NOT endpoints: they live in their own ofapi_bot table and are managed with list_bots, upsert_bot, enable_disable_bot and delete_bot. If the user asks for a bot, call get_bot_skill FIRST and then get_bot_provider_skill; never try to build a bot with endpoint_upsert. 9. CORS is enforced per endpoint: a browser request only reads an endpoint's response if its Origin matches the endpoint's 'cors' allowlist. To let a known frontend call an endpoint cross-origin, set cors: [\"https://app.example.com\"] or an object {\"origin\": [...], \"credentials\": true} when creating it with endpoint_upsert; omitting cors keeps the deployment-wide default policy. Origins outside the allowlist are denied and no Access-Control-Allow-Origin header is emitted. 10. OpenFusionAPI throttles repeated failed authentication attempts: after several 401 responses from the same source, the IP (and IP+username pair) enters a lockout with exponential backoff and the API answers 429 with Retry-After until it cools down, logging {type:'posible_ataque'} entries at log level 3 in ofapi_log. A 429 means the caller (or the IP behind it) hit that limit: wait for Retry-After instead of retrying or changing credentials blindly, and check ofapi_log for 'posible_ataque' entries to distinguish a brute-force attack from a misconfigured client.\`,\n  links: {\n    handler_documentation: '/api/handler/documentation',\n    handler_skill: '/api/handler/skill',\n    endpoint_upsert: '/api/endpoint',\n    get_system_logs: '/api/system/logs',\n    apps_list: '/api/system/api/apps-list',\n    bot_skill: '/bots/skill',\n    interval_task_skill: '/interval_tasks/skill',\n    interval_tasks_byidapp: '/interval_tasks/byidapp',\n    interval_tasks_runs: '/interval_tasks/runs',\n    interval_tasks_upsert: '/interval_tasks/upsert',\n    interval_tasks_run_now: '/interval_tasks/run_now',\n    interval_tasks_reset_attempts: '/interval_tasks/reset_attempts',\n    interval_tasks_delete: '/interval_tasks/delete'\n  },\n  trace_id\n};",
+      "code": "const trace_id = request?.headers?.['ofapi-trace-id'] || '';\n$_RETURN_DATA_ = {\n  summary: \`1. Always inspect each tool description and input schema first; treat the system catalog as source of truth. 2. Every resource belongs to an application: start with apps_list to resolve the target idapp before creating endpoints, application variables or bots. 3. For endpoint creation/updates, choose handler first and match payload shape to that handler. 4. Read current endpoint data before updates and patch incrementally. 5. Validate JSON Schema with validate_json_schema_for_mcp before publishing. 6. Use trace_id in logs to follow one execution path end to end. 7. OpenFusionAPI supports recurring interval tasks: a task schedules an EXISTING endpoint to run unattended and holds no code of its own, so it is never created with endpoint_upsert. If the user asks to schedule an endpoint or to diagnose a task that is not running, call get_interval_task_skill FIRST; then inspect with list_interval_tasks and get_interval_task_runs (read-only) and, only with explicit user authorization, write with upsert_interval_task, run_interval_task_now, reset_interval_task_attempts or delete_interval_task. 8. OpenFusionAPI also runs long-lived messaging bots (Telegram today). Bots are NOT endpoints: they live in their own ofapi_bot table and are managed with list_bots, upsert_bot, enable_disable_bot and delete_bot. If the user asks for a bot, call get_bot_skill FIRST and then get_bot_provider_skill; never try to build a bot with endpoint_upsert. 9. CORS is enforced per endpoint: a browser request only reads an endpoint's response if its Origin matches the endpoint's 'cors' allowlist. To let a known frontend call an endpoint cross-origin, set cors: [\"https://app.example.com\"] or an object {\"origin\": [...], \"credentials\": true} when creating it with endpoint_upsert; omitting cors keeps the deployment-wide default policy. Origins outside the allowlist are denied and no Access-Control-Allow-Origin header is emitted. 10. OpenFusionAPI throttles repeated failed authentication attempts: after several 401 responses from the same source, the IP (and IP+username pair) enters a lockout with exponential backoff and the API answers 429 with Retry-After until it cools down, logging {type:'possible_attack'} entries at log level 3 in ofapi_log. A 429 means the caller (or the IP behind it) hit that limit: wait for Retry-After instead of retrying or changing credentials blindly, and check ofapi_log for 'possible_attack' entries to distinguish a brute-force attack from a misconfigured client.\`,\n  links: {\n    handler_documentation: '/api/handler/documentation',\n    handler_skill: '/api/handler/skill',\n    endpoint_upsert: '/api/endpoint',\n    get_system_logs: '/api/system/logs',\n    apps_list: '/api/system/api/apps-list',\n    bot_skill: '/bots/skill',\n    interval_task_skill: '/interval_tasks/skill',\n    interval_tasks_byidapp: '/interval_tasks/byidapp',\n    interval_tasks_runs: '/interval_tasks/runs',\n    interval_tasks_upsert: '/interval_tasks/upsert',\n    interval_tasks_run_now: '/interval_tasks/run_now',\n    interval_tasks_reset_attempts: '/interval_tasks/reset_attempts',\n    interval_tasks_delete: '/interval_tasks/delete'\n  },\n  trace_id\n};",
       "cache_time": 3600,
       "createdAt": "2026-05-19T00:00:00.000Z",
       "updatedAt": "2026-05-19T00:00:00.000Z"
@@ -12721,6 +12809,127 @@ export const system_app = {
       "cache_time": 0,
       "createdAt": "2026-04-30T12:00:00.000Z",
       "updatedAt": "2026-04-30T12:00:00.000Z"
+    },
+    {
+      "ctrl": {
+        "admin": true,
+        "users": [],
+        "log": {
+          "status_info": 1,
+          "status_success": 1,
+          "status_redirect": 1,
+          "status_client_error": 2,
+          "status_server_error": 3
+        }
+      },
+      "cors": {},
+      "mcp": {
+        "enabled": false,
+        "name": "system_admin_alerts",
+        "title": "System Admin Alerts",
+        "description": "Internal automation endpoint: proactive admin notifications to a Telegram group. mode=events reports intrusion attempts (possible_attack), 5xx server errors, 4xx saturation and bot incidents since the last scan; mode=digest sends a periodic system health summary. Driven by interval tasks and the Admin Notifications Bot (on-demand via respond_inline).",
+        "operation_mode": "write",
+        "requires_explicit_confirmation": false,
+        "side_effects": "Sends Telegram messages to the configured admin group ($_VAR_ADMIN_GROUP_CHAT_ID) using $_VAR_TELEGRAM_TOKEN."
+      },
+      "json_schema": {
+        "in": {
+          "enabled": true,
+          "schema": {
+            "title": "AdminAlertsRequest",
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "events",
+                  "digest"
+                ],
+                "default": "events",
+                "description": "events: scan window for incidents since last cursor and notify; digest: periodic health summary."
+              },
+              "respond_inline": {
+                "type": "boolean",
+                "default": false,
+                "description": "Return the composed message in report_text instead of sending it to the configured group."
+              },
+              "window_hours": {
+                "type": "integer",
+                "minimum": 1,
+                "default": 24,
+                "description": "Time window in hours for the digest mode."
+              }
+            }
+          }
+        },
+        "out": {
+          "enabled": false,
+          "schema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": true
+          }
+        }
+      },
+      "custom_data": {},
+      "headers_test": {},
+      "data_test": {
+        "query": [
+          {
+            "enabled": false,
+            "key": "",
+            "value": ""
+          }
+        ],
+        "body": {
+          "selection": 0,
+          "json": {
+            "code": {
+              "mode": "events",
+              "respond_inline": true
+            }
+          },
+          "xml": {
+            "code": ""
+          },
+          "text": {
+            "value": ""
+          },
+          "form": {}
+        },
+        "headers": [],
+        "auth": {
+          "basic": {
+            "username": "",
+            "password": ""
+          },
+          "bearer": {
+            "token": ""
+          },
+          "selection": 0
+        }
+      },
+      "idendpoint": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "rowkey": 990,
+      "enabled": true,
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "environment": "prd",
+      "timeout": 60,
+      "resource": "/system/admin/alerts",
+      "method": "POST",
+      "handler": "FUNCTION",
+      "access": 2,
+      "title": "System Admin Alerts",
+      "description": "Proactive admin notifications: intrusion attempts, 5xx, 4xx saturation and bot incidents (events mode), or system health digest (digest mode).",
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "keywords": "alerts,telegram,admin,monitoring,intrusions,digest",
+      "code": "fnAdminAutoAlerts",
+      "cache_time": 0,
+      "createdAt": "2026-09-08T00:00:00.000Z",
+      "updatedAt": "2026-09-08T00:00:00.000Z"
     },
     {
       "ctrl": {

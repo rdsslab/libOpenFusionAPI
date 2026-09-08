@@ -70,7 +70,7 @@ flowchart TD
     FOUND -- "no" --> R404["404 { error: Endpoint not found }"]
     FOUND -- "yes" --> RATE["applyRateLimit(ip, username)"]
     RATE --> BLOCKED{"isBlocked?<br/>429 retry-after"}
-    BLOCKED -- "yes" --> R429["429 + Retry-After<br/>log posible_ataque"]
+    BLOCKED -- "yes" --> R429["429 + Retry-After<br/>log possible_attack"]
     BLOCKED -- "no" --> EN{"Endpoint enabled?"}
     EN -- "no" --> R410["410 Endpoint unabled"]
     EN -- "yes" --> AP["authPolicy gate"]
