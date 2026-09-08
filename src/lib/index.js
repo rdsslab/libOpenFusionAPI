@@ -226,7 +226,7 @@ export default class ServerAPI extends EventEmitter {
       await this.TasksInterval.stop();
     });
 
-    this.fastify.addHttpMethod("QUERY", { hasBody: true });
+    this.fastify.addHttpMethod("QUERY", { hasBody: true, overrideExisting: true });
 
     this._build();
   }
