@@ -174,6 +174,43 @@ Añadidos en la app `system`, entorno `prd`, `handler=FUNCTION`, `access=2`, `ct
 
 Verificado E2E contra el servidor vivo: fila en claro creada a propósito → `status` la clasifica como `clear` → `run` la convierte (el hash en DB pasa a `HMAC(JWT_KEY actual)`) → el login posterior responde 200 → `status` ya no muestra `clear`. Suite completa **77/77** sin regresiones.
 
+### Recuperación extrema de clave de las cuentas default
+
+Distribución: **siempre activo** en el seed de arranque, sin flags. En cada boot, tras el `findOne` por username:
+
+- Si la cuenta default **no existe** → se crea igual que siempre.
+- Si **existe con `password` nulo/vacío** (`NULL`, `''` o solo espacios) → el seed re-aplica `EncryptPwd(<clave por defecto>)` y emite un warning en el log (`Seed: el usuario default '<user>' tenia la clave vacia; se restauro la clave por defecto.`).
+- Si **existe con una clave no vacía** → no se toca (una clave real, aunque sea de otro valor, nunca se sobrescribe).
+
+Cuentas default y sus claves por defecto (usuarios en `src/lib/db/user.js`, api client en `src/lib/db/apiclient.js`):
+
+| Cuenta | Clave por defecto |
+|---|---|
+| `superopenfusionapi` | `superopenfusionapi` |
+| `client_api` | `1234567890` |
+| `admin` | `admin@admin` |
+| `demo` | `demo1234` |
+| `apiuser` (api client) | `apiuser` |
+
+Procedimiento de emergencia (cuando se perdió el acceso y los medios de recuperación están deshabilitados):
+
+```sql
+-- SQLite (temporales/ofapi12.sqlite) — la columna de users es anulable; api_clients solo acepta '' (NOT NULL)
+UPDATE ofapi_user SET password = '' WHERE username = 'admin';
+-- o directamente NULL: UPDATE ofapi_user SET password = NULL WHERE username = 'admin';
+-- Apiuser (columna NOT NULL): UPDATE ofapi_api_client SET password = '' WHERE username = 'apiuser';
+```
+
+Reiniciar el servidor → el arranque detecta la clave vacía y restaura la clave por defecto de esa cuenta. Luego loguearse con la clave por defecto.
+
+Notas:
+
+- Para **bloquear** de forma intencional una cuenta default no debe usarse una clave vacía (el arranque la restauraría); usar `enabled=false` o una fecha de fin en el pasado.
+- El re-hash se calcula con la `JWT_KEY` **actual** de cada boot, así que el mecanismo sigue funcionando incluso después de una rotación de claves.
+- Cuentas creadas por un operador cuyo username coincida con uno default siguen la misma regla (inherente al criterio por username del seed).
+
+Verificado E2E contra el servidor vivo (13/13): `''` en `superopenfusionapi` → boot re-siembra `EncryptPwd('superopenfusionapi')` y el login con la clave default da 200 (warning en log); `''` en `apiuser` → idem para el api client (login 200); clave real distinta (no vacía) → el boot no la modifica y sigue logueando con esa clave. Después de cada caso se restauró el baseline (hashes originales + login 200).
+
 ---
 
 *Validación exhaustiva completa — 2026-09-07. 77/77 OK; solo quedan NOTEs de configuración/deploy documentadas arriba.*

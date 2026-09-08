@@ -249,92 +249,84 @@ export const getUserByCredentials = async (username, password) => {
   return dataUser;
 };
 
+/**
+ * Usuarios creados por defecto al arranque con su clave por defecto (en claro).
+ * Si la fila existe con la clave vacía/nula, se restaura la clave por defecto:
+ * es la vía extrema de recuperar el acceso cuando el admin borra la clave en la
+ * DB y las demás vías de recuperación están deshabilitadas.
+ */
+const DEFAULT_USERS = [
+  {
+    username: "superopenfusionapi",
+    password: "superopenfusionapi",
+    data: { first_name: "super", last_name: "user", email: "superopenfusionapi@example.com", ctrl: fullAccessCtrl() },
+  },
+  {
+    username: "client_api",
+    password: "1234567890",
+    data: { first_name: "client", last_name: "api", email: "superopenfusionapi@example.com", ctrl: fullAccessCtrl() },
+  },
+  {
+    username: "admin",
+    password: "admin@admin",
+    data: { first_name: "admin", last_name: "user", email: "admin@example.com", ctrl: fullAccessCtrl() },
+  },
+  {
+    username: "demo",
+    password: "demo1234",
+    data: {
+      first_name: "demo",
+      last_name: "user",
+      email: "demo@example.com",
+      ctrl: {
+        as_admin: false,
+        env: {
+          dev: {
+            users:      { read: true, create: false, edit: false, delete: false },
+            apiclients: { read: true, create: false, edit: false, delete: false },
+            endpoints:  { read: true, create: false, edit: false, delete: false },
+            apps:       { read: true },
+            appvars:    { read: true },
+            bots:       { read: true },
+            logs:       { read: true },
+          },
+          qa: {},
+          prd: {},
+        },
+      },
+    },
+  },
+];
+
 export const defaultUser = async () => {
   try {
-    // Verificar si el usuario "admin" ya existe
-    const existingUser = await User.findOne({
-      where: { username: "superopenfusionapi" },
-    });
-
-    if (!existingUser) {
-      // El usuario "superopenfusionapi" no existe, se realiza la inserción
-      await User.create({
-        username: "superopenfusionapi",
-        password: EncryptPwd("superopenfusionapi"),
-        first_name: "super",
-        last_name: "user",
-        email: "superopenfusionapi@example.com",
-        ctrl: fullAccessCtrl(),
+    for (const def of DEFAULT_USERS) {
+      const existingUser = await User.findOne({
+        where: { username: def.username },
+        attributes: ["iduser", "password"],
       });
-    }
 
-    const existingClient = await User.findOne({
-      where: { username: "client_api" },
-    });
+      if (!existingUser) {
+        // El usuario default no existe, se realiza la inserción
+        await User.create({
+          username: def.username,
+          password: EncryptPwd(def.password),
+          ...def.data,
+        });
+        continue;
+      }
 
-    if (!existingClient) {
-      // El usuario "superopenfusionapi" no existe, se realiza la inserción
-      await User.create({
-        username: "client_api",
-        password: EncryptPwd("1234567890"),
-        first_name: "client",
-        last_name: "api",
-        email: "superopenfusionapi@example.com",
-        ctrl: fullAccessCtrl(),
-      });
-    }
-
-    // Verificar si el usuario "admin" ya existe
-    const existingUserAdmin = await User.findOne({
-      where: { username: "admin" },
-    });
-
-    if (!existingUserAdmin) {
-      // El usuario "demouser" no existe, se realiza la inserción
-      await User.create({
-        username: "admin",
-        password: EncryptPwd("admin@admin"),
-        first_name: "admin",
-        last_name: "user",
-        email: "admin@example.com",
-        ctrl: fullAccessCtrl(),
-      });
-    }
-
-    // Verificar si el usuario "demo" ya existe
-    const existingUserDemo = await User.findOne({
-      where: { username: "demo" },
-    });
-
-    if (!existingUserDemo) {
-      // El usuario "demo" no existe, se realiza la inserción
-      await User.create({
-        username: "demo",
-        password: EncryptPwd("demo1234"),
-        first_name: "demo",
-        last_name: "user",
-        email: "demo@example.com",
-        ctrl: {
-          as_admin: false,
-          env: {
-            dev: {
-              users:      { read: true, create: false, edit: false, delete: false },
-              apiclients: { read: true, create: false, edit: false, delete: false },
-              endpoints:  { read: true, create: false, edit: false, delete: false },
-              apps:       { read: true },
-              appvars:    { read: true },
-              bots:       { read: true },
-              logs:       { read: true },
-            },
-            qa: {},
-            prd: {},
-          },
-        },
-      });
+      // Recuperación extrema de clave: la fila existe pero la clave está
+      // vacía/nula (borrada a propósito desde la DB); se restaura la default.
+      if (existingUser.password == null || String(existingUser.password).trim() === "") {
+        await existingUser.update({ password: EncryptPwd(def.password) });
+        console.warn(
+          `[${new Date().toISOString()}] Seed: el usuario default '${def.username}' tenia la clave vacia; se restauro la clave por defecto.`
+        );
+      }
     }
 
     return true;
-    //console.log(' defaultUser >>>>>> ', super_role);
   } catch (error) {
     console.error("Example error:", error);
     return false;

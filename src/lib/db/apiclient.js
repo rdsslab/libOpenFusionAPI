@@ -359,26 +359,43 @@ export async function deleteApiClient(idclient) {
 }
 
 export const defaultApiClient = async () => {
+  const defaultClient = {
+    username: "apiuser",
+    password: "apiuser",
+    data: {
+      first_name: "api",
+      last_name: "user",
+      email: "apiuser@example.com",
+      ctrl: {},
+    },
+  };
+
   try {
     // Verificar si el usuario "apiuser" ya existe
     const existingUser = await ApiClient.findOne({
-      where: { username: "apiuser" },
+      where: { username: defaultClient.username },
     });
 
     if (!existingUser) {
       // El usuario "apiuser" no existe, se realiza la inserción
       await ApiClient.create({
-        username: "apiuser",
-        password: EncryptPwd("apiuser"),
-        first_name: "api",
-        last_name: "user",
-        email: "apiuser@example.com",
-        ctrl: {},
+        username: defaultClient.username,
+        password: EncryptPwd(defaultClient.password),
+        ...defaultClient.data,
       });
+      return true;
+    }
+
+    // Recuperación extrema de clave: la fila existe pero la clave está
+    // vacía/nula (borrada a propósito desde la DB); se restaura la default.
+    if (existingUser.password == null || String(existingUser.password).trim() === "") {
+      await existingUser.update({ password: EncryptPwd(defaultClient.password) });
+      console.warn(
+        `[${new Date().toISOString()}] Seed: el api client default '${defaultClient.username}' tenia la clave vacia; se restauro la clave por defecto.`
+      );
     }
 
     return true;
-    //console.log(' defaultUser >>>>>> ', super_role);
   } catch (error) {
     console.error("Example error:", error);
     return false;
