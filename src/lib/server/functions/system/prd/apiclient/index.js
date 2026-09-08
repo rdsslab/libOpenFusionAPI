@@ -34,7 +34,14 @@ export async function fnCreateApiClient(params) {
   let r = { data: undefined, code: 204 };
 
   try {
-    let data = await createApiClient(params?.request?.body);
+    const body = params?.request?.body;
+    if (!body || !body.email || String(body.email).trim() === "") {
+      r.data = { error: "The 'email' field is required." };
+      r.code = 400;
+      return r;
+    }
+
+    let data = await createApiClient(body);
 
     if (data && data.client) {
       let mail = {
@@ -65,8 +72,15 @@ export async function fnCreateApiClient(params) {
       r.code = 500;
     }
   } catch (error) {
-    r.data = error;
-    r.code = 500;
+    const message = error?.message || String(error);
+    const isClientError =
+      error?.name === "SequelizeValidationError" ||
+      /(?:field is required|required|unique constraint|must not be null)/i.test(
+        message,
+      );
+
+    r.data = isClientError ? { error: message } : error;
+    r.code = isClientError ? 400 : 500;
   }
   return r;
 }
