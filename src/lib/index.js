@@ -56,6 +56,11 @@ import { runHandler } from "./handler/handler.js";
 import { fnPublic, fnSystem } from "./server/functions/index.js";
 import { OpenFusionWebsocketClient } from "./server/websocket_client.js";
 import { WebSocketManager } from "./server/websocket_manager.js";
+import {
+  getConfigHealth,
+  logConfigHealth,
+  renderConfigErrorPage,
+} from "./server/configHealth.js";
 
 import {
   getIPFromRequest,
@@ -97,12 +102,6 @@ const {
   HOST,
   MAX_FILE_SIZE_UPLOAD, // Default 100 MB
 } = process.env;
-
-if (!JWT_KEY) {
-  console.warn(
-    "WARNING: JWT_KEY is not defined. Cookies and Tokens may not be secure.",
-  );
-}
 
 const PORT = process.env.PORT || default_port;
 
@@ -237,6 +236,39 @@ export default class ServerAPI extends EventEmitter {
   }
 
   async _build() {
+    // Salud de configuración: JWT_KEY (y cualquier otra variable obligatoria)
+    // debe existir. Sin ella el servidor arranca degradado: se loguea el error,
+    // la raíz / muestra qué falta y la API responde 503.
+    this.configHealth = logConfigHealth();
+
+    if (!this.configHealth.ok) {
+      const missing = this.configHealth.missing;
+
+      // Bloquear TODA la API (/api/* y /ws/*) mientras falte configuración.
+      // Se registra antes de los plugins y de las rutas para que tenga prioridad.
+      this.fastify.addHook("onRequest", async (request, reply) => {
+        const url = String(request?.url || "");
+        if (url.startsWith("/api/") || url.startsWith("/ws/")) {
+          reply.code(503).send({
+            statusCode: 503,
+            error: "Service Unavailable",
+            message: `Missing required environment variable(s): ${missing.join(
+              ", ",
+            )}. Check the server logs and the .env file.`,
+          });
+        }
+      });
+
+      // La raíz muestra la pantalla de error de configuración. Solo se registra
+      // en modo degradado: con config OK la sirve fastify-static (www/index.html).
+      this.fastify.get("/", async (request, reply) => {
+        reply
+          .type("text/html; charset=utf-8")
+          .code(503)
+          .send(renderConfigErrorPage(missing));
+      });
+    }
+
     const www_dir = "www";
     const rutaDirectorio = path.join(process.cwd(), www_dir);
 
@@ -624,8 +656,11 @@ export default class ServerAPI extends EventEmitter {
     }
 
     // Pre-calienta el token de sistema (en memoria) para los endpoints protegidos
-    // de la app system y para el worker de interval tasks.
-    getSystemToken();
+    // de la app system y para el worker de interval tasks. Solo si la
+    // configuración es válida: sin JWT_KEY la firma lanzaría y mataría el boot.
+    if (this.configHealth?.ok !== false) {
+      getSystemToken();
+    }
 
     return true;
   }

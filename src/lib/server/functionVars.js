@@ -58,14 +58,10 @@ import OpenAI from "openai";
 
 const { PORT, JWT_KEY } = process.env;
 
-if (!process.env.JWT_KEY) {
-  if (process.env.NODE_ENV === 'production') {
-    console.error("FATAL: JWT_KEY is not defined in production. Refusing to start.");
-    process.exit(1);
-  }
-  console.warn("WARNING: JWT_KEY is not defined. Using insecure fallback key.");
-}
-export const JWTKEY = JWT_KEY ?? 'oy8632rcv"$/8';
+// JWT_KEY es OBLIGATORIA en todos los entornos: no existe fallback ni clave por
+// defecto. Si falta, configHealth lo loguea y el servidor arranca en modo
+// degradado (la raíz / muestra el error y la API responde 503).
+export const JWTKEY = process.env.JWT_KEY;
 
 const sanitizeNodemailerMailOptions = (mailOptions) => {
   if (!mailOptions || typeof mailOptions !== "object") {

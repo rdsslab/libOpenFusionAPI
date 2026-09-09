@@ -117,8 +117,8 @@ Copy [.env.example](.env.example) to `.env` and adjust the values for your setup
 |---|---|---|---|
 | `PORT` | HTTP server listen port | `3000` | No |
 | `HOST` | Bind host for the server | `localhost` | No |
-| `NODE_ENV` | Standard Node environment flag; gates the `JWT_KEY` fatal-exit check below | — | No |
-| `JWT_KEY` | Secret key used to sign/verify JWTs | insecure fallback key (dev only) | **Yes in production** — the process exits on boot if unset and `NODE_ENV=production` |
+| `NODE_ENV` | Standard Node environment flag | — | No |
+| `JWT_KEY` | Secret key used to sign/verify JWTs | **none — required in all environments** | **Yes** — if unset the server boots in *degraded* mode: logs the error, the root `/` shows which variables are missing and every `/api/*` responds `503` |
 | `PATH_APP_FUNCTIONS` | Filesystem path where custom app function files live | — | Yes, for function loading |
 | `MAX_FILE_SIZE_UPLOAD` | Max multipart upload size, in MB | `100` | No |
 | `DATABASE_URL` | Primary Sequelize database connection string | falls back to `DATABASE_URI_API`, then a local sqlite file | No |

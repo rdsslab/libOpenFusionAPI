@@ -16,7 +16,7 @@ flowchart TD
     A["src/server.js instantiates new server()"] --> B["ServerAPI constructor / _build()"]
 
     subgraph boot["module load"]
-        C["dotenv: load .env"] --> D["JWT_KEY check<br/>warn if missing (non-fatal)"]
+        C["dotenv: load .env"] --> D["configHealth check<br/>required vars (JWT_KEY)<br/>error + degraded mode if missing"]
         D --> E["trustProxy parsed, dns ipv4first"]
     end
 
