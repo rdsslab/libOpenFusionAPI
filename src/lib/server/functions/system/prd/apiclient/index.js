@@ -172,8 +172,15 @@ export async function fnUpdateApiClient(params) {
     r.data = data;
     r.code = 200;
   } catch (error) {
-    r.data = { error: error.message };
-    r.code = 500;
+    const message = error?.message || String(error);
+    const isClientError =
+      error?.name === "SequelizeValidationError" ||
+      /(?:not a valid date|field is required|required|unique constraint|must not be null)/i.test(
+        message,
+      );
+
+    r.data = { error: message };
+    r.code = isClientError ? 400 : 500;
   }
   return r;
 }

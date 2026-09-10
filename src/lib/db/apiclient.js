@@ -8,6 +8,32 @@ import dbsequelize from "./sequelize.js";
 
 export const AuthorizedEnpointsClient = [];
 
+// Normaliza las fechas de validez de un ApiClient: una cadena vacia en endAt
+// significa "sin expiracion" (null); startAt invalido/vacio se omite para
+// conservar el valor existente/del modelo. Lanza error si endAt no es una fecha valida.
+const normalizeClientDates = (data) => {
+  if (data.endAt !== undefined) {
+    if (data.endAt === "" || data.endAt === null) {
+      data.endAt = null;
+    } else {
+      const d = new Date(data.endAt);
+      if (Number.isNaN(d.getTime())) {
+        throw new Error("'endAt' is not a valid date.");
+      }
+      data.endAt = d;
+    }
+  }
+
+  if (data.startAt !== undefined) {
+    const d = data.startAt === "" ? null : new Date(data.startAt);
+    if (!d || Number.isNaN(d.getTime())) {
+      delete data.startAt;
+    } else {
+      data.startAt = d;
+    }
+  }
+};
+
 // Agregar este método estático al modelo ApiClient (después de define)
 export const ApiClientfindByIdOrUsername = async (filters = {}) => {
   const { idclient, username } = filters;
@@ -49,6 +75,9 @@ export async function createApiClient(data, random_password = true) {
       pwd = data.password || randompwd.password;
       data.password = EncryptPwd(pwd);
     }
+
+    // Normalizar fechas: una cadena vacia en endAt significa "sin expiracion" (null).
+    normalizeClientDates(data);
 
     const newClient = await ApiClient.create(data);
     let result = newClient.toJSON();
@@ -319,6 +348,9 @@ export async function updateApiClient(idclient, data) {
     delete data.username;
     delete data.createdAt;
     delete data.updatedAt;
+
+    // Normalizar fechas: una cadena vacia en endAt significa "sin expiracion" (null).
+    normalizeClientDates(data);
 
     // Hashear password si se provee
     if (data.password) {
