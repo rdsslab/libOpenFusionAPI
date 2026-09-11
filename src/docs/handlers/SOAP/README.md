@@ -67,6 +67,21 @@ For testing or simple integrations you can provide the config inline:
 }
 ```
 
+**`endpoint` field — override the runtime SOAP URL**:
+
+By default the SOAP client sends envelopes to the `soap:address location` declared inside the WSDL. If you need to redirect them to a different URL (e.g. a load balancer, a different environment, or the WSDL is a local copy), add an `endpoint` property alongside `wsdl`:
+
+```json
+{
+  "wsdl": "http://192.168.147.21/ServicioIntegradorQAS/servicioconsumo.asmx?WSDL",
+  "endpoint": "http://192.168.147.21/ServicioIntegradorQAS/servicioconsumo.asmx"
+}
+```
+
+- `wsdl` remains the metadata document that `node-soap` downloads and parses first — this never changes.
+- `endpoint` is the URL that actually receives the SOAP envelopes. When omitted, the handler relies on the `soap:address` inside the WSDL.
+- Combine it with the Local WSDL Strategy section below: point `wsdl` at a local copy and keep `endpoint` pointing at the real remote service.
+
 **POST Request Body** — how to call a method at runtime:
 
 Send `functionName` and `RequestArgs` in the HTTP request body. `functionName` selects which SOAP method to invoke; `RequestArgs` maps to its input parameters:
@@ -80,7 +95,7 @@ Send `functionName` and `RequestArgs` in the HTTP request body. `functionName` s
 }
 ```
 
-Values in the request body override any defaults set in the `code` config, so you can fix `functionName` in config for single-method endpoints or leave it open for dynamic invocation.
+Config values (`custom_data` or `code`/AppVar) take precedence over request body values. This means you can fix `functionName` in the config for single-method endpoints or omit it there so the caller supplies it in the body. On GET, only query fields are mapped into `RequestArgs`, so `functionName` must be provided in the config.
 
 **How to choose `functionName` correctly**:
 
@@ -112,6 +127,32 @@ In that case:
 - Incorrect `functionName`: `orderRequest`
 
 **`custom_data`** is used by the SOAP handler only when it contains a `wsdl` property: in that case it is taken as the inline configuration and the `code` field is ignored. When `custom_data.wsdl` is absent, the configuration is read from `code` (an Application Variable reference or an inline JSON config). Note that `custom_data` is **not** AppVar-resolved — a `$_VAR_…` string placed there never resolves; put the reference in `code`.
+
+</details>
+
+---
+
+<details>
+<summary>⏱️ Timeouts</summary>
+
+Two independent timeout mechanisms control the SOAP handler:
+
+**WSDL download timeout** — `options.wsdl_options.timeout` (milliseconds):
+
+This is passed to the HTTP client used by `node-soap` to fetch and parse the WSDL metadata. It does **not** bound the SOAP method call itself — only the initial WSDL fetch.
+
+```json
+{
+  "wsdl": "https://example.com/service?wsdl",
+  "options": { "wsdl_options": { "timeout": 15000 } }
+}
+```
+
+**Handler execution timeout** — `endpoint.timeout` (seconds):
+
+Configured on the endpoint model (not inside the SOAP config). It wraps the entire SOAP handler execution — WSDL fetch **and** the method call — in a `Promise.race`. On expiry the cached client is evicted and a `504` is returned. Omitting it means the call is subject only to the server-level default timeout.
+
+These two values are independent: `wsdl_options.timeout` protects only the metadata fetch, while `endpoint.timeout` protects the whole operation.
 
 </details>
 
@@ -162,7 +203,7 @@ Generic signs that the URL is **not** a real WSDL URL:
 <details>
 <summary>🔍 Service Discovery</summary>
 
-To inspect a SOAP service and obtain a full description of its services, ports, and methods as a JavaScript object, you can send `{"describe()": true}` in the request payload.
+To inspect a SOAP service and obtain a full description of its services, ports, and methods as a JavaScript object, send `{"describe()": true}` in the request payload. This call works without `functionName` — schema validation is skipped in describe mode.
 
 ```json
 {

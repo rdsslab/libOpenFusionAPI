@@ -13,11 +13,14 @@ You are an expert **Enterprise SOAP-to-REST Integration Engineer**. You speciali
 1.  **SOAP Configuration (`custom_data`)**: The `custom_data` object is the heart of the SOAP handler. It must contain:
     - `wsdl`: The absolute HTTP URL to the upstream WSDL service description.
       - *Example*: `http://www.dneonline.com/calculator.asmx?WSDL`
-    - `method`: The exact SOAP operation name to invoke as defined in the WSDL.
+    - `functionName`: The exact SOAP operation name to invoke as defined in the WSDL (the WSDL **operation/port** name, not the XML body root element name). Use `"describe()": true` to discover it.
       - *Example*: `Add`
-    - `options` (Optional): Additional options for the `soap` Node.js library. This handler internally uses the npm package `soap` (specifically, `soap.createClient()`). Therefore, the `options` property accepts any native client configurations supported by the `soap` package (such as `endpoint`, `request`, `forceSoap12Headers`, `valueKey`, `disableCache`, etc.). Refer to the official `soap` library documentation to configure advanced options correctly.
+    - `endpoint` (Optional): URL that receives the actual SOAP envelopes. When omitted, the handler sends the request to the `soap:address location` embedded in the WSDL. Use it to override the runtime target (e.g. the WSDL is a local copy or a different environment).
+    - `options` (Optional): Additional options for the `soap` Node.js library. This handler internally uses the npm package `soap` (specifically, `soap.createClient()`). Therefore, the `options` property accepts any native client configurations supported by the `soap` package (such as `request`, `forceSoap12Headers`, `valueKey`, `disableCache`, etc.). Refer to the official `soap` library documentation to configure advanced options correctly.
 2.  **Input Parameters Mapping**:
     - The SOAP handler automatically reads the incoming HTTP request payload (POST body keys, or GET query fields) and maps them as arguments to the SOAP request body.
+    - Precedence (highest first): endpoint config (`custom_data`/`code`) > request body > request query. Config values always win over body values; `functionName` in the body is ignored if it also appears in config.
+    - On GET, only query fields are mapped into `RequestArgs`, so `functionName` must be provided in the endpoint config.
     - Double check the expected uppercase/lowercase names of fields in the WSDL.
 3.  **Response Conversion**:
     - The SOAP response XML is automatically converted to a clean JSON object structure before returning it to the client.
@@ -46,7 +49,7 @@ When using `upsert_soap_endpoint_handler` to create/update an endpoint:
 - `environment`: `'dev'`, `'qa'`, or `'prd'`.
 - `resource`: HTTP resource path.
 - `method`: HTTP Verb (usually `POST` or `GET`).
-- `custom_data`: Object containing properties `wsdl` and `method` (and optional `options`).
+- `custom_data`: Object containing `wsdl`, `functionName`, and optional `endpoint`, `options`. See "Core Instructions & Constraints" above for full details.
 
 **Application Variables in SOAP**: unlike the SQL-family handlers, the AppVar reference goes in **`code`**, not in `custom_data`. The handler only reads `code` when `custom_data.wsdl` is absent: if `custom_data` already carries a `wsdl`, it is used inline and `code` is ignored entirely. The AppVar value must be a JSON configuration object (it is parsed as JSON), not a bare WSDL URL string. Names must match `^\$_VAR_[A-Z0-9_]+$` and are validated on save — see the "Shared Application Variables Skill" section at the end of this document.
 
@@ -55,14 +58,16 @@ When using `upsert_soap_endpoint_handler` to create/update an endpoint:
 ```json
 {
   "wsdl": "http://www.dneonline.com/calculator.asmx?WSDL",
-  "method": "Add"
+  "functionName": "Add"
 }
 ```
 * **Request Payload (POST body)**:
 ```json
 {
-  "intA": 5,
-  "intB": 10
+  "RequestArgs": {
+    "intA": 5,
+    "intB": 10
+  }
 }
 ```
 
