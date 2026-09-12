@@ -1,5 +1,5 @@
 import { customError } from "../server/utils.js";
-import { EncryptPwd, passwordMatches } from "../server/auth.js";
+import { EncryptPwd, passwordMatches, CreateRandomPassword } from "../server/auth.js";
 import { GenToken, JWTKEY } from "../server/functionVars.js";
 import { validatePasswordSecurity } from "./utils.js";
 import { validateCtrlSchema, fullAccessCtrl, adminCtrl, emptyCtrl } from "../server/permissions.js";
@@ -228,54 +228,38 @@ export async function updateUser(iduser, data) {
 }
 
 /**
- * @param {string} username
- * @param {string} password
- */
-export const getUserByCredentials = async (username, password) => {
-  let dataUser = await User.findOne({
-    where: { username: username, password: password },
-    attributes: [
-      "iduser",
-      "enabled",
-      "username",
-      "first_name",
-      "last_name",
-      "email",
-      "ctrl",
-      "exp_time",
-    ],
-  });
-
-  return dataUser;
-};
-
-/**
- * Usuarios creados por defecto al arranque con su clave por defecto (en claro).
- * Si la fila existe con la clave vacía/nula, se restaura la clave por defecto:
- * es la vía extrema de recuperar el acceso cuando el admin borra la clave en la
- * DB y las demás vías de recuperación están deshabilitadas.
+ * Usuarios creados por defecto al arranque con su clave por defecto.
+ * Las claves cumplen validatePasswordSecurity (>=8, mayúscula, minúscula,
+ * dígito y carácter especial) y obligan a cambiar la clave en el primer
+ * ingreso (change_password=true).
+ *
+ * Seguridad: si la fila existe con la clave vacía/nula, la clave por defecto
+ * NO se restaura salvo que se active explícitamente la env var
+ * OFAPI_ALLOW_EMPTY_PASSWORD_RESTORE=true (ambientes aislados de demo). La vía
+ * normal de recuperación es el flujo OTP (email/telegram) configurado en la
+ * app system.
  */
 const DEFAULT_USERS = [
   {
     username: "superopenfusionapi",
-    password: "superopenfusionapi",
+    password: "Sup3r@0penFusion!",
     systemAdmin: true,
     data: { first_name: "super", last_name: "user", email: "superopenfusionapi@example.com", ctrl: adminCtrl() },
   },
   {
     username: "client_api",
-    password: "1234567890",
+    password: "Cl13nt@0penFusion!",
     data: { first_name: "client", last_name: "api", email: "superopenfusionapi@example.com", ctrl: fullAccessCtrl() },
   },
   {
     username: "admin",
-    password: "admin@admin",
+    password: "Adm1n@0penFusion!",
     systemAdmin: true,
     data: { first_name: "admin", last_name: "user", email: "admin@example.com", ctrl: adminCtrl() },
   },
   {
     username: "demo",
-    password: "demo1234",
+    password: "D3m0@0penFusion!",
     data: {
       first_name: "demo",
       last_name: "user",
@@ -313,18 +297,30 @@ export const defaultUser = async () => {
         await User.create({
           username: def.username,
           password: EncryptPwd(def.password),
+          change_password: true,
           ...def.data,
         });
         continue;
       }
 
       // Recuperación extrema de clave: la fila existe pero la clave está
-      // vacía/nula (borrada a propósito desde la DB); se restaura la default.
+      // vacía/nula (borrada a propósito desde la DB). Por defecto se DENIEGA:
+      // una fila sin clave no puede autenticarse y la puerta de entrada es el
+      // flujo de recuperación (OTP). Solo se reactiva con el flag explícito.
       if (existingUser.password == null || String(existingUser.password).trim() === "") {
-        await existingUser.update({ password: EncryptPwd(def.password) });
-        console.warn(
-          `[${new Date().toISOString()}] Seed: el usuario default '${def.username}' tenia la clave vacia; se restauro la clave por defecto.`
-        );
+        if (process.env.OFAPI_ALLOW_EMPTY_PASSWORD_RESTORE === "true") {
+          await existingUser.update({
+            password: EncryptPwd(def.password),
+            change_password: true,
+          });
+          console.warn(
+            `[${new Date().toISOString()}] Seed: el usuario default '${def.username}' tenia la clave vacia; se restauro la clave por defecto (flag OFAPI_ALLOW_EMPTY_PASSWORD_RESTORE) con cambio obligatorio.`
+          );
+        } else {
+          console.warn(
+            `[${new Date().toISOString()}] Seed: el usuario default '${def.username}' tiene la clave vacia; NO se restauro la clave por defecto. Active OFAPI_ALLOW_EMPTY_PASSWORD_RESTORE=true solo en ambientes aislados.`
+          );
+        }
       }
 
       // Las cuentas admin por defecto (superopenfusionapi, admin) deben tener
@@ -531,10 +527,27 @@ export async function createUser(data) {
       }
     }
 
+    // Política de contraseña: si se provee, debe cumplir los requisitos. Si no
+    // se provee, se genera una clave temporal segura que se entrega una sola vez
+    // y obliga a rotarla en el próximo ingreso (change_password).
+    let passwordValue = "";
+    let temporaryPassword = null;
+    if (String(data.password ?? "").trim() !== "") {
+      const validationSecurity = validatePasswordSecurity(String(data.password));
+      if (!validationSecurity.isValid) {
+        throw new Error("Weak password: " + validationSecurity.errors.join("; "));
+      }
+      passwordValue = String(data.password);
+    } else {
+      const rp = CreateRandomPassword();
+      temporaryPassword = rp.password;
+      passwordValue = rp.password;
+    }
+
     // Crear usuario
     const newUser = await User.create({
       username: data.username,
-      password: data.password ? EncryptPwd(data.password) : null,
+      password: EncryptPwd(passwordValue),
       first_name: data.first_name || null,
       last_name: data.last_name || null,
       email: data.email || null,
@@ -552,6 +565,7 @@ export async function createUser(data) {
       message: "Usuario creado correctamente.",
       iduser: newUser.iduser,
       username: newUser.username,
+      ...(temporaryPassword ? { temporaryPassword } : {}),
     };
   } catch (err) {
     // Error de username duplicado (unique constraint)

@@ -3,6 +3,7 @@ import {
   createUser,
   login,
   getAllUsers,
+  getUserById,
   updateUserPassword,
   resetUserPassword,
   updateUser,
@@ -21,6 +22,13 @@ import {
   deliverOtpByTelegram,
 } from "./recoveryService.js";
 
+const getActorUsername = (params) =>
+  params?.request?.openfusionapi?.user?.admin?.username ||
+  params?.request?.openfusionapi?.user?.username ||
+  "-";
+
+const getTraceId = (params) => params?.request?.headers?.["ofapi-trace-id"] || "";
+
 export async function fnCreateUser(params) {
   let r = { data: undefined, code: 204 };
 
@@ -33,6 +41,9 @@ export async function fnCreateUser(params) {
     r.data = error;
     r.code = 500;
   }
+  console.log(
+    `[audit] user:create actor=${getActorUsername(params)} target=${r?.data?.username || "-"} success=${r?.data?.success ?? false} code=${r.code} trace_id=${getTraceId(params)}`
+  );
   return r;
 }
 
@@ -48,15 +59,6 @@ export async function fnLogin(params) {
       (typeof xForwardedProto === "string" && xForwardedProto.includes("https"));
 
     let user = await login(auth_data.Basic.username, auth_data.Basic.password);
-
-    // Establecer una cookie básica
-    params.reply.setCookie("OFAPI_TOKEN", "", {
-      path: "/",
-      httpOnly: true,
-      secure: isHttpsRequest,
-      sameSite: "Strict",
-      maxAge: 5,
-    });
 
     if (user.login) {
 
@@ -140,6 +142,9 @@ export async function fnUpdateUserPassword(params) {
     r.data = error;
     r.code = 500;
   }
+  console.log(
+    `[audit] user:change_password actor=${getActorUsername(params)} code=${r.code} trace_id=${getTraceId(params)}`
+  );
   return r;
 }
 
@@ -166,6 +171,9 @@ export async function fnResetUserPassword(params) {
     r.data = { error: error.message };
     r.code = 500;
   }
+  console.log(
+    `[audit] user:reset_password actor=${getActorUsername(params)} target=${iduser} code=${r.code} trace_id=${getTraceId(params)}`
+  );
   return r;
 }
 
@@ -179,6 +187,35 @@ export async function fnUpdateUser(params) {
       return r;
     }
 
+    const actor = params?.request?.openfusionapi?.user?.admin || params?.request?.openfusionapi?.user;
+    const actorCtrl = actor?.ctrl && typeof actor.ctrl === "object" ? actor.ctrl : {};
+    const actorIsAdmin = actorCtrl.as_admin === true;
+    const targetId = Number(iduser);
+
+    // Escalada de privilegios: modificar el ctrl (incluido otorgar as_admin a
+    // otros o editar los propios permisos) es exclusivo de cuentas as_admin.
+    if (!actorIsAdmin && params?.request?.body?.ctrl !== undefined) {
+      r.data = { error: "Permission denied: only an as_admin account may modify user ctrl." };
+      r.code = 403;
+      return r;
+    }
+    if (!actorIsAdmin && Number(actor?.iduser) === targetId) {
+      r.data = { error: "Permission denied: you cannot modify your own access." };
+      r.code = 403;
+      return r;
+    }
+
+    // Una cuenta sin as_admin tampoco puede modificar cuentas con as_admin.
+    if (!actorIsAdmin) {
+      const targetRow = await getUserById(iduser);
+      const targetCtrl = targetRow?.toJSON?.().ctrl || targetRow?.ctrl || {};
+      if (targetCtrl.as_admin === true) {
+        r.data = { error: "Permission denied: cannot modify an as_admin account." };
+        r.code = 403;
+        return r;
+      }
+    }
+
     let data = await updateUser(iduser, params?.request?.body);
     r.data = data;
     r.code = 200;
@@ -186,6 +223,9 @@ export async function fnUpdateUser(params) {
     r.data = { error: error.message };
     r.code = 500;
   }
+  console.log(
+    `[audit] user:update actor=${getActorUsername(params)} target=${iduser} code=${r.code} trace_id=${getTraceId(params)}`
+  );
   return r;
 }
 
@@ -197,6 +237,30 @@ export async function fnDeleteUser(params) {
       r.data = { error: "iduser is required." };
       r.code = 400;
       return r;
+    }
+
+    const actor = params?.request?.openfusionapi?.user?.admin || params?.request?.openfusionapi?.user;
+    const actorCtrl = actor?.ctrl && typeof actor.ctrl === "object" ? actor.ctrl : {};
+    const actorIsAdmin = actorCtrl.as_admin === true;
+    const targetId = Number(iduser);
+
+    // Nadie puede eliminarse a sí mismo (evita dejar la plataforma sin cuentas
+    // por accidente o un auto-borrado como abuso).
+    if (Number(actor?.iduser) === targetId) {
+      r.data = { error: "Permission denied: you cannot delete your own account." };
+      r.code = 403;
+      return r;
+    }
+
+    // Una cuenta sin as_admin no puede eliminar cuentas con as_admin.
+    if (!actorIsAdmin) {
+      const targetRow = await getUserById(iduser);
+      const targetCtrl = targetRow?.toJSON?.().ctrl || targetRow?.ctrl || {};
+      if (targetCtrl.as_admin === true) {
+        r.data = { error: "Permission denied: cannot delete an as_admin account." };
+        r.code = 403;
+        return r;
+      }
     }
 
     let deleted = await deleteUser(iduser);
@@ -211,6 +275,9 @@ export async function fnDeleteUser(params) {
     r.data = { error: error.message };
     r.code = 500;
   }
+  console.log(
+    `[audit] user:delete actor=${getActorUsername(params)} target=${iduser} code=${r.code} trace_id=${getTraceId(params)}`
+  );
   return r;
 }
 
@@ -414,6 +481,9 @@ export async function fnResetPasswordConfirm(params) {
     r.data = { error: error.message };
     r.code = 500;
   }
+  console.log(
+    `[audit] user:password_recovery_confirm username=${String((params?.request?.body || {}).username || "").trim()} success=${r?.data?.success ?? false} code=${r.code} trace_id=${getTraceId(params)}`
+  );
   return r;
 }
 

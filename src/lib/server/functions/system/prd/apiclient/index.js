@@ -114,24 +114,13 @@ export async function fnLoginApiClient(params) {
     r.code = 400;
     return r;
   }
-  //const xForwardedProto = params?.request?.headers?.["x-forwarded-proto"];
-  const isHttpsRequest = false;
-  /*
+  const xForwardedProto = params?.request?.headers?.["x-forwarded-proto"];
+  const isHttpsRequest =
     params?.request?.protocol === "https" ||
     (typeof xForwardedProto === "string" && xForwardedProto.includes("https"));
-    */
 
   try {
     let data = await loginApiClient(username, password);
-
-    // Establecer una cookie básica
-    params.reply.setCookie("OFAPI_TOKEN", "", {
-      path: "/",
-      httpOnly: true,
-      secure: isHttpsRequest,
-      sameSite: "Strict",
-      maxAge: 5,
-    });
 
     if (data && data.login) {
       let aut = `Bearer ${data.token}`;

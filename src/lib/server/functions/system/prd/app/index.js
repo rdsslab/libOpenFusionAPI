@@ -159,6 +159,14 @@ export async function fnRestoreAppFromBackup(params) {
     r.data = error;
     r.code = 500;
   }
+  const actor =
+    params?.request?.openfusionapi?.user?.admin?.username ||
+    params?.request?.openfusionapi?.user?.username ||
+    "-";
+  const traceId = params?.request?.headers?.["ofapi-trace-id"] || "";
+  console.log(
+    `[audit] app:restore_from_backup actor=${actor} idapp=${params?.request?.body?.idapp || "-"} code=${r.code} trace_id=${traceId}`
+  );
   return r;
 }
 
@@ -200,6 +208,14 @@ export async function fnRestoreAllAppsFromBackup(params) {
     r.data = error;
     r.code = 500;
   }
+  const actor =
+    params?.request?.openfusionapi?.user?.admin?.username ||
+    params?.request?.openfusionapi?.user?.username ||
+    "-";
+  const traceId = params?.request?.headers?.["ofapi-trace-id"] || "";
+  console.log(
+    `[audit] app:restore_all_from_backup actor=${actor} code=${r.code} trace_id=${traceId}`
+  );
   return r;
 }
 
