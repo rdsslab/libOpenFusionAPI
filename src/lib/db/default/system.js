@@ -2719,7 +2719,7 @@ export const system_app = {
         "enabled": true,
         "name": "handler_library_documentation",
         "title": "JS Handler Library Documentation",
-        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns the detailed documentation for a specific library or helper function available in the JS handler sandbox (e.g., createPDFFromHTML, uFetch, luxon).",
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns the detailed documentation for a specific library or helper function available in the JS handler sandbox (e.g., createPDFFromHTML, uFetch, luxon, ldap).",
         "operation_mode": "read",
         "requires_explicit_confirmation": false,
         "side_effects": "No persistent write side effects expected.",

@@ -340,6 +340,7 @@ Common pre-injected modules available in many deployments include:
 - `xlsx_style` — for generating Excel files (XLSX)
 - `uFetchAutoEnv` — for calling internal API endpoints
 - `request_xlsx_body_to_json` — for parsing uploaded XLSX files
+- `ldap` — for connecting to LDAP v3 / Active Directory servers (bind, search, credential validation)
 
 </details>
 
@@ -428,6 +429,38 @@ const info = await transporter.sendMail({
 });
 $_RETURN_DATA_ = { messageId: info.messageId, accepted: info.accepted };
 ```
+
+**LDAP / Active Directory — query users and validate credentials**
+
+The `ldap` variable exposes the Promise-based `ldapts` client. Read the directory host, bind credentials and base DN from Application Variables and always `unbind()` in a `finally` block:
+
+```javascript
+const client = new ldap.Client({
+  url: $_APP_VARS_['$_VAR_LDAP_URL'], // e.g. 'ldaps://dc.example.com:636'
+});
+
+try {
+  await client.bind(
+    $_APP_VARS_['$_VAR_LDAP_BIND_DN'],
+    $_APP_VARS_['$_VAR_LDAP_BIND_PASSWORD'],
+  );
+
+  const { searchEntries } = await client.search(
+    $_APP_VARS_['$_VAR_LDAP_BASE_DN'],
+    {
+      scope: 'sub',
+      filter: '(objectClass=person)',
+      attributes: ['cn', 'mail', 'distinguishedName'],
+      sizeLimit: 50,
+    },
+  );
+  $_RETURN_DATA_ = searchEntries;
+} finally {
+  await client.unbind();
+}
+```
+
+For an authentication check, find the user DN first and then `bind()` with that DN and the password typed by the caller. Escape any user-supplied value used inside a filter with `ldap.escapeFilter(...)`.
 
 **Orchestration — call multiple internal endpoints and merge results**
 

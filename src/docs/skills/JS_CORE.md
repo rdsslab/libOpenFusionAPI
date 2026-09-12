@@ -69,6 +69,7 @@ The following rules apply to **every** JavaScript block executed by OpenFusionAP
    - To discover and inspect available libraries and injected functions, call the MCP tool `handler_library_documentation` (or endpoint `GET /api/handler/js/libraries`) with parameter `handler=JS`. The same injected library pool is shared by every JavaScript execution context, including bots, so `handler=JS` is always the right parameter.
    - If you do not pass a `library` parameter, it returns the summary table of all available libraries and their recommended use cases.
    - If you pass the `library` parameter (e.g. `handler=JS`, `library=createPDFFromHTML`), it returns the full detailed documentation, signatures, and examples for that specific library. Do not propose third-party packages that are not installed.
+   - An LDAP v3 / Active Directory client is available as the `ldap` variable (alias `ldapts`, package `ldapts`). Use it for directory queries or credential validation: `new ldap.Client({ url })` → `bind()` → `search()`/writes → `unbind()` in a `finally` block. Pull URL, bind DN/password and base DN from Application Variables (`$_APP_VARS_['$_VAR_...']`), prefer `ldaps://`, escape any user-supplied filter value with `ldap.escapeFilter(...)`, and always cap searches with `sizeLimit`. Never return the password or full bind DN to the caller.
 
 5. **Synchronous Evaluation**:
    - The script is evaluated with `vm.Script` in a synchronous pass. **Top-level `await` is not available.** Put asynchronous work inside `async` functions, handlers, or callbacks.
