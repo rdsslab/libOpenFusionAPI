@@ -312,6 +312,29 @@ export const demo_app = {
       "environment": "dev",
       "createdAt": "2026-08-05T00:00:00.000Z",
       "updatedAt": "2026-08-05T00:00:00.000Z"
+    },
+    {
+      "value": {
+        "url": "ldap://localhost:1389",
+        "bindDn": "cn=admin,dc=example,dc=com",
+        "bindPassword": "admin12345",
+        "baseDn": "dc=example,dc=com",
+        "searchFilter": "(objectClass=inetOrgPerson)",
+        "scope": "sub",
+        "attributes": [
+          "uid",
+          "cn",
+          "mail"
+        ],
+        "sizeLimit": 50
+      },
+      "idvar": "e4b3102a-9f7d-4c6b-8a5e-1d2f3a4b5c6d",
+      "idapp": "c4ca4238-a0b9-2382-0dcc-509a6f75849b",
+      "name": "$_VAR_LDAP_DEMO",
+      "type": "json",
+      "environment": "dev",
+      "createdAt": "2026-09-12T00:00:00.000Z",
+      "updatedAt": "2026-09-12T00:00:00.000Z"
     }
   ],
   "bots": [
@@ -7017,6 +7040,119 @@ export const demo_app = {
       "cache_time": 60,
       "createdAt": "2026-04-04T03:07:00.616Z",
       "updatedAt": "2026-04-04T03:07:00.616Z"
+    },
+    {
+      "ctrl": {
+        "admin": true,
+        "users": [],
+        "log": {}
+      },
+      "cors": {},
+      "mcp": {
+        "enabled": true,
+        "name": "demo_ldap_search_v1",
+        "title": "demo_ldap_search_v1",
+        "description": "Functional LDAP test: binds with the service account, searches people (optional uid filter) and optionally validates a user password against the demo OpenLDAP server."
+      },
+      "json_schema": {
+        "in": {
+          "enabled": true,
+          "schema": {
+            "type": "object",
+            "properties": {
+              "uid": {
+                "type": "string",
+                "description": "LDAP uid to filter the search (e.g. alice). Empty performs a general search over baseDn."
+              },
+              "password": {
+                "type": "string",
+                "description": "If provided together with uid, validates that user's password via a direct LDAP bind."
+              },
+              "sizeLimit": {
+                "type": "integer",
+                "description": "Max number of entries to return (default 50)."
+              }
+            },
+            "required": [],
+            "additionalProperties": true
+          }
+        },
+        "out": {
+          "enabled": false,
+          "schema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": true
+          }
+        }
+      },
+      "custom_data": "$_VAR_LDAP_DEMO",
+      "headers_test": {},
+      "data_test": {
+        "query": [
+          {
+            "enabled": true,
+            "key": "uid",
+            "value": "alice",
+            "internal_hash_row": "demo-ldap-search-q1"
+          },
+          {
+            "enabled": true,
+            "key": "password",
+            "value": "alice123",
+            "internal_hash_row": "demo-ldap-search-q2"
+          }
+        ],
+        "body": {
+          "selection": 0,
+          "json": {
+            "code": {}
+          },
+          "xml": {
+            "code": ""
+          },
+          "text": {
+            "value": ""
+          },
+          "form": []
+        },
+        "headers": [],
+        "auth": {
+          "selection": 0,
+          "basic": {
+            "username": "",
+            "password": ""
+          },
+          "bearer": {
+            "token": ""
+          }
+        },
+        "last_response": {
+          "data": "",
+          "sizeKBResponse": -1,
+          "MimeType": ""
+        }
+      },
+      "idendpoint": "9c5e3f1a-2b7d-4e6c-8a9b-0d1e2f3a4b5c",
+      "rowkey": 990,
+      "enabled": true,
+      "idapp": "c4ca4238-a0b9-2382-0dcc-509a6f75849b",
+      "environment": "dev",
+      "timeout": 30,
+      "resource": "/ofapi/examples/ldap/search",
+      "method": "GET",
+      "handler": "JS",
+      "access": 0,
+      "title": "LDAP search demo",
+      "description": "Functional LDAP demo using the ldap (ldapts) module: service account bind, search over baseDn (optional uid filter) and optional user password validation.",
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "keywords": "ldap,demo,search,ldapts",
+      "code": "const query = request.query || {};\n// Configuracion de la conexion LDAP (ver $_VAR_LDAP_DEMO en la app demo)\nconst cfg = $_APP_VARS_['$_VAR_LDAP_DEMO'];\nif (!cfg || typeof cfg !== 'object') {\n  $_EXCEPTION_({ message: '$_VAR_LDAP_DEMO no esta configurada (objeto con url, bindDn, bindPassword, baseDn)', statusCode: 500, data: { log: { appVars: $_APP_VARS_ } } });\n}\n\nconst client = new ldap.Client({ url: cfg.url || 'ldap://localhost:1389' });\nconst result = {\n  ok: false,\n  server: cfg.url,\n  stage: 'connecting',\n  message: '',\n  bindDn: cfg.bindDn,\n  baseDn: cfg.baseDn,\n  filter: '',\n  found: 0,\n  entries: [],\n  login: null\n};\n\ntry {\n  // 1) Autenticacion de servicio\n  await client.bind(cfg.bindDn, cfg.bindPassword);\n  result.stage = 'bound';\n\n  // 2) Busqueda filtrada por uid (escapeFilter evita inyeccion LDAP)\n  const filter = query.uid\n    ? ldap.escapeFilter`(uid=${String(query.uid)})`\n    : (cfg.searchFilter || '(objectClass=inetOrgPerson)');\n  result.filter = filter;\n\n  const { searchEntries } = await client.search(cfg.baseDn || 'dc=example,dc=com', {\n    scope: cfg.scope || 'sub',\n    filter,\n    attributes: cfg.attributes || ['uid', 'cn', 'mail'],\n    sizeLimit: Number(!isNaN(Number(query.sizeLimit)) ? query.sizeLimit : (cfg.sizeLimit || 50))\n  });\n\n  result.found = searchEntries.length;\n  result.entries = searchEntries.map((entry) => ({\n    dn: entry.dn,\n    ...Object.fromEntries(\n      Object.entries(entry)\n        .filter(([key]) => key !== 'dn')\n        .map(([key, value]) => [key, Array.isArray(value) ? (value.length === 1 ? value[0] : value.sort()) : value])\n    )\n  }));\n\n  // 3) Validacion opcional de credenciales de un usuario (bind directo)\n  if (query.uid && query.password) {\n    const target = result.entries[0];\n    if (!target) {\n      result.login = { ok: false, error: 'uid not found', dn: null };\n    } else {\n      const userClient = new ldap.Client({ url: cfg.url });\n      try {\n        await userClient.bind(target.dn, String(query.password));\n        result.login = { ok: true, dn: target.dn };\n      } catch (loginError) {\n        result.login = { ok: false, error: loginError.message || String(loginError), dn: target.dn };\n      } finally {\n        await userClient.unbind();\n      }\n    }\n  }\n\n  result.stage = 'searched';\n  result.ok = true;\n  result.message = 'LDAP connection, bind and search succeeded';\n} catch (e) {\n  result.message = (e && e.message) || String(e);\n  if (e && e.code) result.code = e.code;\n} finally {\n  try {\n    await client.unbind();\n  } catch (ignore) {}\n}\n\n$_RETURN_DATA_ = result;\n",
+      "cache_time": 0,
+      "createdAt": "2026-09-12T00:00:00.000Z",
+      "updatedAt": "2026-09-12T00:00:00.000Z"
     }
   ]
 }

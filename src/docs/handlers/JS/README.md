@@ -460,7 +460,7 @@ try {
 }
 ```
 
-For an authentication check, find the user DN first and then `bind()` with that DN and the password typed by the caller. Escape any user-supplied value used inside a filter with `ldap.escapeFilter(...)`.
+For an authentication check, find the user DN first and then `bind()` with that DN and the password typed by the caller. Escape any user-supplied value used inside a filter with `ldap.Filter.escape(value)` or the tagged template ``ldap.escapeFilter`(uid=${value})`` (a plain call to `escapeFilter(x)` does NOT escape).
 
 **Orchestration — call multiple internal endpoints and merge results**
 

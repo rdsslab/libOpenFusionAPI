@@ -26,7 +26,7 @@ This page defines how libOpenFusionAPI documents and consumes the `ldapts` packa
 - `search(baseDN, options)` returns `{ searchEntries, searchReferences }`.
 - Search options include `scope` (`base` | `one` | `sub`), `filter`, `attributes`, `sizeLimit`, `timeLimit` and `paged`.
 - Write operations: `client.add(dn, attributes)`, `client.modify(dn, changes)` (array of `Change` objects), `client.del(dn)`.
-- `ldap.escapeFilter(value)` escapes LDAP filter metacharacters from untrusted input.
+- `ldap.Filter.escape(value)` escapes a single value for safe inclusion in an LDAP filter. The tagged template `ldap.escapeFilter`(uid=${value})` (with `` ldap.escapeFilter in template form) escapes interpolated values with the same RFC 4515 rules; a plain call `ldap.escapeFilter(x)` does NOT escape (it returns the first character).
 - All operations return Promises and work inside the async wrapper of the JS handler.
 
 ## Agent Guidance
@@ -35,7 +35,7 @@ This page defines how libOpenFusionAPI documents and consumes the `ldapts` packa
 - Verify critical API details in upstream docs before changing production-sensitive code.
 - Pull host, bind credentials and base DN from Application Variables (`$_APP_VARS_['$_VAR_...']`); never inline secrets in endpoint code.
 - Structure flows as `new Client` → `bind()` → operations → `unbind()` in a `finally` block.
-- Escape every user-supplied value used inside an LDAP filter with `ldap.escapeFilter(...)`.
+- Escape every user-supplied value used inside an LDAP filter with `ldap.Filter.escape(value)` or the tagged template `ldap.escapeFilter`...${value}...``.
 - Cap searches with `sizeLimit` and restrict `attributes` to avoid memory-heavy responses.
 - Prefer read-only service accounts unless the handler must create/modify directory entries.
 - For credential validation, find the user DN first, then `bind()` with that DN and the typed password; do not echo secrets to the caller.
@@ -47,7 +47,7 @@ This page defines how libOpenFusionAPI documents and consumes the `ldapts` packa
 | Library naming | Use the `ldap` variable in new code | `ldapts` alias available for code written against the package name | Unclear naming in generated endpoint code |
 | Transport security | Prefer `ldaps://` (LDAP over TLS) | Plain `ldap://` still supported | Credentials sent in clear text |
 | Lifecycle | Always `client.unbind()` in `finally` | Leaving the socket open | Resource leaks and hanging connections |
-| Filter inputs | Escape with `ldap.escapeFilter(...)` | Raw string interpolation in filters | LDAP injection from user-controlled input |
+| Filter inputs | Escape with `ldap.Filter.escape(value)` or the `ldap.escapeFilter` tagged template | Raw string interpolation, or plain `escapeFilter(x)` calls | LDAP injection or silently truncated filters |
 | Search volume | Always set `sizeLimit` | Unbounded `sub` searches | Excessive memory and CPU usage in the sandbox |
 | Credentials | Resolve from Application Variables | Hardcoded in endpoint code | Secrets exposed in stored endpoint code |
 
@@ -78,11 +78,13 @@ try {
     $_APP_VARS_['$_VAR_LDAP_BIND_PASSWORD'],
   );
 
-  const user = ldap.escapeFilter(String(request.query?.user || '')) || '(objectClass=person)';
+  const filter = request.query?.user
+    ? ldap.escapeFilter`(uid=${String(request.query.user)})`
+    : '(objectClass=person)';
 
   const { searchEntries } = await client.search(
     $_APP_VARS_['$_VAR_LDAP_BASE_DN'],
-    { scope: 'sub', filter: user, attributes: ['cn', 'mail'], sizeLimit: 50 },
+    { scope: 'sub', filter, attributes: ['cn', 'mail'], sizeLimit: 50 },
   );
 
   $_RETURN_DATA_ = searchEntries;

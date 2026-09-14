@@ -1,0 +1,22 @@
+services:
+  openldap:
+    build: .
+    image: libopenfusionapi/openldap:local
+    container_name: libopenfusionapi-openldap
+    hostname: ldap
+    environment:
+      LDAP_ORGANISATION: "LibOpenFusionAPI Demo"
+      LDAP_DOMAIN: "example.com"
+      LDAP_ADMIN_PASSWORD: "admin12345"
+      LDAP_CONFIG_PASSWORD: "admin12345"
+      LDAP_READONLY_USER: "false"
+      LDAP_TLS: "false"
+    ports:
+      - "1389:389"
+      - "1636:636"
+    volumes:
+      - ldap-data:/var/lib/ldap
+    restart: unless-stopped
+
+volumes:
+  ldap-data:

@@ -13,6 +13,9 @@ temporales/
 temporales/*
 .mcp*
 
+# Config local del agente (rutas de la maquina del usuario)
+.claude/
+
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 

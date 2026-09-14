@@ -735,9 +735,16 @@ $_RETURN_DATA_ = addresses;
           type: "function",
         },
         {
-          name: "ldap.escapeFilter(value)",
+          name: "ldap.Filter.escape(value)",
           description:
-            "Escapes special LDAP filter characters in untrusted input so it cannot inject LDAP filter syntax.",
+            "Escapes special LDAP filter characters in a single untrusted string so it cannot inject LDAP filter syntax. Use it on any value interpolated into a filter.",
+          required: false,
+          type: "function",
+        },
+        {
+          name: "ldap.escapeFilter`(attr=${value})` (tagged template)",
+          description:
+            "Tagged template literal that builds a filter string escaping every interpolated value via the same RFC 4515 rules as Filter.escape. Only safe when used as a template tag; a plain function call like escapeFilter(x) does NOT escape (it returns the first character).",
           required: false,
           type: "function",
         },
@@ -763,9 +770,14 @@ $_RETURN_DATA_ = addresses;
             description: "Modification descriptor used with `modify`. Operations: add, delete, replace, increment.",
           },
           {
+            name: "Filter.escape",
+            type: "function",
+            description: "Escapes a single value for safe inclusion inside an LDAP filter string (RFC 4515).",
+          },
+          {
             name: "escapeFilter",
             type: "function",
-            description: "Escapes LDAP filter metacharacters from untrusted input.",
+            description: "Tagged template escaping interpolated values inside a filter string. Only valid as a template tag (escapeFilter`(uid=${value})`), not as a plain call.",
           },
         ],
       },
@@ -776,7 +788,7 @@ $_RETURN_DATA_ = addresses;
         "Always call `client.unbind()` in a `finally` block to release the connection.",
         "Prefer `ldaps://` (LDAP over TLS) in production; plain `ldap://` sends credentials in clear text.",
         "To validate a user's password you normally find the user DN first and then `bind()` with that DN and the typed password.",
-        "Use `ldap.escapeFilter(value)` on any untrusted filter input to prevent LDAP injection.",
+        "Escape untrusted filter input with `ldap.Filter.escape(value)` (or the tagged template `ldap.escapeFilter\\`(uid=${value})\\`) to prevent LDAP injection.",
         "Use `sizeLimit` in searches to cap result sets and avoid memory-heavy responses.",
       ],
       agentGuidance: [
@@ -784,7 +796,7 @@ $_RETURN_DATA_ = addresses;
         "Pull host, bind credentials and base DN from Application Variables in the form $_APP_VARS_['$_VAR_...']; never inline secrets in the endpoint code.",
         "Structure the flow as: new Client -> bind() -> search()/write ops -> unbind() in a finally block.",
         "For authentication checks, do not return the bind password or the full DN to the caller; return only a boolean or safe identity fields.",
-        "Escape all user-supplied values used inside filters with ldap.escapeFilter(...) to avoid LDAP injection.",
+        "Escape all user-supplied values used inside filters with ldap.Filter.escape(value) or ldap.escapeFilter`...${value}...` to avoid LDAP injection.",
         "Avoid unrestricted 'sub' searches without sizeLimit; always cap results and requested attributes.",
         "Prefer read-only service accounts unless the handler genuinely must create/modify directory entries.",
       ],
@@ -801,7 +813,7 @@ try {
 
   // Filter input coming from the caller is untrusted: escape it.
   const nameFilter = request.query?.name
-    ? '(cn=*' + ldap.escapeFilter(request.query.name) + '*)'
+    ? ldap.escapeFilter\`(cn=*\${request.query.name}*)\`
     : '(objectClass=person)';
 
   const { searchEntries } = await client.search(
