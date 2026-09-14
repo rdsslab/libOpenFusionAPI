@@ -2,17 +2,9 @@ import { readFileSync } from "node:fs";
 
 // Síntoma del seed: el código del bot se lee desde su archivo fuente, nunca se
 // duplica inline, así que la versión versionada y la desplegada no divergen.
-const recoveryBotSource = readFileSync(
+const systemBotSource = readFileSync(
   new URL(
-    "../../server/functions/system/prd/user/recoveryBot.telegram.js",
-    import.meta.url,
-  ),
-  "utf8",
-);
-
-const adminNotifierBotSource = readFileSync(
-  new URL(
-    "../../server/functions/system/prd/user/adminNotifierBot.telegram.js",
+    "../../server/functions/system/prd/user/systemBot.telegram.js",
     import.meta.url,
   ),
   "utf8",
@@ -142,30 +134,39 @@ export const system_app = {
       "environment": "prd",
       "createdAt": "2026-09-08T00:00:00.000Z",
       "updatedAt": "2026-09-08T00:00:00.000Z"
+    },
+    {
+      "value": "{}",
+      "idvar": "6d7e8f9a-0b1c-4e2f-a3b4-c5d6e7f8a9b0c",
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "name": "$_VAR_GROUP_APP_MAP",
+      "type": "string",
+      "environment": "prd",
+      "createdAt": "2026-09-13T00:00:00.000Z",
+      "updatedAt": "2026-09-13T00:00:00.000Z"
+    },
+    {
+      "value": "{}",
+      "idvar": "7e8f9a0b-1c2d-4f3a-b4c5-d6e7f8a9b0c1d",
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "name": "$_VAR_GROUP_APP_CURSORS",
+      "type": "string",
+      "environment": "prd",
+      "createdAt": "2026-09-13T00:00:00.000Z",
+      "updatedAt": "2026-09-13T00:00:00.000Z"
     }
   ],
   "bots": [
     {
-      "idbot": "684e37c0-8135-4e68-ab6d-60d3f59b2d76",
-      "name": "Recovery Password Bot",
+      "idbot": "c8d9e0f1-2a3b-4c5d-a6e7-b8c9d0e1f2a3",
+      "name": "OpenFusionAPI Bot",
       "provider": "telegram",
       "environment": "prd",
-      "description": "Bot de Telegram de recuperacion de contrasena: /start, /help, /link, /forgot, /changepassword, /health y /cancel para usuarios internos de OpenFusionAPI.",
+      "description": "Bot de Telegram unificado de OpenFusionAPI. En chat privado gestiona la recuperacion de contrasena (/start, /help, /link, /forgot, /reset, /changepassword, /health y /cancel) para usuarios internos. En grupos con permisos de admin, solo usuarios validados pueden vincular el grupo a una aplicacion con /linkapp <idapp> para recibir sus novedades y consultar estatus (/status, /activity, /errors, /appinfo, /unlinkapp, /subscribe, /unsubscribe).",
       "token": "$_VAR_TELEGRAM_TOKEN",
       "params": {},
       "enabled": true,
-      "code": recoveryBotSource
-    },
-    {
-      "idbot": "2f6a3b7c-8d9e-4f0a-a1b2-c3d4e5f6a7b8",
-      "name": "Admin Notifications Bot",
-      "provider": "telegram",
-      "environment": "prd",
-      "description": "Bot de notificaciones de administracion de OpenFusionAPI: /help, /subscribe, /unsubscribe, /health, /errors, /intrusions y /logs.",
-      "token": "$_VAR_TELEGRAM_TOKEN",
-      "params": {},
-      "enabled": true,
-      "code": adminNotifierBotSource
+      "code": systemBotSource
     }
   ],
   "tasks": [
@@ -216,6 +217,25 @@ export const system_app = {
         "data": {
           "mode": "digest",
           "window_hours": 24
+        }
+      },
+      "exec_time_limit": 60,
+      "history_limit": 50,
+      "max_failed_attempts": 10,
+      "allow_concurrent": 0,
+      "iduser": null,
+      "idkey": null
+    },
+    {
+      "idtask": 5,
+      "idendpoint": "b8c9d0e1-f2a3-4b5c-a6d7-e8f9a0b1c2d3",
+      "schedule_mode": "interval",
+      "interval": 300,
+      "note": "App Groups - activity scan",
+      "enabled": true,
+      "params": {
+        "data": {
+          "mode": "events"
         }
       },
       "exec_time_limit": 60,
@@ -12930,6 +12950,64 @@ export const system_app = {
       "cache_time": 0,
       "createdAt": "2026-09-08T00:00:00.000Z",
       "updatedAt": "2026-09-08T00:00:00.000Z"
+    },
+    {
+      "ctrl": {},
+      "cors": {},
+      "mcp": {},
+      "json_schema": {},
+      "custom_data": {},
+      "headers_test": {},
+      "data_test": {},
+      "idendpoint": "b8c9d0e1-f2a3-4b5c-a6d7-e8f9a0b1c2d3",
+      "rowkey": 991,
+      "enabled": true,
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "environment": "prd",
+      "timeout": 60,
+      "resource": "/appgroup/scan",
+      "method": "POST",
+      "handler": "FUNCTION",
+      "access": 2,
+      "title": "App Groups Activity Scan",
+      "description": "Sends per-group activity digests ('news') for applications linked to Telegram groups via $_VAR_GROUP_APP_MAP. Reads logs by idapp since each group cursor in $_VAR_GROUP_APP_CURSORS and posts a summary to every linked group (or a single group with respond_inline=true + chat_id).",
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "keywords": "appgroup,scan,telegram,novedades,digest,groups",
+      "code": "fnAppGroupScan",
+      "cache_time": 0,
+      "createdAt": "2026-09-13T00:00:00.000Z",
+      "updatedAt": "2026-09-13T00:00:00.000Z"
+    },
+    {
+      "ctrl": {},
+      "cors": {},
+      "mcp": {},
+      "json_schema": {},
+      "custom_data": {},
+      "headers_test": {},
+      "data_test": {},
+      "idendpoint": "c9d0e1f2-a3b4-4c5d-b6e7-f8a9b0c1d2e3",
+      "rowkey": 992,
+      "enabled": true,
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "environment": "prd",
+      "timeout": 30,
+      "resource": "/user/telegram/validate",
+      "method": "POST",
+      "handler": "FUNCTION",
+      "access": 2,
+      "title": "Validate Telegram User",
+      "description": "Verifies that a telegram_user_id belongs to a validated system user (linked via /user/linktelegram, which requires a successful login) and returns iduser, username, name and admin flag. Used by the unified Telegram bot to authorize group commands like /linkapp without exposing user custom_data.",
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "keywords": "telegram,validate,user,link,groups,bot",
+      "code": "fnValidateTelegramUser",
+      "cache_time": 0,
+      "createdAt": "2026-09-13T00:00:00.000Z",
+      "updatedAt": "2026-09-13T00:00:00.000Z"
     },
     {
       "ctrl": {

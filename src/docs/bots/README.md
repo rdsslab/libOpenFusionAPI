@@ -88,16 +88,19 @@ src/docs/bots/
 
 `AI_SKILL.md` embeds the shared JavaScript core with `<!-- include: skills/JS_CORE.md -->`, expanded at read time by `src/lib/server/docsInclude.js`, so an agent gets one self-contained document per tool call.
 
-## Admin notifications
+## Unified system bot
 
-Two bots live under `src/lib/server/functions/system/prd/user/` and their source is read from disk by the system seed (`src/lib/db/default/system.js`), never inlined:
+One bot lives under `src/lib/server/functions/system/prd/user/` and its source is read from disk by the system seed (`src/lib/db/default/system.js`), never inlined. It replaces the former `recoveryBot.telegram.js` and `adminNotifierBot.telegram.js`, which shared the same token and therefore conflicted over Telegram long polling:
 
-| Bot | Commands | Purpose |
+| Scope | Commands | Purpose |
 |---|---|---|
-| `recoveryBot.telegram.js` | `/link /forgot /changepassword /health` | Password recovery for internal users |
-| `adminNotifierBot.telegram.js` | `/help /subscribe /unsubscribe /health /errors /intrusions /logs` | Proactive admin alerts on a Telegram group |
+| Private chat | `/link /forgot /reset /changepassword /health /cancel` | Account recovery: link the chat to the account, request and redeem one-time codes (OTP) to reset passwords |
+| Group (unlinked) | `/help /health /subscribe /unsubscribe` | Group help and admin-alert subscription |
+| Group (linked to an app) | `/linkapp <idapp> /unlinkapp /appinfo /status /activity /errors` | Validate a system user, link the group to an `idapp`, and query the linked application's news and status |
 
-Both share Telegram delivery through `src/lib/server/functions/system/prd/user/sendTelegramMessage.js` (HTML safe, 10 s timeout). Proactive alerts are **not** sent from the bot worker: the `Admin Alerts - events scan` (every 5 min) and `Admin Alerts - system digest` (hourly) interval tasks call the internal `POST /system/admin/alerts` endpoint (`fnAdminAutoAlerts` in `src/lib/server/functions/system/prd/alerts/index.js`), which queries `ofapi_log` / `ofapi_bot_log` in-process and pushes via `sendTelegramMessage`. See [admin-notifications.md](admin-notifications.md).
+The link between a group and an application is stored in the system AppVar `$_VAR_GROUP_APP_MAP` (`{ chat_id: { idapp, environment, linked_by, linked_at } }`) and can only be created by a validated system user (server-side check of `custom_data.telegram_chat_id` via `POST /system/user/telegram/validate` → `fnValidateTelegramUser`) who is also a group admin.
+
+Telegram delivery goes through `src/lib/server/functions/system/prd/user/sendTelegramMessage.js` (HTML safe, 10 s timeout). Proactive "news" are **not** sent from the bot worker: the `App Groups - activity scan` interval task (every 5 min) calls the internal `POST /system/appgroup/scan` endpoint (`fnAppGroupScan` in `src/lib/server/functions/system/prd/appgroups/index.js`), which reads the group map, queries `ofapi_log` per `idapp` since each group's cursor in `$_VAR_GROUP_APP_CURSORS`, and pushes each digest via `sendTelegramMessage`. The bot's `/activity` command requests the same report inline. Admin alerts (`POST /system/admin/alerts`, `fnAdminAutoAlerts` in `alerts/index.js`) keep their own events/digest tasks routed to `$_VAR_ADMIN_GROUP_CHAT_ID`. See [admin-notifications.md](admin-notifications.md).
 
 ## Backup and restore
 

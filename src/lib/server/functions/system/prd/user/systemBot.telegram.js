@@ -1,0 +1,803 @@
+// Bot de Telegram unificado de OpenFusionAPI. NO se ejecuta aquí: este archivo
+// es la fuente de control de versiones del script que se publica con
+// `upsert_bot` (ofapi_bot.code).
+//
+// Reemplaza a los antiguos "Recovery Password Bot" y "Admin Notifications Bot",
+// que compartían el mismo token y entraban en conflicto por el long polling.
+//
+// Restricciones del runtime (ver src/lib/server/bot-manager/worker.js):
+//   - El worker envuelve el código: ya instancia `$BOT` (nunca `new grammy.Bot`).
+//   - Nunca llamar `$BOT.start()` / `$BOT.stop()`.
+//   - El script solo REGISTRA handlers; debe terminar en < 10 segundos (sin await top-level).
+//   - Long polling fijo: allowed_updates = ["message", "callback_query"].
+//   - Llamadas internas: uFetchAutoEnv.auto("/api/system<resource>/auto").
+//
+// Funciones por tipo de chat:
+//
+//  Chat privado (recuperación de cuenta):
+//    /start            - Mensaje de bienvenida
+//    /help             - Ayuda
+//    /link             - Vincular este chat a la cuenta (registra el id del usuario)
+//    /forgot           - Solicitar un OTP de un solo uso para resetear la clave
+//    /reset            - Canjear el OTP con la nueva clave (cierra el ciclo)
+//    /changepassword   - Cambiar la contraseña
+//    /cancel           - Cancelar el flujo en curso
+//
+//  Grupo no vinculado:
+//    /start, /help, /health
+//    /subscribe   - (admin) suscribe el grupo a las alertas de administración
+//    /unsubscribe - (admin) cancela la suscripción
+//
+//  Grupo vinculado a una aplicación (ver $VAR_GROUP_APP_MAP):
+//    /linkapp <idapp>  - (usuario validado + admin) vincula el grupo a una app
+//    /unlinkapp        - (usuario validado + admin) desvincula el grupo
+//    /appinfo          - Muestra la app vinculada a este grupo
+//    /status           - Estatus general de la app vinculada
+//    /activity         - Novedades recientes de la app vinculada (bajo demanda)
+//    /errors           - Errores 5xx recientes de la app vinculada
+//    /health           - Salud general del sistema
+//
+// Config via AppVars (env prd) de la app system:
+//   - $_VAR_TELEGRAM_TOKEN        token del bot (placeholder = sin configurar)
+//   - $_VAR_GROUP_APP_MAP         { chat_id: { idapp, environment, linked_by, linked_at } }
+//   - $_VAR_GROUP_APP_CURSORS     { chat_id: "ISO" } cursor por grupo (escritura del scan)
+//   - $_VAR_ADMIN_GROUP_CHAT_ID   grupo de administración para alertas admin
+//
+// Los flujos de recuperación SOLO operan en chat privado. En grupos el bot solo
+// responde comandos de estatus/vínculo.
+
+const SYSTEM_APP_ID = "cfcd2084-95d5-65ef-66e7-dff9f98764da";
+const ENV = "prd";
+const MAP_VAR = "$_VAR_GROUP_APP_MAP";
+const CURSORS_VAR = "$_VAR_GROUP_APP_CURSORS";
+const ADMIN_GROUP_VAR = "$_VAR_ADMIN_GROUP_CHAT_ID";
+
+// ── Estados de conversación (sin sesiones persistentes) ──────────────────────
+const states = new Map();
+const STATE = {
+  LINK_USERNAME: "link:username",
+  LINK_PASSWORD: "link:password",
+  FORGOT_USERNAME: "forgot:username",
+  RESET_USERNAME: "reset:username",
+  RESET_OTP: "reset:otp",
+  RESET_NEWPASSWORD: "reset:newpassword",
+  RESET_CONFIRM: "reset:confirm",
+  CHANGE_USERNAME: "change:username",
+  CHANGE_PASSWORD: "change:password",
+  CHANGE_NEWPASSWORD: "change:newpassword",
+  CHANGE_CONFIRM: "change:confirm",
+};
+
+const setState = (chatId, s) => {
+  if (s) states.set(String(chatId), { step: s, username: "", otp: "", newPassword: "" });
+  else states.delete(String(chatId));
+};
+const getState = (chatId) => states.get(String(chatId));
+
+const PRIVATE_HELP = [
+  "I'm the OpenFusionAPI assistant for account recovery.",
+  "",
+  "Private chat commands:",
+  "/link - Link this chat to your account",
+  "/forgot - Request a one-time code to reset your password",
+  "/reset - Redeem the code with a new password",
+  "/changepassword - Change your password",
+  "/health - System status",
+  "/cancel - Abort the current operation",
+].join("\n");
+
+const GROUP_HELP = [
+  "I'm the OpenFusionAPI assistant for application groups.",
+  "",
+  "Group commands:",
+  "/linkapp <idapp> - Link this group to an application (validated users only)",
+  "/unlinkapp - Unlink this group",
+  "/appinfo - Show the linked application",
+  "/status - General status of the linked application",
+  "/activity - Recent activity of the linked application",
+  "/errors - Recent 5xx errors of the linked application",
+  "/health - System status",
+  "/subscribe - (admin) Receive admin alerts here",
+  "/unsubscribe - (admin) Stop admin alerts",
+].join("\n");
+
+// ── Llamadas internas a los endpoints de la app system ───────────────────────
+const api = (path, method, { data, token, basic } = {}) => {
+  const headers = {};
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  if (basic) headers["Authorization"] = `Basic ${basic}`;
+  return uFetchAutoEnv.auto(`/api/system${path}/auto`)[method]({
+    ...(data !== undefined ? { data } : {}),
+    ...(Object.keys(headers).length ? { headers } : {}),
+  });
+};
+
+const parseBody = async (res) => {
+  try {
+    const body = await res.json();
+    return { ok: res.status >= 200 && res.status < 300, status: res.status, body };
+  } catch (error) {
+    return { ok: res.status >= 200 && res.status < 300, status: res.status, body: null };
+  }
+};
+
+const scanToken = (ttlSeconds = 60 * 5) =>
+  ofapi.genToken(
+    { admin: { username: "openfusionapi", ctrl: { as_admin: true } } },
+    ttlSeconds
+  );
+
+const esc = (value) =>
+  String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+
+const isPrivateChat = (chat) => chat?.type === "private";
+const isGroupChat = (chat) => chat?.type === "group" || chat?.type === "supergroup";
+
+const isGroupAdmin = async (chat, userId) => {
+  try {
+    const member = await $BOT.api.getChatMember(chat.id, userId);
+    return ["administrator", "creator"].includes(member?.status);
+  } catch (error) {
+    return false;
+  }
+};
+
+// ── AppVars de la app system (lectura/escritura vía API) ─────────────────────
+const getSystemAppVars = async () => {
+  const res = await api("/app/variables/idapp", "get", {
+    token: scanToken(),
+    data: { idapp: SYSTEM_APP_ID },
+  });
+  const { ok, body } = await parseBody(res);
+  if (!ok || !Array.isArray(body?.data || body)) return [];
+  const list = Array.isArray(body) ? body : body.data;
+  return list.map((r) => (r?.toJSON ? r.toJSON() : r));
+};
+
+const findVar = async (name) => {
+  const vars = await getSystemAppVars();
+  return vars.find((r) => r.name === name && String(r.environment || "") === ENV);
+};
+
+const getVarValue = async (name) => {
+  const row = await findVar(name);
+  if (!row || row.value === null || row.value === undefined) return undefined;
+  return row.value;
+};
+
+const writeVarValue = async (name, value, type = "string") => {
+  const existing = await findVar(name);
+  const res = await api("/app/var", "post", {
+    token: scanToken(),
+    data: {
+      idapp: SYSTEM_APP_ID,
+      name,
+      environment: ENV,
+      type: existing?.type || type,
+      ...(existing?.idvar ? { idvar: existing.idvar } : {}),
+      value,
+    },
+  });
+  const r = await parseBody(res);
+  if (!r.ok) ofapi.log({ message: `writeVarValue ${name}: HTTP ${r.status}` });
+  return r.ok;
+};
+
+const parseJsonVar = (value, fallback) => {
+  if (value === undefined || value === null) return fallback;
+  if (typeof value === "object") return value;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" ? parsed : fallback;
+  } catch (error) {
+    return fallback;
+  }
+};
+
+const readGroupMap = async () => parseJsonVar(await getVarValue(MAP_VAR), {});
+const writeGroupMap = async (map) => writeVarValue(MAP_VAR, JSON.stringify(map));
+const readCursors = async () => parseJsonVar(await getVarValue(CURSORS_VAR), {});
+
+// ── Catálogo de apps para resolver idapp → nombre ────────────────────────────
+const getAppsIndex = async () => {
+  try {
+    const res = await api("/api/app/list", "get", { token: scanToken() });
+    const { ok, body } = await parseBody(res);
+    const list = Array.isArray(body) ? body : body?.data;
+    if (!ok || !Array.isArray(list)) return new Map();
+    const index = new Map();
+    for (const app of list) {
+      if (app?.idapp) index.set(String(app.idapp), app.app || app.name || app.idapp);
+    }
+    return index;
+  } catch (error) {
+    ofapi.log({ message: `getAppsIndex: ${error?.message}` });
+    return new Map();
+  }
+};
+
+// ── Validación server-side del usuario de Telegram ───────────────────────────
+const validateUser = async (telegramUserId) => {
+  try {
+    const res = await api("/user/telegram/validate", "post", {
+      token: scanToken(),
+      data: { telegram_user_id: String(telegramUserId) },
+    });
+    const { ok, status, body } = await parseBody(res);
+    if (!ok || !body?.valid) return { valid: false, status };
+    return { valid: true, status, ...(body.data || body) };
+  } catch (error) {
+    ofapi.log({ message: `validateUser: ${error?.message}` });
+    return { valid: false };
+  }
+};
+
+// ── Helpers de login / recovery (reutilizan los handlers de /user) ───────────
+const login = async (username, password) => {
+  const basic = Buffer.from(`${username}:${password}`).toString("base64");
+  const r = await api("/system/login", "post", { basic });
+  if (r.status >= 200 && r.status < 300) return { ok: true, ...(await r.json()) };
+  return { ok: false, status: r.status };
+};
+
+const linkTelegram = async (token, chatId) => {
+  const r = await api("/user/linktelegram", "post", { token, data: { chat_id: String(chatId) } });
+  return parseBody(r);
+};
+
+const forgotPassword = async (username) => {
+  const r = await api("/user/forgotpassword", "post", { data: { username } });
+  return parseBody(r);
+};
+
+const resetPasswordConfirm = async (username, otp, newPassword) => {
+  const r = await api("/user/resetpassword/confirm", "post", {
+    data: { username, otp, newPassword },
+  });
+  return parseBody(r);
+};
+
+const changePassword = async (token, username, oldPassword, newPassword) => {
+  const r = await api("/user/changepassword", "post", {
+    token,
+    data: { username, oldPassword, newPassword },
+  });
+  return parseBody(r);
+};
+
+// ── Comandos compartidos ─────────────────────────────────────────────────────
+$BOT.command("start", async (ctx) => {
+  setState(ctx.chat.id, null);
+  const text = isPrivateChat(ctx.chat)
+    ? ["Hello, I'm the OpenFusionAPI assistant.", "", PRIVATE_HELP].join("\n")
+    : ["Hello, I'm the OpenFusionAPI assistant.", "", GROUP_HELP].join("\n");
+  await ctx.reply(text);
+});
+
+$BOT.command("help", async (ctx) => {
+  await ctx.reply(isPrivateChat(ctx.chat) ? PRIVATE_HELP : GROUP_HELP);
+});
+
+$BOT.command("cancel", async (ctx) => {
+  setState(ctx.chat.id, null);
+  await ctx.reply("Operation cancelled.");
+});
+
+$BOT.command("health", async (ctx) => {
+  try {
+    const res = await api("/system/health/stats", "get", {
+      token: scanToken(),
+      data: { last_hours: 1 },
+    });
+    const { ok, status, body } = await parseBody(res);
+    if (!ok) {
+      await ctx.reply(`Health check failed (HTTP ${status}).`);
+      return;
+    }
+    const d = body?.data ?? body;
+    if (!d) {
+      await ctx.reply("Health check returned no data.");
+      return;
+    }
+    const logs = d.logs || {};
+    const byStatus = Object.entries(logs.by_status_code || {})
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8)
+      .map(([c, n]) => `${c}: ${n}`)
+      .join(", ");
+    const msg = [
+      "🛡 <b>OpenFusionAPI — health</b>",
+      `📊 Logs (${d.window_hours ?? 1}h): <b>${logs.total_in_window ?? 0}</b> total, <b>${logs.errors_in_window ?? 0}</b> errors`,
+      byStatus ? `   ${esc(byStatus)}` : "",
+      `🔌 Endpoints: <b>${d.endpoints?.total ?? 0}</b> (${d.endpoints?.enabled ?? 0} enabled, ${d.endpoints?.mcp_enabled ?? 0} MCP)`,
+      `📦 Apps: <b>${d.apps?.total ?? 0}</b>`,
+    ].filter(Boolean).join("\n");
+    await ctx.reply(msg, { parse_mode: "HTML" });
+  } catch (error) {
+    ofapi.log({ message: `health: ${error?.message}` });
+    await ctx.reply("Could not query the system status.");
+  }
+});
+
+// ── Recuperación de contraseña (solo chat privado) ───────────────────────────
+$BOT.command("link", async (ctx) => {
+  if (!isPrivateChat(ctx.chat)) {
+    await ctx.reply("Run /link in a private chat with me.");
+    return;
+  }
+  setState(ctx.chat.id, STATE.LINK_USERNAME);
+  await ctx.reply("Let's link this chat to your account.\nType your username:");
+});
+
+$BOT.command("forgot", async (ctx) => {
+  if (!isPrivateChat(ctx.chat)) {
+    await ctx.reply("Run /forgot in a private chat with me.");
+    return;
+  }
+  setState(ctx.chat.id, STATE.FORGOT_USERNAME);
+  await ctx.reply("Type your username and I will send you a one-time code:");
+});
+
+$BOT.command("reset", async (ctx) => {
+  if (!isPrivateChat(ctx.chat)) {
+    await ctx.reply("Run /reset in a private chat with me.");
+    return;
+  }
+  setState(ctx.chat.id, STATE.RESET_USERNAME);
+  await ctx.reply("Password reset flow.\nType your username:");
+});
+
+$BOT.command("changepassword", async (ctx) => {
+  if (!isPrivateChat(ctx.chat)) {
+    await ctx.reply("Run /changepassword in a private chat with me.");
+    return;
+  }
+  setState(ctx.chat.id, STATE.CHANGE_USERNAME);
+  await ctx.reply("Let's change your password.\nType your username:");
+});
+
+// ── Vinculación de grupos a aplicaciones ─────────────────────────────────────
+$BOT.command("linkapp", async (ctx) => {
+  const chat = ctx.chat;
+  if (!isGroupChat(chat)) {
+    await ctx.reply("This command only works in a group where I have admin rights.");
+    return;
+  }
+  const idapp = String((ctx.message?.text || "").split(/\s+/)[1] || "").trim().toLowerCase();
+  if (!idapp) {
+    await ctx.reply("Usage: /linkapp <idapp>\nSend me /linkapp followed by the application id (see /appinfo or the platform catalog).");
+    return;
+  }
+  if (!(await isGroupAdmin(chat, ctx.from.id))) {
+    await ctx.reply("Only group administrators can link this group to an application.");
+    return;
+  }
+  const user = await validateUser(ctx.from.id);
+  if (!user.valid) {
+    await ctx.reply("You are not a validated OpenFusionAPI user. First run /link in a private chat with me to link your account.");
+    return;
+  }
+  const apps = await getAppsIndex();
+  if (!apps.has(String(idapp))) {
+    await ctx.reply("That application id does not exist in this server.");
+    return;
+  }
+  try {
+    const map = await readGroupMap();
+    map[String(chat.id)] = {
+      idapp: String(idapp),
+      environment: ENV,
+      linked_by: user.username || String(ctx.from.id),
+      linked_at: new Date().toISOString(),
+    };
+    const ok = await writeGroupMap(map);
+    if (!ok) {
+      await ctx.reply("Could not save the link. Check the bot token and permissions, then try again.");
+      return;
+    }
+    await ctx.reply(
+      `✅ This group is now linked to <b>${esc(apps.get(String(idapp)))}</b> (${esc(String(idapp))}).\nUse /status or /activity to query the application, and I will post its news here periodically.`,
+      { parse_mode: "HTML" }
+    );
+  } catch (error) {
+    ofapi.log({ message: `linkapp: ${error?.message}` });
+    await ctx.reply("An unexpected error occurred. Try again.");
+  }
+});
+
+$BOT.command("unlinkapp", async (ctx) => {
+  const chat = ctx.chat;
+  if (!isGroupChat(chat)) {
+    await ctx.reply("This command only works in a group where I have admin rights.");
+    return;
+  }
+  if (!(await isGroupAdmin(chat, ctx.from.id))) {
+    await ctx.reply("Only group administrators can unlink this group.");
+    return;
+  }
+  const user = await validateUser(ctx.from.id);
+  if (!user.valid) {
+    await ctx.reply("You are not a validated OpenFusionAPI user.");
+    return;
+  }
+  try {
+    const map = await readGroupMap();
+    if (!map[String(chat.id)]) {
+      await ctx.reply("This group is not linked to any application.");
+      return;
+    }
+    delete map[String(chat.id)];
+    const ok = await writeGroupMap(map);
+    await ctx.reply(ok
+      ? "This group is no longer linked to an application."
+      : "Could not unlink the group. Try again.");
+  } catch (error) {
+    ofapi.log({ message: `unlinkapp: ${error?.message}` });
+    await ctx.reply("An unexpected error occurred. Try again.");
+  }
+});
+
+$BOT.command("appinfo", async (ctx) => {
+  const chat = ctx.chat;
+  if (!isGroupChat(chat)) {
+    await ctx.reply("This command only works in a group.");
+    return;
+  }
+  const map = await readGroupMap();
+  const entry = map[String(chat.id)];
+  if (!entry) {
+    await ctx.reply("This group is not linked to any application. An administrator can run /linkapp <idapp>.");
+    return;
+  }
+  const apps = await getAppsIndex();
+  const name = apps.get(String(entry.idapp)) || entry.idapp;
+  await ctx.reply(
+    [
+      `<b>🔗 Linked application</b>`,
+      `• <b>App:</b> ${esc(name)}`,
+      `• <b>idapp:</b> <code>${esc(entry.idapp)}</code>`,
+      `• <b>Environment:</b> ${esc(entry.environment || ENV)}`,
+      `• <b>Linked by:</b> ${esc(entry.linked_by || "?")}`,
+      `• <b>Linked at:</b> ${esc(String(entry.linked_at || "?").replace("T", " ").slice(0, 19))} UTC`,
+    ].join("\n"),
+    { parse_mode: "HTML" }
+  );
+});
+
+// ── Estatus bajo demanda de la app vinculada ─────────────────────────────────
+const getLinkedEntry = async (chat) => {
+  const map = await readGroupMap();
+  return map[String(chat.id)] || null;
+};
+
+const queryAppSummary = async (idapp, lastDays = 1) => {
+  const res = await api("/log/app/summary", "get", {
+    token: scanToken(),
+    data: { idapp, environment: ENV, last_days: lastDays },
+  });
+  const { ok, body } = await parseBody(res);
+  if (!ok) return { ok: false, status: res.status, rows: [] };
+  const rows = Array.isArray(body) ? body : body?.data;
+  return { ok: true, rows: Array.isArray(rows) ? rows : [] };
+};
+
+$BOT.command("status", async (ctx) => {
+  const chat = ctx.chat;
+  if (!isGroupChat(chat)) {
+    await ctx.reply("This command only works in a linked group.");
+    return;
+  }
+  const entry = await getLinkedEntry(chat);
+  if (!entry) {
+    await ctx.reply("This group is not linked to an application. Run /linkapp <idapp>.");
+    return;
+  }
+  const apps = await getAppsIndex();
+  try {
+    const { ok, rows } = await queryAppSummary(entry.idapp, 1);
+    if (!ok) {
+      await ctx.reply("Could not read the application activity. Try again later.");
+      return;
+    }
+    const classes = { "2xx": 0, "3xx": 0, "4xx": 0, "5xx": 0 };
+    const activeEndpoints = new Set();
+    let total = 0;
+    for (const row of rows) {
+      const code = Number(row.status_code) || 0;
+      const cls = `${Math.floor(code / 100)}xx`;
+      if (classes[cls] !== undefined) classes[cls] += Number(row.recordCount) || 0;
+      if (row.idendpoint) activeEndpoints.add(row.idendpoint);
+      total += Number(row.recordCount) || 0;
+    }
+    const failures = ["4xx", "5xx"].filter((c) => classes[c] > 0)
+      .map((c) => `${c}: ${classes[c]}`).join(", ");
+    const lines = [
+      `📊 <b>${esc(apps.get(String(entry.idapp)) || entry.idapp)} — status</b> (last 24h)`,
+      `• Endpoints with activity: <b>${activeEndpoints.size}</b>`,
+      `• Requests: <b>${total}</b>` +
+        (classes["2xx"] ? ` · 2xx: ${classes["2xx"]}` : "") +
+        (classes["3xx"] ? ` · 3xx: ${classes["3xx"]}` : "") +
+        (classes["4xx"] ? ` · 4xx: ${classes["4xx"]}` : "") +
+        (classes["5xx"] ? ` · 5xx: ${classes["5xx"]}` : ""),
+      failures ? `⚠️ ${esc(failures)}` : "",
+    ].filter(Boolean);
+    await ctx.reply(lines.join("\n"), { parse_mode: "HTML" });
+  } catch (error) {
+    ofapi.log({ message: `status: ${error?.message}` });
+    await ctx.reply("Could not query the application status.");
+  }
+});
+
+$BOT.command("errors", async (ctx) => {
+  const chat = ctx.chat;
+  if (!isGroupChat(chat)) {
+    await ctx.reply("This command only works in a linked group.");
+    return;
+  }
+  const entry = await getLinkedEntry(chat);
+  if (!entry) {
+    await ctx.reply("This group is not linked to an application. Run /linkapp <idapp>.");
+    return;
+  }
+  try {
+    const res = await api("/system/log", "get", {
+      token: scanToken(),
+      data: { idapp: entry.idapp, environment: ENV, status_code: "5xx", last_hours: 6, limit: 10 },
+    });
+    const { ok, status, body } = await parseBody(res);
+    if (!ok) {
+      await ctx.reply(`Could not read logs (HTTP ${status}).`);
+      return;
+    }
+    const rows = Array.isArray(body) ? body : body?.data;
+    if (!rows || !rows.length) {
+      await ctx.reply("No 5xx server errors for this application in the last 6 hours. 👍");
+      return;
+    }
+    const lines = rows.map((r) => {
+      const time = (r.timestamp || "").replace("T", " ").slice(0, 19);
+      return `• <code>${esc(time)}</code> ${esc(r.method || "?")} <code>${esc(r.url || "?")}</code> → ${r.status_code ?? "?"} (${r.response_time ?? 0}ms)`;
+    });
+    await ctx.reply([`<b>🔥 Server errors (5xx, last 6h)</b>`, ...lines].join("\n"), { parse_mode: "HTML" });
+  } catch (error) {
+    ofapi.log({ message: `errors: ${error?.message}` });
+    await ctx.reply("Could not read the error logs.");
+  }
+});
+
+$BOT.command("activity", async (ctx) => {
+  const chat = ctx.chat;
+  if (!isGroupChat(chat)) {
+    await ctx.reply("This command only works in a linked group.");
+    return;
+  }
+  const entry = await getLinkedEntry(chat);
+  if (!entry) {
+    await ctx.reply("This group is not linked to an application. Run /linkapp <idapp>.");
+    return;
+  }
+  try {
+    const res = await api("/appgroup/scan", "post", {
+      token: scanToken(),
+      data: { respond_inline: true, chat_id: String(chat.id) },
+    });
+    const { ok, status, body } = await parseBody(res);
+    if (!ok) {
+      await ctx.reply(`Could not scan the application activity (HTTP ${status}).`);
+      return;
+    }
+    const d = body?.data ?? body;
+    const quiet = !d || (!d.report_html && d.status === "quiet");
+    if (quiet) {
+      await ctx.reply("No new activity for this application since the last scan. 👍");
+      return;
+    }
+    await ctx.reply(d.report_html || "No new activity detected.", { parse_mode: "HTML" });
+  } catch (error) {
+    ofapi.log({ message: `activity: ${error?.message}` });
+    await ctx.reply("Could not scan the application activity.");
+  }
+});
+
+// ── Suscripción a alertas de administración (grupo de administración) ────────
+$BOT.command("subscribe", async (ctx) => {
+  const chat = ctx.chat;
+  if (!chat) return;
+  if (isGroupChat(chat)) {
+    if (!(await isGroupAdmin(chat, ctx.from.id))) {
+      await ctx.reply("Only group administrators can subscribe this group to admin alerts.");
+      return;
+    }
+  } else {
+    const user = await validateUser(ctx.from.id);
+    if (!user.valid) {
+      await ctx.reply("You are not a validated OpenFusionAPI user.");
+      return;
+    }
+  }
+  try {
+    const ok = await writeVarValue(ADMIN_GROUP_VAR, String(chat.id));
+    await ctx.reply(ok
+      ? "This chat is now subscribed to admin alerts."
+      : "Could not subscribe this chat.");
+  } catch (error) {
+    ofapi.log({ message: `subscribe: ${error?.message}` });
+    await ctx.reply("An unexpected error occurred. Try again.");
+  }
+});
+
+$BOT.command("unsubscribe", async (ctx) => {
+  const chat = ctx.chat;
+  if (!chat) return;
+  if (isGroupChat(chat)) {
+    if (!(await isGroupAdmin(chat, ctx.from.id))) {
+      await ctx.reply("Only group administrators can unsubscribe this group.");
+      return;
+    }
+  } else {
+    const user = await validateUser(ctx.from.id);
+    if (!user.valid) {
+      await ctx.reply("You are not a validated OpenFusionAPI user.");
+      return;
+    }
+  }
+  try {
+    const ok = await writeVarValue(ADMIN_GROUP_VAR, "");
+    await ctx.reply(ok
+      ? "This chat is no longer subscribed to admin alerts."
+      : "Could not unsubscribe. Try again.");
+  } catch (error) {
+    ofapi.log({ message: `unsubscribe: ${error?.message}` });
+    await ctx.reply("An unexpected error occurred. Try again.");
+  }
+});
+
+// ── Flujo de texto (solo chat privado) ───────────────────────────────────────
+$BOT.on("message:text", async (ctx) => {
+  if (!isPrivateChat(ctx.chat)) return;
+  const s = getState(ctx.chat.id);
+  if (!s) {
+    await ctx.reply("Send /start to see the available commands.");
+    return;
+  }
+  const text = String(ctx.message.text || "").trim();
+
+  switch (s.step) {
+    case STATE.LINK_USERNAME:
+      s.username = text.replace(/\s+/g, "");
+      s.step = STATE.LINK_PASSWORD;
+      await ctx.reply("Now your password (if possible) or /cancel:");
+      break;
+
+    case STATE.LINK_PASSWORD: {
+      const username = s.username;
+      setState(ctx.chat.id, null);
+      try {
+        const l = await login(username, text);
+        if (!l.ok) {
+          await ctx.reply("Login failed. Check your credentials.");
+          return;
+        }
+        const token = l.data?.token || l.token;
+        const res = await linkTelegram(token, ctx.chat.id);
+        if (res.ok) await ctx.reply("Chat linked to your account successfully.");
+        else await ctx.reply("Could not link the chat. Make sure your account is active.");
+      } catch (error) {
+        ofapi.log({ message: `link flow: ${error?.message}` });
+        await ctx.reply("An unexpected error occurred. Try again.");
+      }
+      break;
+    }
+
+    case STATE.FORGOT_USERNAME: {
+      const username = text.replace(/\s+/g, "");
+      setState(ctx.chat.id, null);
+      try {
+        const res = await forgotPassword(username);
+        if (res.ok && res.body?.channel === "telegram") {
+          await ctx.reply("We sent you a one-time code to this chat. Send /reset to confirm your new password.");
+        } else {
+          await ctx.reply(
+            "If the account exists and a channel is available, you will receive the code on that channel. Send /reset to confirm."
+          );
+        }
+      } catch (error) {
+        ofapi.log({ message: `forgot flow: ${error?.message}` });
+        await ctx.reply("An unexpected error occurred. Try again.");
+      }
+      break;
+    }
+
+    case STATE.RESET_USERNAME:
+      s.username = text.replace(/\s+/g, "");
+      s.step = STATE.RESET_OTP;
+      await ctx.reply("Type the one-time code you received:");
+      break;
+
+    case STATE.RESET_OTP:
+      s.otp = text.trim();
+      s.step = STATE.RESET_NEWPASSWORD;
+      await ctx.reply("Type the new password (minimum 8 characters):");
+      break;
+
+    case STATE.RESET_NEWPASSWORD:
+      s.newPassword = text;
+      s.step = STATE.RESET_CONFIRM;
+      await ctx.reply("Confirm the new password:");
+      break;
+
+    case STATE.RESET_CONFIRM: {
+      if (text !== s.newPassword) {
+        await ctx.reply("Passwords do not match. Cancel and try again.");
+        setState(ctx.chat.id, null);
+        return;
+      }
+      const username = s.username;
+      const otp = s.otp;
+      const newPassword = s.newPassword;
+      setState(ctx.chat.id, null);
+      try {
+        const res = await resetPasswordConfirm(username, otp, newPassword);
+        if (res.ok && res.body?.success) await ctx.reply("Password updated successfully.");
+        else await ctx.reply("Could not redeem the code. Check the code, the username and the password requirements.");
+      } catch (error) {
+        ofapi.log({ message: `reset flow: ${error?.message}` });
+        await ctx.reply("An unexpected error occurred. Try again.");
+      }
+      break;
+    }
+
+    case STATE.CHANGE_USERNAME:
+      s.username = text.replace(/\s+/g, "");
+      s.step = STATE.CHANGE_PASSWORD;
+      await ctx.reply("Your current password:");
+      break;
+
+    case STATE.CHANGE_PASSWORD:
+      s.oldPassword = text;
+      s.step = STATE.CHANGE_NEWPASSWORD;
+      await ctx.reply("The new password (minimum 8 characters):");
+      break;
+
+    case STATE.CHANGE_NEWPASSWORD:
+      s.newPassword = text;
+      s.step = STATE.CHANGE_CONFIRM;
+      await ctx.reply("Confirm the new password:");
+      break;
+
+    case STATE.CHANGE_CONFIRM: {
+      if (text !== s.newPassword) {
+        await ctx.reply("Passwords do not match. Cancel and try again.");
+        setState(ctx.chat.id, null);
+        return;
+      }
+      const username = s.username;
+      const oldPassword = s.oldPassword;
+      const newPassword = s.newPassword;
+      setState(ctx.chat.id, null);
+      try {
+        const l = await login(username, oldPassword);
+        if (!l.ok) {
+          await ctx.reply("Incorrect credentials. The password was not changed.");
+          return;
+        }
+        const token = l.data?.token || l.token;
+        const res = await changePassword(token, username, oldPassword, newPassword);
+        if (res.ok) await ctx.reply("Password updated successfully.");
+        else await ctx.reply("Could not change the password. Check the security requirements.");
+      } catch (error) {
+        ofapi.log({ message: `change flow: ${error?.message}` });
+        await ctx.reply("An unexpected error occurred. Try again.");
+      }
+      break;
+    }
+
+    default:
+      setState(ctx.chat.id, null);
+      await ctx.reply("Operation cancelled. Send /start for the available commands.");
+  }
+});

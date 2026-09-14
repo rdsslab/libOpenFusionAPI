@@ -527,6 +527,60 @@ export async function fnLinkTelegram(params) {
 }
 
 /**
+ * POST /user/telegram/validate
+ * Body: { telegram_user_id }
+ * Verifica que el telegram_user_id corresponda a un usuario del sistema con su
+ * chat de Telegram vinculado (custom_data.telegram_chat_id, que solo se puede
+ * establecer tras un login correcto via /user/linktelegram). Es la pieza que
+ * permite al bot comprobar que quien ejecuta comandos administrativos en un
+ * grupo es un usuario validado, sin exponer custom_data.
+ */
+export async function fnValidateTelegramUser(params) {
+  let r = { data: undefined, code: 204 };
+  try {
+    const body = params?.request?.body || {};
+    const query = params?.request?.query || {};
+    const raw = String(body.telegram_user_id ?? query.telegram_user_id ?? "").trim();
+    if (!/^-?\d+$/.test(raw)) {
+      r.data = { valid: false, error: "telegram_user_id is required." };
+      r.code = 400;
+      return r;
+    }
+
+    const users = (await getAllUsers()) || [];
+    const found = users.find(
+      (u) =>
+        u &&
+        u.enabled !== false &&
+        String(u.custom_data?.telegram_chat_id ?? "") === raw,
+    );
+    if (!found) {
+      r.data = { valid: false, telegram_user_id: raw };
+      r.code = 200;
+      return r;
+    }
+
+    const ctrl =
+      found.ctrl && typeof found.ctrl === "object" && !Array.isArray(found.ctrl)
+        ? found.ctrl
+        : {};
+    const fullName = [found.first_name, found.last_name].filter(Boolean).join(" ").trim();
+    r.data = {
+      valid: true,
+      iduser: found.iduser,
+      username: found.username,
+      name: fullName || null,
+      admin: ctrl.as_admin === true,
+    };
+    r.code = 200;
+  } catch (error) {
+    r.data = { valid: false, error: error.message };
+    r.code = 500;
+  }
+  return r;
+}
+
+/**
  * POST /user/recoverycleanup
  * Elimina las solicitudes de recuperación expiradas/consumidas (mantenimiento).
  * Se ejecuta por interval task; por ser mantenimiento interno, access Local.
