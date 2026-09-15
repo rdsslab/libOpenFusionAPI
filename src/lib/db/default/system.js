@@ -137,7 +137,7 @@ export const system_app = {
     },
     {
       "value": "{}",
-      "idvar": "6d7e8f9a-0b1c-4e2f-a3b4-c5d6e7f8a9b0c",
+      "idvar": "6d7e8f9a-0b1c-4e2f-a3b4-c5d6e7f8a9b0",
       "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
       "name": "$_VAR_GROUP_APP_MAP",
       "type": "string",
@@ -147,7 +147,7 @@ export const system_app = {
     },
     {
       "value": "{}",
-      "idvar": "7e8f9a0b-1c2d-4f3a-b4c5-d6e7f8a9b0c1d",
+      "idvar": "7e8f9a0b-1c2d-4f3a-b4c5-d6e7f8a9b0c1",
       "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
       "name": "$_VAR_GROUP_APP_CURSORS",
       "type": "string",
