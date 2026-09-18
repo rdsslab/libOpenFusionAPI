@@ -132,6 +132,19 @@ export async function fnEndpointUpsert(params) {
       return r;
     }
 
+    // Structured payload-validation error for `endpoint.ctrl.log` — return 400 so
+    // agents get a machine-readable `details` (field, invalid value, allowed keys)
+    // instead of a generic 500 when the persisted log-verbosity contract is broken.
+    if (error?.code === "INVALID_LOG_LEVEL") {
+      r.data = {
+        error: error.message,
+        code: error.code,
+        details: error.details,
+      };
+      r.code = 400;
+      return r;
+    }
+
     r.data = error;
     r.code = 500;
   }

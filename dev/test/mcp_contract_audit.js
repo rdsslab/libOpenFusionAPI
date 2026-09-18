@@ -76,6 +76,14 @@ const DOMAIN_IDENTIFIERS = new Set([
   // Columnas del modelo de logs de bots (ofapi_botlog) y de endpoints (ofapi_log).
   "status_code",
   "provider_response",
+  // Claves del sub-objeto persistente `endpoint.ctrl.log` (endpoint log verbosity
+  // por clase de status) que la prosa de read_endpoint_data / app_endpoints /
+  // endpoint_upsert cita en backticks. Son configuración del dominio, no tools.
+  "status_info",
+  "status_success",
+  "status_redirect",
+  "status_client_error",
+  "status_server_error",
   // Telemetría de las interval tasks, que se cita al describir la respuesta.
   "task_enabled",
   "last_run",

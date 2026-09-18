@@ -109,12 +109,145 @@ const ensureUniqueEnabledMcpName = async (data) => {
   throw err;
 };
 
+/**
+ * Valida y normaliza el sub-objeto `ctrl.log` de un endpoint.
+ *
+ * `ctrl.log` es la parametrización persistente del nivel de log por clase de
+ * status que aplica EndpointLogger en runtime. Claves admitidas (solo estas):
+ * `status_info`, `status_success`, `status_redirect`, `status_client_error`,
+ * `status_server_error`. Cada valor debe ser un entero 0-3:
+ *   0 = Disabled, 1 = Basic, 2 = Normal, 3 = Full.
+ * La omisión de una clave (o de todo `log`) significa "no cambies / usa el
+ * default del runtime": info/success/redirect=1, client_error=2, server_error=3.
+ *
+ * @param {unknown} rawCtrl  Valor bruto de `ctrl` recibido en el payload.
+ * @returns {unknown} `ctrl` tal cual si no trae `log`, o `ctrl` con `log`
+ *   normalizado/validado.
+ * @throws {Error} con `code = "INVALID_LOG_LEVEL"` y `details` cuando `log`
+ *   tiene una clave no admitida, un valor que no es entero 0-3, o `log` no es
+ *   un objeto.
+ */
+const VALID_LOG_STATUS_KEYS = [
+  "status_info",
+  "status_success",
+  "status_redirect",
+  "status_client_error",
+  "status_server_error",
+];
+
+// Claves legacy del pre-contrato `status_*`: fueron persistidas en seeds/backups
+// de versiones antiguas (`demo.js`, backups de apps) en camelCase — `level`,
+// `info`, `success`, `redirect`, `clientError`, `serverError`, `error`. El
+// runtime (EndpointLogger) SIEMPRE leyó únicamente `status_*` (nunca camelCase),
+// de modo que estas claves son residuo inerte sin efecto de runtime. Se
+// descartan en silencio al validar/guardar — sin almacenar ni fallar — para que
+// el arranque de apps legacy y el restore de backups antiguos sigan siendo
+// compatibles con el contrato actual (solo `status_*`, niveles 0-3).
+const LEGACY_LOG_CTRL_KEYS = new Set([
+  "level",
+  "info",
+  "success",
+  "redirect",
+  "clientError",
+  "serverError",
+  "error",
+]);
+
+const invalidLogLevel = (field, value, message) => {
+  const err = new Error(message);
+  err.code = "INVALID_LOG_LEVEL";
+  err.details = {
+    field: `ctrl.log.${field}`,
+    value,
+    allowed_status_keys: VALID_LOG_STATUS_KEYS,
+    allowed_levels_per_key: "integer 0-3 (0=Disabled, 1=Basic, 2=Normal, 3=Full)",
+    hint: "Send only the `ctrl.log` keys you want to change; omitted keys keep their stored value (or the runtime default info/success/redirect=1, client_error=2, server_error=3).",
+  };
+  return err;
+};
+
+const validateLogLevelControl = (rawCtrl) => {
+  if (!rawCtrl || typeof rawCtrl !== "object" || Array.isArray(rawCtrl)) {
+    return rawCtrl;
+  }
+
+  const rawLog = rawCtrl.log;
+  if (rawLog === undefined || rawLog === null) {
+    return rawCtrl;
+  }
+
+  if (typeof rawLog !== "object" || Array.isArray(rawLog)) {
+    throw invalidLogLevel(
+      "log",
+      rawLog,
+      "ctrl.log must be an object mapping per-status logging levels."
+    );
+  }
+
+  // CLAVES NO CANÓNICAS: toda clave que no sea exactamente un `status_*` es
+  // residuo legacy inerte (pre-contrato `status_*`), persistida en seeds/backups
+  // de apps antiguas bajo cualquier forma — camelCase (`level`, `info`,
+  // `clientError`, `success`, ...), la vieja `level=0-3`, `full/basic/normal`
+  // como nivel, o variantes con snake (`client_error`, `server_error`, `error`).
+  // El runtime (EndpointLogger) SIEMPRE leyó únicamente `status_*` con estos
+  // nombres — jamás leyó ninguna de estas claves legacy — de modo que son
+  // residuo inerte sin efecto. Se descartan EN SILENCIO — sin almacenar ni
+  // fallar — para que el arranque de apps legacy y el restore de backups
+  // antiguos sigan siendo compatibles con el contrato actual (solo `status_*`).
+  const LEGACY_LOG_KEYS = new Set([
+    "level",
+    "info",
+    "success",
+    "redirect",
+    "client_error",
+    "server_error",
+    "var_error",
+    "error",
+    "clientError",
+    "serverError",
+    "full",
+    "basic",
+    "normal",
+    "disabled",
+  ]);
+
+  const LEGACY_LOG_KEYS_LOOKUP = (key) => LEGACY_LOG_KEYS.has(key);
+
+  const nextLog = {};
+  for (const [key, value] of Object.entries(rawLog)) {
+    if (LEGACY_LOG_KEYS.has(key)) {
+      continue;
+    }
+    if (!VALID_LOG_STATUS_KEYS.includes(key)) {
+      throw invalidLogLevel(
+        key,
+        value,
+        `Unknown ctrl.log key '${key}'. Supported keys: ${VALID_LOG_STATUS_KEYS.join(", ")}.`
+      );
+    }
+    if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > 3) {
+      throw invalidLogLevel(
+        key,
+        value,
+        `ctrl.log.${key} must be an integer 0-3 (0=Disabled, 1=Basic, 2=Normal, 3=Full), got: ${JSON.stringify(value)}.`
+      );
+    }
+    nextLog[key] = value;
+  }
+
+  return { ...rawCtrl, log: nextLog };
+};
+
 export const upsertEndpoint = async (
   /** @type {import("sequelize").Optional<any, string>} */ data,
 ) => {
   try {
     const skipMcpNameUniqueness = data?.skipMcpNameUniqueness === true;
     delete data.skipMcpNameUniqueness;
+
+    if (data?.ctrl !== undefined) {
+      data.ctrl = validateLogLevelControl(data.ctrl);
+    }
 
     // Resolve the target endpoint first so updates/migrations can replace the
     // destination row and keep MCP-name uniqueness checks scoped to that row.

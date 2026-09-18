@@ -5598,7 +5598,8 @@ export const system_app = {
         },
         "notes": [
           "Send the endpoint identifier in `idendpoint` exactly as defined in the input schema.",
-          "Use this response as a read-before-write step prior to endpoint_upsert changes."
+          "Use this response as a read-before-write step prior to endpoint_upsert changes.",
+          "The persisted `ctrl` object may include a per-status logging configuration under `ctrl.log` (`status_info`, `status_success`, `status_redirect`, `status_client_error`, `status_server_error`, each 0-3: 0=Disabled, 1=Basic, 2=Normal, 3=Full). If present it is what EndpointLogger applies for that endpoint at runtime, and if absent the defaults are applied (info/success/redirect=1, client_error=2, server_error=3). To change it, send `ctrl.log` with only the keys you want to modify via 'endpoint_upsert'; to read the effective contract refer to the logging documentation (see `handler_documentation` for JS, or the `src/docs/logging` skill)."
         ]
       },
       "json_schema": {
@@ -5860,7 +5861,7 @@ export const system_app = {
               },
               "ctrl": {
                 "$ref": "#/$defs/jsonValue",
-                "description": "Additional endpoint controls such as user restrictions or logging settings."
+                "description": "Additional endpoint controls.\nSupported `ctrl` keys:\n- `users`: user restrictions (optional user allowlist for this endpoint).\n- `log`: per-status logging levels, stored as `endpoint.ctrl.log.status_*`. This is where the per-status log verbosity of the endpoint is configured and persisted.\n  - `log` shape: `{\"status_info\": 1, \"status_success\": 1, \"status_redirect\": 1, \"status_client_error\": 2, \"status_server_error\": 3}`.\n  - Level values (each key): 0=Disabled, 1=Basic, 2=Normal, 3=Full. Semantics match the `log_level` values used by `execute_endpoint_test` and by `logs_list` / `get_log_level_for_status`.\n  - Defaults when the key (or the whole `log`) is omitted: info/success/redirect=1, client_error=2, server_error=3. You only need to send the keys you want to change; the rest keep their stored value (or the runtime default on a fresh INSERT).\n  - At runtime the EndpointLogger reads `endpoint.ctrl.log` (via the persisted `ctrl` column) to decide how much data to capture for each response status class. See the logging skill documentation (docs/logging) for the full contract and how `status_info`/`status_success`/`status_redirect`/`status_client_error`/`status_server_error` map to response status codes."
               },
               "code": {
                 "type": "string",
