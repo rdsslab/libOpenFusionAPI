@@ -115,6 +115,7 @@ export const CreateMCPHandler = async (app_name, environment) => {
     const sideEffects = toCompactText(getMcpField(endpoint, "side_effects")).trim();
     const safeAlternative = toCompactText(getMcpField(endpoint, "safe_alternative")).trim();
     const riskLevel = toCompactText(getMcpField(endpoint, "risk_level")).trim();
+    const SKIP_SAFE_ALTERNATIVE_MARKERS = new Set(["", "N/A", "n/a", "none", "no aplica"]);
 
     if (operationMode) {
       lines.push(`operation_mode: ${operationMode}`);
@@ -128,7 +129,7 @@ export const CreateMCPHandler = async (app_name, environment) => {
       lines.push(`side_effects: ${sideEffects}`);
     }
 
-    if (safeAlternative) {
+    if (safeAlternative && !SKIP_SAFE_ALTERNATIVE_MARKERS.has(safeAlternative)) {
       lines.push(`safe_alternative: ${safeAlternative}`);
     }
 
@@ -797,6 +798,31 @@ export const CreateMCPHandler = async (app_name, environment) => {
     );
   };
 
+  const compactSchemaDescriptions = (schema, { maxLen = 160 } = {}) => {
+    if (Array.isArray(schema)) {
+      return schema.map((item) => compactSchemaDescriptions(item, { maxLen }));
+    }
+    if (!schema || typeof schema !== "object") {
+      return schema;
+    }
+    const out = {};
+    for (const [key, value] of Object.entries(schema)) {
+      if (key === "description" && typeof value === "string") {
+        const trimmedValue = value.trim();
+        if (trimmedValue.length > maxLen) {
+          let cutAt = trimmedValue.lastIndexOf(" ", maxLen);
+          if (cutAt < maxLen * 0.6) cutAt = maxLen;
+          out[key] = `${trimmedValue.slice(0, cutAt).trim().replace(/\s+$/, "")}...`;
+          continue;
+        }
+        out[key] = value;
+        continue;
+      }
+      out[key] = compactSchemaDescriptions(value, { maxLen });
+    }
+    return out;
+  };
+
   const getEndpointUpsertHandlerGuide = (endpoint) => {
     if (!isEndpointUpsertEndpoint(endpoint)) return "";
 
@@ -926,6 +952,7 @@ This tool lets you test an endpoint over HTTP without writing a local script (Py
 
   let markdown_api_docs = [];
   let markdown_api_catalog_rows = [];
+  const endpointToolDocsIndex = new Map();
 
   for (let index2 = 0; index2 < mcp_endpoint_tools.length; index2++) {
     const endpoint = mcp_endpoint_tools[index2];
@@ -951,6 +978,7 @@ This tool lets you test an endpoint over HTTP without writing a local script (Py
     const inputSchema = endpoint?.json_schema?.in?.schema ?? {};
     const outputSchema = endpoint?.json_schema?.out?.schema ?? {};
     const inputSchemaNormalized = normalizeSchemaForZod(inputSchema);
+    const inputSchemaShipped = compactSchemaDescriptions(inputSchemaNormalized);
     const schemaWasNormalized = stringifySafe(inputSchemaNormalized) !== stringifySafe(inputSchema);
     const mcpNotes = endpoint?.mcp?.notes ?? endpoint?.mcp?.meta?.notes;
     const mcpExampleRequest = endpoint?.mcp?.exampleRequest ?? endpoint?.mcp?.meta?.exampleRequest;
@@ -1021,7 +1049,7 @@ This tool lets you test an endpoint over HTTP without writing a local script (Py
     ]);
 
     // Bug fix #5: Uso de optional chaining para evitar TypeError si mcp.title/description no existen
-    markdown_api_docs.push(`##
+    const toolDocBlock = `##
 ## Endpoint
 **${endpoint?.mcp?.name && endpoint?.mcp?.name.length > 0
         ? endpoint?.mcp?.name
@@ -1133,7 +1161,10 @@ ${toPrettyText(exampleResponse)}
 ${endpointUpsertHandlerGuide}
 ${endpointMigrateHandlerGuide}
 ${endpointTestHandlerGuide}
-`);
+`;
+
+    markdown_api_docs.push(toolDocBlock);
+    endpointToolDocsIndex.set(safeToolName, toolDocBlock);
 
     let zod_inputSchema = z.object({}).describe("Data to send to the endpoint.");
     let shouldUnwrapSingleValueInput = false;
@@ -1143,7 +1174,7 @@ ${endpointTestHandlerGuide}
       endpoint?.json_schema?.in?.schema
     ) {
       try {
-        const zodSchema = jsonSchemaToZod(inputSchemaNormalized);
+        const zodSchema = jsonSchemaToZod(inputSchemaShipped);
         if (zodSchema instanceof z.ZodObject || isObjectLikeSerializedSchema(zodSchema)) {
           zod_inputSchema = zodSchema;
         } else if (isZodSchemaLike(zodSchema)) {
@@ -1321,6 +1352,12 @@ ${endpointTestHandlerGuide}
     "internal (static, no HTTP endpoint)",
     "JS",
   ]);
+  markdown_api_catalog_rows.push([
+    "get_endpoint_tool_docs",
+    "N/A",
+    "internal (static, no HTTP endpoint)",
+    "STATIC",
+  ]);
 
   const md_resource = `
 # API Documentation for ${app_name} on ${environment} environment
@@ -1416,7 +1453,7 @@ _mcpConfig.tools.push({
       "Required fields: none.",
       "Top-level input fields: none.",
       "Output: markdown text containing endpoint-by-endpoint API documentation, schemas, examples, and behavior notes. Response may be truncated when the catalog is large; individual endpoint details remain complete for the endpoints included.",
-      `Agent guidance: prefer list_api_endpoints_catalog_${app_name} for initial discovery. Call this tool only when you need schemas, examples, or behavior notes for specific endpoints.`,
+      `Agent guidance: prefer list_api_endpoints_catalog_${app_name} for initial discovery, and get_endpoint_tool_docs for the focused documentation of a single tool. Call this tool only when you need the whole dump at once.`,
     ].join("\n"),
     inputSchema: {},
     annotations: { readOnlyHint: true },
@@ -1433,7 +1470,7 @@ _mcpConfig.tools.push({
       }
       text += `\n\n---\nResponse truncated: ${md_resource.length} characters total, showing first ${text.length}. ` +
         `For a compact tool-name table, call list_api_endpoints_catalog_${app_name}. ` +
-        `To see a specific endpoint, invoke its tool directly — each tool's own description includes the HTTP target and required fields.`;
+        `To see a specific endpoint, call get_endpoint_tool_docs with the tool name (never truncated), or invoke it directly — each tool's own description includes the HTTP target and required fields.`;
     }
 
     return {
@@ -1441,6 +1478,72 @@ _mcpConfig.tools.push({
         {
           type: "text",
           text,
+        },
+      ],
+    };
+  }
+});
+
+_mcpConfig.tools.push({
+  name: sanitizeToolName("get_endpoint_tool_docs", "get_endpoint_tool_docs"),
+  info: {
+    title: "Get API documentation for a single endpoint tool",
+    description: [
+      `Purpose: return the complete, untruncated markdown documentation for ONE MCP endpoint tool of application '${app_name}' on '${environment}' environment.`,
+      `Scope: limited to a single tool of application '${app_name}' and environment '${environment}'. It cannot document any other application.`,
+      "Required fields: tool.",
+      "Top-level input fields: tool.",
+      "Output: markdown text with the exact HTTP target, input JSON schema, example request, response schema, example response, behavior notes, and handler guide for the requested tool. Never truncated.",
+      `Agent guidance: use this when you have selected a specific tool (e.g. from the catalog list_api_endpoints_catalog_${app_name}) and need its full schema, examples, or behavior notes before calling it. Prefer it over the all-tools dump for focused retrievals.`,
+    ].join("\n"),
+    inputSchema: {
+      tool: z.string().describe(`MCP tool name to get docs for (from tools/list or list_api_endpoints_catalog_${app_name}).`),
+    },
+    annotations: { readOnlyHint: true },
+  },
+  handler: async (data) => {
+    const requestedToolName = normalizeToolKey(
+      typeof data?.tool === "string" ? data.tool : "",
+    );
+
+    if (!requestedToolName) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Error: parameter 'tool' is required. Available tools can be listed with list_api_endpoints_catalog_${app_name}.`,
+          },
+        ],
+      };
+    }
+
+    const entry = endpointToolDocsIndex.get(requestedToolName);
+
+    if (entry) {
+      return {
+        content: [
+          {
+            type: "text",
+            mimeType: "text/markdown",
+            text: entry,
+          },
+        ],
+      };
+    }
+
+    const suggestions = [...endpointToolDocsIndex.keys()]
+      .filter((toolKey) => toolKey.includes(requestedToolName) || requestedToolName.includes(toolKey))
+      .slice(0, 8);
+
+    const suggestionText = suggestions.length > 0
+      ? `Did you mean: ${suggestions.join(", ")}?`
+      : `Full catalog: list_api_endpoints_catalog_${app_name}.`;
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Error: no per-endpoint documentation found for tool '${requestedToolName}'. ${suggestionText}`,
         },
       ],
     };
