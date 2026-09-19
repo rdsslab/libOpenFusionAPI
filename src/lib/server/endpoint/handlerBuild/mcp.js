@@ -657,6 +657,7 @@ export const CreateMCPHandler = async (app_name, environment) => {
     effectiveDescription,
     inputSchema,
     endpointUpsertDescriptionAddon,
+    endpointMigrateDescriptionAddon,
   }) => {
     const rootSchemaKind = getRootSchemaKind(inputSchema);
     const requiredFields = rootSchemaKind === "array"
@@ -681,8 +682,13 @@ export const CreateMCPHandler = async (app_name, environment) => {
       `Required fields: ${requiredFields.length > 0 ? requiredFields.join(", ") : "none"}`,
     ];
 
+    const endpointKeywords = String(endpoint?.keywords ?? "").trim();
+    if (endpointKeywords.length > 0) {
+      lines.push(`Keywords/synonyms: ${endpointKeywords}`);
+    }
+
     if (rootSchemaKind === "array") {
-      lines.push("Agent guidance: this tool's input is an array of items. Send it wrapped as {\"value\": [...]}\u2014MCP wraps single-value payloads in a `value` object field.");
+      lines.push("Agent guidance: this tool's input is an array of items. Send it wrapped as {\"value\": [ ... ]}\u2014for example {\"value\": [{\"idendpoint\": \"<uuid>\", \"target_env\": \"qa\"}]}. Sending the array directly, or with a single object instead of an array, will be rejected. MCP wraps single-value payloads in a `value` object field.");
     }
 
     if (hasStructuredRuntimeSpecificPayload(endpoint.handler)) {
@@ -705,6 +711,10 @@ export const CreateMCPHandler = async (app_name, environment) => {
 
     if (endpointUpsertDescriptionAddon && endpointUpsertDescriptionAddon.trim().length > 0) {
       lines.push(endpointUpsertDescriptionAddon.trim());
+    }
+
+    if (endpointMigrateDescriptionAddon && endpointMigrateDescriptionAddon.trim().length > 0) {
+      lines.push(endpointMigrateDescriptionAddon.trim());
     }
 
     return lines.join("\n");
@@ -817,6 +827,49 @@ export const CreateMCPHandler = async (app_name, environment) => {
     if (!isEndpointUpsertEndpoint(endpoint)) return "";
 
     return " Handler-specific note: `handler` defines the shape of `code` and related fields. Use the input schema field descriptions for the stored contract, and call `handler_documentation` before composing payloads for SQL_BULK_I, SOAP, HANA, MONGODB, MCP, or other handler-specific structures. CORS is enforced per endpoint: set the `cors` field only to allowlist specific browser origins (array of origins or an object with `origin`, `credentials`, `allowedHeaders`, `methods`, `maxAge`); omitting `cors`/`{}` keeps the deployment-wide default policy and disallowed origins receive no `Access-Control-Allow-Origin`. Messaging bots are not endpoints: use `get_bot_skill` and `upsert_bot` instead. Repeated failed authentication attempts are throttled: after several 401 responses from the same source, the IP (and IP+username pair) enters a lockout with exponential backoff and the runtime answers 429 with `Retry-After`, logging `{type:'possible_attack'}` entries at log level 3 in `ofapi_log`. If a test or a client receives a 429, wait until `Retry-After` elapses instead of retrying in a loop or changing credentials. Recommendation: when creating or updating an endpoint, also define a `json_schema` (so MCP publishes a usable input schema and agents can send parameters) and a `data_test` (a saved example request). Call `validate_json_schema_for_mcp` before publishing any JSON Schema.";
+  };
+
+  const isEndpointMigrateEndpoint = (endpoint) => {
+    const mcpName = (endpoint?.mcp?.name ?? "").toString().trim().toLowerCase();
+    return mcpName === "endpoint_migrate";
+  };
+
+  const isAppVarMigrateEndpoint = (endpoint) => {
+    const mcpName = (endpoint?.mcp?.name ?? "").toString().trim().toLowerCase();
+    return mcpName === "appvar_migrate";
+  };
+
+  const getEndpointMigrateDescriptionAddon = (endpoint) => {
+    if (isEndpointMigrateEndpoint(endpoint)) {
+      return " Use this tool (not 'endpoint_upsert') when the user asks to copy, promote, duplicate, port, or move an endpoint to another environment (dev, qa, prd): the full endpoint (handler, code, json_schema, configuration) is cloned for you. Send an array of items as {\"value\": [{\"idendpoint\": \"<uuid>\", \"target_env\": \"qa\"}]}. Resolve the source idendpoint with 'app_endpoints_catalog' (filterable by environment) or 'search_endpoints', then verify with 'app_endpoints_catalog' filtered to the target environment.";
+    }
+    if (isAppVarMigrateEndpoint(endpoint)) {
+      return " Use this tool (not 'appvar_upsert') when the user asks to copy, promote, duplicate, port, or move an application variable to another environment (dev, qa, prd): the variable value and type are cloned for you. Send an array of items as {\"value\": [{\"idappvar\": \"<uuid>\", \"target_env\": \"qa\"}]}. Resolve the source idappvar with 'app_vars_catalog' (lightweight) or 'app_vars' (full payload), then verify with 'app_vars_catalog' filtered to the target environment.";
+    }
+    return "";
+  };
+
+  const getEndpointMigrateHandlerGuide = (endpoint) => {
+    if (!isEndpointMigrateEndpoint(endpoint) && !isAppVarMigrateEndpoint(endpoint)) return "";
+    const isVar = isAppVarMigrateEndpoint(endpoint);
+    const toolName = isVar ? "appvar_migrate" : "endpoint_migrate";
+    const idField = isVar ? "idappvar" : "idendpoint";
+    const sourceCatalog = isVar ? "'app_vars_catalog' (lightweight) or 'app_vars' (full payload)" : "'app_endpoints_catalog' (filterable by environment) or 'search_endpoints' (by keyword)";
+    const targetVerify = isVar ? "'app_vars_catalog' filtering by the target environment" : "'app_endpoints_catalog' filtering by the target environment";
+
+    return `
+## How to use ${toolName} (Agent Guide)
+
+Use ${toolName} when the user asks to copy, promote, duplicate, port, or move ${isVar ? "an application variable" : "an endpoint"} to another environment (dev, qa, prd). It clones ${isVar ? "the value and type" : "the full endpoint (handler, code, json_schema, configuration)"} without rebuilding it via ${isVar ? "'appvar_upsert'" : "'endpoint_upsert'"}.
+
+### Steps
+
+1. **Resolve the source ${idField}**: obtain it with ${sourceCatalog}. An endpoint always lives in exactly one environment, so pick the row of the source environment.
+2. **Build the payload**: send an array of one or more items wrapped in \`value\`: \`{"value": [{"${idField}": "<source-uuid>", "target_env": "qa"}]}\`. Do NOT send the array directly or a single bare object; MCP requires the \`value\` wrapper.
+3. **Read the per-item status**: 'success' means migrated (check 'new_${idField}' for the new row); 'ignored' means it is already in target_env; 'already exists' means the target row is intact or replaced (${isVar ? "the variable WAS replaced with the source value" : "no duplicate was created"}); 'error' carries a message (and for ${toolName} an optional 'suggestion' when the AppVar name is invalid).
+4. **Verify**: call ${targetVerify}.
+5. **Multiple items**: you may batch as many items as you like in one call; each item is processed independently.
+`;
   };
 
   const isEndpointTestEndpoint = (endpoint) => {
@@ -933,6 +986,8 @@ This tool lets you test an endpoint over HTTP without writing a local script (Py
       endpoint?.json_schema?.in?.schema?.properties?.vars?.deprecated === true;
     const endpointUpsertHandlerGuide = getEndpointUpsertHandlerGuide(endpoint);
     const endpointUpsertDescriptionAddon = getEndpointUpsertDescriptionAddon(endpoint);
+    const endpointMigrateHandlerGuide = getEndpointMigrateHandlerGuide(endpoint);
+    const endpointMigrateDescriptionAddon = getEndpointMigrateDescriptionAddon(endpoint);
     const endpointTestHandlerGuide = getEndpointTestHandlerGuide(endpoint);
     // Prefer canonical docs from system.js (endpoint.mcp.description / endpoint.description)
     // and only use mcp.js override descriptions as fallback.
@@ -953,6 +1008,7 @@ This tool lets you test an endpoint over HTTP without writing a local script (Py
       inputSchema,
       exampleRequest,
       endpointUpsertDescriptionAddon,
+      endpointMigrateDescriptionAddon,
     });
 
     markdown_api_catalog_rows.push([
@@ -1075,6 +1131,7 @@ ${toPrettyText(exampleResponse)}
     })}
 
 ${endpointUpsertHandlerGuide}
+${endpointMigrateHandlerGuide}
 ${endpointTestHandlerGuide}
 `);
 

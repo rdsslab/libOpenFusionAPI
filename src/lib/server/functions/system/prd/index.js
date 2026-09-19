@@ -126,11 +126,13 @@ export async function fnAgentOnboardingGuide(params) {
     r.code = 200;
     r.data = {
       summary:
-        "1. Always inspect each tool description and input schema first; treat the system catalog as source of truth. 2. For endpoint creation/updates, choose handler first and match payload shape to that handler. 3. Read current endpoint data before updates and patch incrementally. 4. Validate JSON Schema with validate_json_schema_for_mcp before publishing. 5. Use trace_id in logs to follow one execution path end to end. 6. OpenFusionAPI supports recurring interval tasks for endpoint automation; use the interval_tasks tools to inspect tasks (read-only) and, only with explicit user authorization, create/update/delete schedules.",
+        "1. Always inspect each tool description and input schema first; treat the system catalog as source of truth. 2. For endpoint creation/updates, choose handler first and match payload shape to that handler. 3. Read current endpoint data before updates and patch incrementally. 4. Validate JSON Schema with validate_json_schema_for_mcp before publishing. 5. Use trace_id in logs to follow one execution path end to end. 6. OpenFusionAPI supports recurring interval tasks for endpoint automation; use the interval_tasks tools to inspect tasks (read-only) and, only with explicit user authorization, create/update/delete schedules. 7. To copy, promote, duplicate, port, or move endpoints between environments (dev, qa, prd), use endpoint_migrate (and appvar_migrate for application variables) instead of rebuilding them with endpoint_upsert: resolve the source idendpoint/idappvar with app_endpoints_catalog/search_endpoints (or app_vars_catalog/app_vars), call the migrate tool with the value-wrapped array, then verify with the catalog filtered to the target environment.",
       links: {
         handler_documentation: "/api/handler/documentation",
         handler_skill: "/api/handler/skill",
         endpoint_upsert: "/api/endpoint",
+        endpoint_migrate: "/endpoints/migrate",
+        appvar_migrate: "/appvars/migrate",
         get_system_logs: "/api/system/logs",
         interval_tasks_byidapp: "/interval_tasks/byidapp",
         interval_tasks_upsert: "/interval_tasks/upsert",

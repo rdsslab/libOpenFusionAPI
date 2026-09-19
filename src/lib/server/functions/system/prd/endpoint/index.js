@@ -375,11 +375,15 @@ export async function fnGetResponseCountStatus(params) {
 export async function fnEndpointMigrate(params) {
   let r = { code: 200, data: undefined };
   try {
-    const migrations = params.request.body;
-    
+    let migrations = params.request.body;
+
+    if (migrations && typeof migrations === "object" && !Array.isArray(migrations)) {
+      migrations = [migrations];
+    }
+
     if (!Array.isArray(migrations)) {
       r.code = 400;
-      r.data = { error: "Expected an array of objects." };
+      r.data = { error: "Expected an array of objects, or a single migration object." };
       return r;
     }
 
@@ -454,11 +458,15 @@ export async function fnEndpointMigrate(params) {
 export async function fnAppVarMigrate(params) {
   let r = { code: 200, data: undefined };
   try {
-    const migrations = params.request.body;
-    
+    let migrations = params.request.body;
+
+    if (migrations && typeof migrations === "object" && !Array.isArray(migrations)) {
+      migrations = [migrations];
+    }
+
     if (!Array.isArray(migrations)) {
       r.code = 400;
-      r.data = { error: "Expected an array of objects." };
+      r.data = { error: "Expected an array of objects, or a single migration object." };
       return r;
     }
 

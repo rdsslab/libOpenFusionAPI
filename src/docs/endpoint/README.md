@@ -108,6 +108,30 @@ Here you can set the tool name, title, and description — providing AI systems 
 
 ---
 
+## Migración entre ambientes (copy/promote)
+
+If you need to **copy, promote, duplicate, port, or move** an existing endpoint to another environment
+(`dev`, `qa`, `prd`), use the dedicated MCP tools instead of recreating it with `endpoint_upsert`:
+
+| Goal | MCP tool | HTTP |
+|---|---|---|
+| Copy one or more endpoints to another environment | `endpoint_migrate` | `POST /endpoints/migrate` |
+| Copy one or more application variables to another environment | `appvar_migrate` | `POST /appvars/migrate` |
+
+Both keep the source row untouched and clone the full definition (handler, code, `json_schema`, configuration)
+into the target environment. They accept an array of items wrapped in `value`:
+
+```json
+{ "value": [ { "idendpoint": "<source-uuid>", "target_env": "qa" } ] }
+```
+
+Each item reports an independent outcome: `success`, `ignored` (already in target), `already exists`
+(no duplicate created), or `error`. Resolve source UUIDs with `app_endpoints_catalog` / `search_endpoints`
+(for endpoints) or `app_vars_catalog` / `app_vars` (for variables), then verify the result by querying the
+catalog filtered to the target environment.
+
+---
+
 ## ✅ Final Notes
 
 - Ensure that the **API Resource** URL is valid and clearly defined.  

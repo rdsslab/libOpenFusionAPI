@@ -1774,7 +1774,7 @@ export const system_app = {
         "enabled": true,
         "name": "agent_onboarding",
         "title": "Agent Onboarding Guide",
-        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns best practices, recommended workflows, and key tips for MCP agents (AI or human) to use the OpenFusionAPI toolset efficiently and safely, including guidance on recurring interval task tooling, on messaging bots, on per-endpoint CORS configuration and on authentication rate limiting. Agents must not modify endpoints, interval tasks or bots unless the user explicitly requests it or explicitly authorizes it, with stricter caution for endpoints in the system application. Note that bots are NOT endpoints: they are managed with the dedicated bot tools and must be preceded by `get_bot_skill`. All content is provided in English.",
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns best practices, recommended workflows, and key tips for MCP agents (AI or human) to use the OpenFusionAPI toolset efficiently and safely, including guidance on recurring interval task tooling, on messaging bots, on per-endpoint CORS configuration, on authentication rate limiting, and on copying/promoting endpoints and application variables between environments (dev, qa, prd) with 'endpoint_migrate' and 'appvar_migrate'. Agents must not modify endpoints, interval tasks or bots unless the user explicitly requests it or explicitly authorizes it, with stricter caution for endpoints in the system application. Note that bots are NOT endpoints: they are managed with the dedicated bot tools and must be preceded by `get_bot_skill`. All content is provided in English.",
         "operation_mode": "read",
         "requires_explicit_confirmation": false,
         "side_effects": "No persistent write side effects expected.",
@@ -1810,6 +1810,12 @@ export const system_app = {
                     "type": "string"
                   },
                   "endpoint_upsert": {
+                    "type": "string"
+                  },
+                  "endpoint_migrate": {
+                    "type": "string"
+                  },
+                  "appvar_migrate": {
                     "type": "string"
                   },
                   "get_system_logs": {
@@ -1870,11 +1876,13 @@ export const system_app = {
           "selection": 0,
           "json": {
             "code": {
-              "summary": "Welcome to OpenFusionAPI. Use /api/handler/documentation for handler details and /api/handler/skill for handler-specific guidance. OpenFusionAPI also supports recurring interval tasks for endpoint automation, long-lived messaging bots (see /bots/skill), per-endpoint CORS allowlists ('cors' field in /api/endpoint), and throttles repeated failed authentication attempts with 429 + Retry-After.",
+              "summary": "Welcome to OpenFusionAPI. Use /api/handler/documentation for handler details and /api/handler/skill for handler-specific guidance. OpenFusionAPI also supports recurring interval tasks for endpoint automation, long-lived messaging bots (see /bots/skill), per-endpoint CORS allowlists ('cors' field in /api/endpoint), throttles repeated failed authentication attempts with 429 + Retry-After, and cross-environment copies with 'endpoint_migrate' (endpoints) and 'appvar_migrate' (application variables).",
               "links": {
                 "handler_documentation": "/api/handler/documentation",
                 "handler_skill": "/api/handler/skill",
                 "endpoint_upsert": "/api/endpoint",
+                "endpoint_migrate": "/endpoints/migrate",
+                "appvar_migrate": "/appvars/migrate",
                 "get_system_logs": "/api/system/logs",
                 "apps_list": "/api/system/api/apps-list",
                 "bot_skill": "/bots/skill",
@@ -7955,11 +7963,15 @@ export const system_app = {
         "enabled": true,
         "name": "endpoint_migrate",
         "title": "Migrate Endpoint to Another Environment",
-        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nCopies one or more endpoints from their current environment to a target environment (dev, qa, or prd). The original endpoint is NOT deleted — this is a copy/promote operation, not a move. Each item in the array requires 'idendpoint' (UUID of the source endpoint) and 'target_env' (destination environment). Possible per-item outcomes: 'success' (migrated and new_idendpoint is returned), 'ignored' (source is already in target_env), 'already exists' (an endpoint with same app+resource+method already exists in target_env — treated as success, no duplicate is created), or 'error'. To obtain idendpoint values use 'app_endpoints_catalog' (lightweight, filterable by environment) or 'search_endpoints' (by keyword). To verify the migration call 'app_endpoints_catalog' again filtering by the target environment.",
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nCopies, promotes, or duplicates one or more endpoints from their current environment to a target environment (dev, qa, or prd), without needing to rebuild the endpoint with 'endpoint_upsert'. The original endpoint is NOT deleted — this is a copy/promote operation, not a move. Each item in the array requires 'idendpoint' (UUID of the source endpoint) and 'target_env' (destination environment). Send the items wrapped as an array under the 'value' key: {\"value\": [{\"idendpoint\": \"<source-uuid>\", \"target_env\": \"qa\"}]}. Possible per-item outcomes: 'success' (migrated and new_idendpoint is returned), 'ignored' (source is already in target_env), 'already exists' (an endpoint with same app+resource+method already exists in target_env — treated as success, no duplicate is created), or 'error'. To obtain idendpoint values use 'app_endpoints_catalog' (lightweight, filterable by environment) or 'search_endpoints' (by keyword). To verify the migration call 'app_endpoints_catalog' again filtering by the target environment.",
         "operation_mode": "write",
         "requires_explicit_confirmation": true,
         "side_effects": "Creates copies of the selected endpoints in the target environment. The source endpoints are left untouched, and an endpoint that already exists at the same app+resource+method in the target is reported as 'already exists' without creating a duplicate.",
-        "safe_alternative": "Call 'endpoint_versions_matrix' first to see which environments already differ and what would actually be promoted."
+        "safe_alternative": "Optional, not required: call 'endpoint_versions_matrix' first only when you need to pre-inspect which environments already differ before deciding what to promote.",
+        "notes": [
+          "When the user asks to copy, promote, duplicate, port, or move an endpoint between environments (dev, qa, prd), prefer 'endpoint_migrate' over rebuilding it with 'endpoint_upsert': the whole endpoint including handler, code, schema and configuration is cloned for you.",
+          "For application variables use 'appvar_migrate' instead; they are managed by a separate tool."
+        ]
       },
       "json_schema": {
         "in": {
@@ -8109,11 +8121,15 @@ export const system_app = {
         "enabled": true,
         "name": "appvar_migrate",
         "title": "Migrate AppVar to Another Environment",
-        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nCopies one or more application variables (AppVars) from their current environment to a target environment (dev, qa, or prd). The original AppVar is NOT deleted — this is a copy/promote operation, not a move. Each item in the array requires 'idappvar' (UUID of the source AppVar) and 'target_env' (destination environment). Possible per-item outcomes: 'success' (migrated and new_idappvar is returned), 'ignored' (source is already in target_env), 'already exists' (an AppVar with same app+name already exists in target_env — treated as success, variable replaced), or 'error'. The variable NAME is propagated verbatim from the source row, so migrating a legacy AppVar whose name does not match `^\\$_VAR_[A-Z0-9_]+$` fails with `code: \"INVALID_APPVAR_NAME\"` and a `suggestion` for that item; rename the source variable first (and every endpoint referencing it) before migrating. To obtain idappvar values use 'app_vars_catalog' (lightweight, no values) or 'app_vars' (full payload with values). To verify the migration call 'app_vars_catalog' filtering by the target environment.",
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nCopies, promotes, or duplicates one or more application variables (AppVars) from their current environment to a target environment (dev, qa, or prd), without needing to rebuild them with 'appvar_upsert'. The original AppVar is NOT deleted — this is a copy/promote operation, not a move. Each item in the array requires 'idappvar' (UUID of the source AppVar) and 'target_env' (destination environment). Send the items wrapped as an array under the 'value' key: {\"value\": [{\"idappvar\": \"<source-uuid>\", \"target_env\": \"qa\"}]}. Possible per-item outcomes: 'success' (migrated and new_idappvar is returned), 'ignored' (source is already in target_env), 'already exists' (an AppVar with same app+name already exists in target_env — treated as success, variable replaced), or 'error'. The variable NAME is propagated verbatim from the source row, so migrating a legacy AppVar whose name does not match `^\\$_VAR_[A-Z0-9_]+$` fails with `code: \"INVALID_APPVAR_NAME\"` and a `suggestion` for that item; rename the source variable first (and every endpoint referencing it) before migrating. To obtain idappvar values use 'app_vars_catalog' (lightweight, no values) or 'app_vars' (full payload with values). To verify the migration call 'app_vars_catalog' filtering by the target environment.",
         "operation_mode": "write",
         "requires_explicit_confirmation": true,
         "side_effects": "Creates copies of the selected variables in the target environment. The source variables are left untouched, but a variable that already exists with the same name in the target IS REPLACED with the source value, which changes what the endpoints of that environment resolve.",
-        "safe_alternative": "Call 'app_vars_catalog' on the target environment first to see which names already exist and would be overwritten."
+        "safe_alternative": "Optional, not required: call 'app_vars_catalog' on the target environment first only when you need to pre-inspect which names already exist and would be overwritten.",
+        "notes": [
+          "When the user asks to copy, promote, duplicate, port, or move an application variable between environments (dev, qa, prd), prefer 'appvar_migrate' over rebuilding it with 'appvar_upsert'.",
+          "For endpoints use 'endpoint_migrate' instead; they are managed by a separate tool."
+        ]
       },
       "json_schema": {
         "in": {
