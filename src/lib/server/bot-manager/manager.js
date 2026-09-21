@@ -1,7 +1,6 @@
 import { Worker } from "node:worker_threads";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import crypto from "node:crypto";
 import { EventEmitter } from "node:events";
 import {
   BACKOFF_TIER,
@@ -15,6 +14,7 @@ import {
   nextBackoffMs,
   quarantineThresholdFor,
 } from "./failurePolicy.js";
+import { buildBotConfigHash } from "./configHash.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -162,13 +162,19 @@ export class BotManager extends EventEmitter {
 
     const existingEntry = this.activeBots.get(botId);
 
-    // Incluir token y app_env_vars en el hash para detectar cualquier cambio de configuración.
-    // Si token, code o app_env_vars cambian, el worker se reinicia con la nueva config.
-    const configPayload = JSON.stringify({ token, code, app_env_vars });
-    const configHash = crypto.createHash('sha256').update(configPayload).digest('hex');
+    // El hash solo considera token, code y las AppVars de configuración: las variables
+    // de estado/cursor que los escaneos internos actualizan fuera de banda (ver
+    // configHash.js) no deben producir reinicios de un bot en RUNNING.
+    const configHash = buildBotConfigHash({ token, code, app_env_vars });
+
+    // Un reinicio por cambio de configuración arranca un bot que YA estaba arriba: los
+    // mensajes llegados durante la ventana de parada/arranque no deben descartarse.
+    // Solo un arranque en frío (proceso recién levantado o tras un fallo) usa
+    // `drop_pending_updates` para no procesar actualizaciones obsoletas de la caída.
+    const isRunningRestart = existingEntry ? existingEntry.configHash !== configHash : false;
 
     if (existingEntry) {
-      if (existingEntry.configHash !== configHash) {
+      if (isRunningRestart) {
         this.emit("bot_log", {
           botId,
           idapp,
@@ -324,7 +330,7 @@ export class BotManager extends EventEmitter {
       // Send payload to worker
       worker.postMessage({
         type: "START",
-        payload: { botId, token, code, environment, app_env_vars, traceId },
+        payload: { botId, token, code, environment, app_env_vars, traceId, isRunningRestart },
       });
 
       this.activeBots.set(botId, {

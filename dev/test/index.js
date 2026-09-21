@@ -70,6 +70,11 @@ async function runAllTests() {
         args: ["bot_failure_policy_test.js"],
       },
       {
+        label: "bot_config_hash_test.js",
+        command: "node",
+        args: ["bot_config_hash_test.js"],
+      },
+      {
         label: "bot_resilience_test.js",
         command: "node",
         args: ["bot_resilience_test.js"],

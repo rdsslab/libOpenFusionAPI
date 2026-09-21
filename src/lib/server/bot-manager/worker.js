@@ -55,7 +55,7 @@ function classifyStartupError(err) {
 parentPort.on("message", async (message) => {
   try {
     if (message.type === "START") {
-      const { token, code, botId, environment, app_env_vars, traceId } = message.payload;
+      const { token, code, botId, environment, app_env_vars, traceId, isRunningRestart } = message.payload;
       console.log(`[Worker ${botId}] Starting...`);
 
       const defaults = {
@@ -156,7 +156,11 @@ Nota importante: Este tiempo límite aplica solo a la carga inicial del código 
               console.log(`[Worker ${botId}] Bot started!`);
             },
             allowed_updates: ["message", "callback_query"], // Optional: specific updates
-            drop_pending_updates: true,
+            // Arranque en caliente (reinicio por cambio de configuración de un bot que ya
+            // estaba arriba): NO se descartan las actualizaciones pendientes para no perder
+            // los mensajes de los usuarios llegados durante la ventana de parada/arranque.
+            // Solo el arranque en frío descarta pendientes obsoletos.
+            drop_pending_updates: isRunningRestart ? false : true,
             handleSignals: false
           });
 
