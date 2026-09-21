@@ -45,6 +45,7 @@
 //    /apistats         - Uso de endpoints de la app vinculada (últimos 7 días)
 //    /traceslow        - Peticiones más lentas de la app vinculada (últimas 24h)
 //    /logs [error|warn|info] - Logs recientes de la app vinculada (default: error/5xx)
+//    /changes [on|off] - Notificaciones de cambios de configuración (peek; toggle (admin))
 //    /activity         - Novedades recientes de la app vinculada (bajo demanda)
 //    /errors           - Errores 5xx recientes de la app vinculada
 //    /tasks            - Tareas de intervalo de la app vinculada
@@ -53,10 +54,12 @@
 //
 // Config via AppVars (env prd) de la app system:
 //   - $_VAR_TELEGRAM_TOKEN        token del bot (placeholder = sin configurar)
-//   - $_VAR_GROUP_APP_MAP         { chat_id: { idapp, environment, linked_by, linked_at } }
+//   - $_VAR_GROUP_APP_MAP         { chat_id: { idapp, environment, linked_by, linked_at, notify_changes? } }
 //   - $_VAR_GROUP_APP_CURSORS     { chat_id: "ISO" } cursor por grupo (escritura del scan)
 //   - $_VAR_ADMIN_GROUP_CHAT_ID   grupo de administración para alertas admin
 //   - $_VAR_ADMIN_ALERTS_MODE     "on" | "paused" (control de /alerts sobre fnAdminAutoAlerts)
+//   - $_VAR_GROUP_APP_CHANGES_CURSOR  cursor global del notificador /appgroup/changes
+//   - $_VAR_GROUP_APP_CHANGES_ENABLED "on" | "off" para el notificador /appgroup/changes
 //
 // Los flujos de recuperación SOLO operan en chat privado. En grupos el bot solo
 // responde comandos de estatus/vínculo.
@@ -121,6 +124,7 @@ const GROUP_HELP = [
   "/apistats - Endpoint usage of the linked app",
   "/traceslow - Slowest requests of the linked app",
   "/logs [error|warn|info] - Recent logs of the linked app",
+  "/changes [on|off] - Configuration change notifications (peek; toggle as admin)",
   "/activity - Recent activity of the linked application",
   "/errors - Recent 5xx errors of the linked application",
   "/tasks - List interval tasks of the linked app",
@@ -1257,6 +1261,61 @@ $BOT.command("taskrun", async (ctx) => {
   } catch (error) {
     ofapi.log({ message: `taskrun: ${error?.message}` });
     await ctx.reply("Could not trigger the task.");
+  }
+});
+
+$BOT.command("changes", async (ctx) => {
+  const entry = await linkedEntry(ctx);
+  if (!entry) return;
+  const arg = String((ctx.message?.text || "").split(/\s+/)[1] || "").trim().toLowerCase();
+  if (arg === "on" || arg === "off") {
+    if (!(await isGroupAdmin(ctx.chat, ctx.from.id))) {
+      await ctx.reply("Only group administrators can change the notification flag.");
+      return;
+    }
+    const user = await validateUser(ctx.from.id);
+    if (!user.valid) {
+      await ctx.reply("You are not a validated OpenFusionAPI user. First run /link in a private chat with me to link your account.");
+      return;
+    }
+    try {
+      const map = await readGroupMap();
+      const current = map[String(ctx.chat.id)];
+      if (!current) {
+        await ctx.reply("This group is not linked to any application.");
+        return;
+      }
+      current.notify_changes = arg === "on";
+      const ok = await writeGroupMap(map);
+      await ctx.reply(ok
+        ? `Configuration change notifications are now <b>${arg === "on" ? "enabled" : "disabled"}</b> for this group.`
+        : "Could not update the notification flag.");
+    } catch (error) {
+      ofapi.log({ message: `changes toggle: ${error?.message}` });
+      await ctx.reply("An unexpected error occurred. Try again.");
+    }
+    return;
+  }
+  try {
+    const res = await api("/appgroup/changes", "post", {
+      token: scanToken(),
+      data: { respond_inline: true, chat_id: String(ctx.chat.id) },
+    });
+    const { ok, status, body } = await parseBody(res);
+    if (!ok) {
+      await ctx.reply(`Could not scan the configuration changes (HTTP ${status}).`);
+      return;
+    }
+    const d = body?.data ?? body;
+    const quiet = !d || (!d.report_html && d.status === "quiet");
+    if (quiet) {
+      await ctx.reply("No configuration changes since the last scan. 👍");
+      return;
+    }
+    await ctx.reply(d.report_html || "No configuration changes detected.", { parse_mode: "HTML" });
+  } catch (error) {
+    ofapi.log({ message: `changes: ${error?.message}` });
+    await ctx.reply("Could not scan the configuration changes.");
   }
 });
 
