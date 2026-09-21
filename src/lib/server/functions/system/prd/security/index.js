@@ -1,5 +1,10 @@
 import { User, ApiClient } from "../../../../../db/models.js";
 import { EncryptPwd, getLegacyPasswordKeys, passwordMatches } from "../../../../../server/auth.js";
+import {
+  recordAudit,
+  AUDIT_ACTIONS,
+  AUDIT_ENTITY_TYPES,
+} from "../../../../audit/auditService.js";
 
 // @ts-ignore
 import dbsequelize from "../../../../../db/sequelize.js";
@@ -136,6 +141,24 @@ export async function fnPasswordMigrationRun(params) {
     const scope = ["all", "users", "clients"].includes(body.scope) ? body.scope : "all";
     r.data = await runMigration(dry_run, scope);
     r.code = 200;
+
+    if (!dry_run) {
+      await recordAudit(params, {
+        action: AUDIT_ACTIONS.UPDATE,
+        entity_type: AUDIT_ENTITY_TYPES.USER,
+        entity_id: null,
+        status: true,
+        result_code: 200,
+        after: {
+          scope: r.data.scope,
+          migrated_users_count: r.data.migrated_users_count,
+          migrated_clients_count: r.data.migrated_clients_count,
+        },
+        message:
+          `Password migration run: ${r.data.migrated_users_count} users, ` +
+          `${r.data.migrated_clients_count} clients re-hashed.`,
+      });
+    }
   } catch (error) {
     r.data = { error: error?.message || String(error) };
     r.code = 500;

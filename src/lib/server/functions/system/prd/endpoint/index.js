@@ -17,6 +17,21 @@ import { Op } from "sequelize";
 import { createHash } from "node:crypto";
 import { internal_url_http } from "../../../../utils_path.js";
 import { validateEndpointCors } from "../../../../runtime/endpointCorsPolicy.js";
+import {
+  recordAudit,
+  AUDIT_ACTIONS,
+  AUDIT_ENTITY_TYPES,
+} from "../../../../audit/auditService.js";
+
+function summarizeMigrateResults(results) {
+  const counts = { success: 0, error: 0, ignored: 0 };
+  for (const item of results || []) {
+    if (item?.status === "success") counts.success++;
+    else if (item?.status === "error") counts.error++;
+    else if (item?.status === "ignored") counts.ignored++;
+  }
+  return `${counts.success} success, ${counts.error} error, ${counts.ignored} ignored`;
+}
 
 export async function fnGetEndpointBackupByIdEndpoint(params) {
   let r = { code: 200, data: undefined };
@@ -85,6 +100,16 @@ export async function fnEndpointUpsert(params) {
       if (buffer.length > 1024 * 1024) {
         r.data = { error: "File size exceeds the 1MB limit." };
         r.code = 400;
+        await recordAudit(params, {
+          action: AUDIT_ACTIONS.UPDATE,
+          entity_type: AUDIT_ENTITY_TYPES.ENDPOINT,
+          entity_id: body?.idendpoint || null,
+          idapp: body?.idapp || null,
+          environment: body?.environment || null,
+          status: false,
+          result_code: 400,
+          message: r.data.error,
+        });
         return r;
       }
       
@@ -112,12 +137,36 @@ export async function fnEndpointUpsert(params) {
           code: "INVALID_CORS_CONFIG",
         };
         r.code = 400;
+        await recordAudit(params, {
+          action: AUDIT_ACTIONS.UPDATE,
+          entity_type: AUDIT_ENTITY_TYPES.ENDPOINT,
+          entity_id: body?.idendpoint || null,
+          idapp: body?.idapp || null,
+          environment: body?.environment || null,
+          status: false,
+          result_code: 400,
+          message: corsValidation.error,
+        });
         return r;
       }
     }
 
-    r.data = await upsertEndpoint(body);
+    const upserted = await upsertEndpoint(body);
+    const { previous } = upserted;
+    r.data = { result: upserted.result, created: upserted.created };
     r.code = 200;
+
+    await recordAudit(params, {
+      action: previous ? AUDIT_ACTIONS.UPDATE : AUDIT_ACTIONS.CREATE,
+      entity_type: AUDIT_ENTITY_TYPES.ENDPOINT,
+      entity_id: upserted.result.idendpoint,
+      idapp: upserted.result.idapp,
+      environment: upserted.result.environment,
+      before: previous,
+      after: upserted.result,
+      status: true,
+      result_code: 200,
+    });
   } catch (error) {
     console.log(error);
 
@@ -129,6 +178,16 @@ export async function fnEndpointUpsert(params) {
         details: error.details,
       };
       r.code = 400;
+      await recordAudit(params, {
+        action: AUDIT_ACTIONS.UPDATE,
+        entity_type: AUDIT_ENTITY_TYPES.ENDPOINT,
+        entity_id: params?.request?.body?.idendpoint || null,
+        idapp: params?.request?.body?.idapp || null,
+        environment: params?.request?.body?.environment || null,
+        status: false,
+        result_code: 400,
+        message: error.message,
+      });
       return r;
     }
 
@@ -142,11 +201,31 @@ export async function fnEndpointUpsert(params) {
         details: error.details,
       };
       r.code = 400;
+      await recordAudit(params, {
+        action: AUDIT_ACTIONS.UPDATE,
+        entity_type: AUDIT_ENTITY_TYPES.ENDPOINT,
+        entity_id: params?.request?.body?.idendpoint || null,
+        idapp: params?.request?.body?.idapp || null,
+        environment: params?.request?.body?.environment || null,
+        status: false,
+        result_code: 400,
+        message: error.message,
+      });
       return r;
     }
 
     r.data = error;
     r.code = 500;
+    await recordAudit(params, {
+      action: AUDIT_ACTIONS.UPDATE,
+      entity_type: AUDIT_ENTITY_TYPES.ENDPOINT,
+      entity_id: params?.request?.body?.idendpoint || null,
+      idapp: params?.request?.body?.idapp || null,
+      environment: params?.request?.body?.environment || null,
+      status: false,
+      result_code: 500,
+      message: error?.message || String(error),
+    });
   }
   return r;
 }
@@ -442,6 +521,15 @@ export async function fnEndpointMigrate(params) {
 
     r.data = results;
     r.code = 200;
+
+    await recordAudit(params, {
+      action: AUDIT_ACTIONS.UPDATE,
+      entity_type: AUDIT_ENTITY_TYPES.ENDPOINT,
+      entity_id: null,
+      status: true,
+      result_code: 200,
+      message: `Endpoint migration: ${summarizeMigrateResults(results)}`,
+    });
   } catch (error) {
     console.log(error);
     r.data = { error: error.message };
@@ -565,6 +653,15 @@ export async function fnAppVarMigrate(params) {
 
     r.data = results;
     r.code = 200;
+
+    await recordAudit(params, {
+      action: AUDIT_ACTIONS.UPDATE,
+      entity_type: AUDIT_ENTITY_TYPES.APPVAR,
+      entity_id: null,
+      status: true,
+      result_code: 200,
+      message: `AppVar migration: ${summarizeMigrateResults(results)}`,
+    });
   } catch (error) {
     console.log(error);
     r.data = { error: error.message };
@@ -1395,6 +1492,17 @@ export async function fnEndpointRestoreBackup(params) {
     r.data = { error: error.message };
     r.code = 500;
   }
+  await recordAudit(params, {
+    action: AUDIT_ACTIONS.RESTORE,
+    entity_type: AUDIT_ENTITY_TYPES.ENDPOINT,
+    entity_id: r?.data?.idendpoint || null,
+    status: r.code === 200,
+    result_code: r.code,
+    message:
+      r.code === 200
+        ? `Endpoint restored from backup (idbackup ${params?.request?.query?.idbackup || params?.request?.body?.idbackup || "-"})`
+        : r?.data?.error || "Endpoint restore failed",
+  });
   return r;
 }
 
@@ -1409,15 +1517,44 @@ export async function fnEndpointDelete(params) {
     if (!idendpoint) {
       r.code = 400;
       r.data = { error: "idendpoint is required" };
+      await recordAudit(params, {
+        action: AUDIT_ACTIONS.DELETE,
+        entity_type: AUDIT_ENTITY_TYPES.ENDPOINT,
+        entity_id: null,
+        status: false,
+        result_code: 400,
+        message: "idendpoint is required",
+      });
       return r;
     }
+    const previousEndpoint = await getEndpointById(idendpoint);
     const success = await deleteEndpoint(idendpoint);
     r.data = { success };
     r.code = success ? 200 : 404;
+
+    await recordAudit(params, {
+      action: AUDIT_ACTIONS.DELETE,
+      entity_type: AUDIT_ENTITY_TYPES.ENDPOINT,
+      entity_id: idendpoint,
+      idapp: previousEndpoint?.idapp || null,
+      environment: previousEndpoint?.environment || null,
+      before: previousEndpoint,
+      after: null,
+      status: success,
+      result_code: r.code,
+    });
   } catch (error) {
     console.log(error);
     r.data = { error: error.message };
     r.code = 500;
+    await recordAudit(params, {
+      action: AUDIT_ACTIONS.DELETE,
+      entity_type: AUDIT_ENTITY_TYPES.ENDPOINT,
+      entity_id: params?.request?.query?.idendpoint || params?.request?.body?.idendpoint || null,
+      status: false,
+      result_code: 500,
+      message: error?.message || String(error),
+    });
   }
   return r;
 }

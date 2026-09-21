@@ -1,3 +1,8 @@
+import {
+  isEnvironmentExposed,
+  getExposedEnvironmentsList,
+} from "../envExposure.js";
+
 export class EndpointPreValidationService {
   constructor({
     endpoints,
@@ -128,6 +133,26 @@ export class EndpointPreValidationService {
 
       let handlerEndpoint = cache_endpoint.handler;
       request.openfusionapi = { handler: handlerEndpoint };
+
+      // Entorno no expuesto en esta instancia (EXPOSE_*_API): el endpoint existe en la BD
+      // pero esta instancia no está autorizada a ejecutarlo. Se responde 403 con la lista de
+      // entornos sí habilitados para que el llamador (humano o agente de IA) pueda
+      // autodiagnosticarse sin un roundtrip extra. La app "system" siempre está exenta.
+      if (
+        handlerEndpoint?.params?.enabled &&
+        !isEnvironmentExposed(
+          handlerEndpoint.params.environment,
+          handlerEndpoint.params.app
+        )
+      ) {
+        reply.code(403).send({
+          error: `Environment '${handlerEndpoint.params.environment}' is not exposed on this instance`,
+          code: "ENV_NOT_EXPOSED",
+          url: request.url,
+          exposed_environments: getExposedEnvironmentsList(),
+        });
+        return;
+      }
 
       // Bloqueo por fallos de autenticación repetidos (fuerza bruta). Se aplica una
       // vez resuelto el endpoint para poder registrar idapp/idendpoint en el log del

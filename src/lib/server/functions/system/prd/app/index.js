@@ -14,6 +14,11 @@ import {
 } from "../../../../../db/app.js";
 import { generateDocumentation } from "../../../../doc_generator.js";
 import { version } from "../../../../version.js";
+import {
+  recordAudit,
+  AUDIT_ACTIONS,
+  AUDIT_ENTITY_TYPES,
+} from "../../../../audit/auditService.js";
 
 export async function fnGetApplicationsTreeByFilters(params) {
   let r = { code: 204, data: undefined };
@@ -124,13 +129,44 @@ export async function fnGetAppDocById(params) {
 export async function fnAppUpsert(params) {
   let r = { code: 200, data: undefined };
   try {
-    r.data = await upsertApp(params.request.body);
+    const body = params?.request?.body || {};
+
+    let before = null;
+    if (body.idapp) {
+      const existing = await getAppById(body.idapp, true);
+      before = Array.isArray(existing) && existing.length > 0 ? existing[0] : null;
+    }
+
+    r.data = await upsertApp(body);
     r.code = 200;
+
+    const idapp = body.idapp || r.data?.idapp || before?.idapp || null;
+    await recordAudit(params, {
+      action: before ? AUDIT_ACTIONS.UPDATE : AUDIT_ACTIONS.CREATE,
+      entity_type: AUDIT_ENTITY_TYPES.APP,
+      entity_id: idapp,
+      idapp,
+      before,
+      after: r.data,
+      status: true,
+      result_code: 200,
+    });
   } catch (error) {
     console.log(error);
 
     r.data = error;
     r.code = 500;
+    await recordAudit(params, {
+      action: AUDIT_ACTIONS.UPDATE,
+      entity_type: AUDIT_ENTITY_TYPES.APP,
+      entity_id: params?.request?.body?.idapp || null,
+      idapp: params?.request?.body?.idapp || null,
+      before: null,
+      after: null,
+      status: false,
+      result_code: 500,
+      message: error?.message || String(error),
+    });
   }
   return r;
 }
@@ -159,14 +195,19 @@ export async function fnRestoreAppFromBackup(params) {
     r.data = error;
     r.code = 500;
   }
-  const actor =
-    params?.request?.openfusionapi?.user?.admin?.username ||
-    params?.request?.openfusionapi?.user?.username ||
-    "-";
-  const traceId = params?.request?.headers?.["ofapi-trace-id"] || "";
-  console.log(
-    `[audit] app:restore_from_backup actor=${actor} idapp=${params?.request?.body?.idapp || "-"} code=${r.code} trace_id=${traceId}`
-  );
+  const idapp = params?.request?.body?.idapp || null;
+  await recordAudit(params, {
+    action: AUDIT_ACTIONS.RESTORE,
+    entity_type: AUDIT_ENTITY_TYPES.APP,
+    entity_id: idapp,
+    idapp,
+    status: r.code === 200,
+    result_code: r.code,
+    message:
+      r.code === 200
+        ? "App restored from backup"
+        : r?.data?.message || "App restore from backup failed",
+  });
   return r;
 }
 
@@ -208,14 +249,18 @@ export async function fnRestoreAllAppsFromBackup(params) {
     r.data = error;
     r.code = 500;
   }
-  const actor =
-    params?.request?.openfusionapi?.user?.admin?.username ||
-    params?.request?.openfusionapi?.user?.username ||
-    "-";
-  const traceId = params?.request?.headers?.["ofapi-trace-id"] || "";
-  console.log(
-    `[audit] app:restore_all_from_backup actor=${actor} code=${r.code} trace_id=${traceId}`
-  );
+  await recordAudit(params, {
+    action: AUDIT_ACTIONS.RESTORE,
+    entity_type: AUDIT_ENTITY_TYPES.APP,
+    entity_id: null,
+    idapp: null,
+    status: r.code === 200,
+    result_code: r.code,
+    message:
+      r.code === 200
+        ? "All apps restored from backup"
+        : r?.data?.message || "Restore all apps from backup failed",
+  });
   return r;
 }
 

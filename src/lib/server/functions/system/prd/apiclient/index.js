@@ -12,6 +12,11 @@ import {
   deleteApiClient,
 } from "../../../../../db/apiclient.js";
 import { userRegister } from "../../../../templates/email/user_register.js";
+import {
+  recordAudit,
+  AUDIT_ACTIONS,
+  AUDIT_ENTITY_TYPES,
+} from "../../../../audit/auditService.js";
 
 const SYSTEM_PATHS = GetSystemPaths();
 
@@ -27,6 +32,18 @@ export async function fnUpdateAPIClientPassword(params) {
     r.data = error;
     r.code = 500;
   }
+  await recordAudit(params, {
+    action: AUDIT_ACTIONS.UPDATE,
+    entity_type: AUDIT_ENTITY_TYPES.APICLIENT,
+    entity_id:
+      params?.request?.body?.idclient ??
+      params?.request?.query?.idclient ??
+      r?.data?.idclient ??
+      null,
+    status: r.code === 200,
+    result_code: r.code,
+    message: r.code === 200 ? "API client password changed" : r?.data?.error || String(r.data || ""),
+  });
   return r;
 }
 
@@ -38,6 +55,14 @@ export async function fnCreateApiClient(params) {
     if (!body || !body.email || String(body.email).trim() === "") {
       r.data = { error: "The 'email' field is required." };
       r.code = 400;
+      await recordAudit(params, {
+        action: AUDIT_ACTIONS.CREATE,
+        entity_type: AUDIT_ENTITY_TYPES.APICLIENT,
+        entity_id: null,
+        status: false,
+        result_code: 400,
+        message: r.data.error,
+      });
       return r;
     }
 
@@ -82,6 +107,16 @@ export async function fnCreateApiClient(params) {
     r.data = isClientError ? { error: message } : error;
     r.code = isClientError ? 400 : 500;
   }
+  await recordAudit(params, {
+    action: AUDIT_ACTIONS.CREATE,
+    entity_type: AUDIT_ENTITY_TYPES.APICLIENT,
+    entity_id: r?.data?.client?.idclient || null,
+    target_username: r?.data?.client?.username || null,
+    status: r.code === 200,
+    result_code: r.code,
+    message:
+      r.code === 200 ? null : r?.data?.error || r?.data?.message || String(r.data || ""),
+  });
   return r;
 }
 
@@ -112,6 +147,15 @@ export async function fnLoginApiClient(params) {
       error: "username and password are required (Basic Auth) to login.",
     };
     r.code = 400;
+    await recordAudit(params, {
+      action: AUDIT_ACTIONS.LOGIN_FAILED,
+      entity_type: AUDIT_ENTITY_TYPES.APICLIENT,
+      target_username: username || null,
+      actor: { kind: "apikey", id: null, username: username || "-", idclient: null },
+      status: false,
+      result_code: 400,
+      message: r.data.error,
+    });
     return r;
   }
   const xForwardedProto = params?.request?.headers?.["x-forwarded-proto"];
@@ -144,6 +188,21 @@ export async function fnLoginApiClient(params) {
     r.data = error;
     r.code = 500;
   }
+  await recordAudit(params, {
+    action: r.code === 200 ? AUDIT_ACTIONS.LOGIN : AUDIT_ACTIONS.LOGIN_FAILED,
+    entity_type: AUDIT_ENTITY_TYPES.APICLIENT,
+    entity_id: r?.data?.idclient || null,
+    target_username: username || null,
+    actor: {
+      kind: "apikey",
+      id: null,
+      username: username || "-",
+      idclient: r?.data?.idclient || null,
+    },
+    status: r.code === 200,
+    result_code: r.code,
+    message: r.code === 200 ? "API client login succeeded" : r?.data?.error || "API client login failed",
+  });
   return r;
 }
 
@@ -154,6 +213,14 @@ export async function fnUpdateApiClient(params) {
     if (!idclient) {
       r.data = { error: "idclient is required." };
       r.code = 400;
+      await recordAudit(params, {
+        action: AUDIT_ACTIONS.UPDATE,
+        entity_type: AUDIT_ENTITY_TYPES.APICLIENT,
+        entity_id: null,
+        status: false,
+        result_code: 400,
+        message: r.data.error,
+      });
       return r;
     }
 
@@ -171,6 +238,15 @@ export async function fnUpdateApiClient(params) {
     r.data = { error: message };
     r.code = isClientError ? 400 : 500;
   }
+  await recordAudit(params, {
+    action: AUDIT_ACTIONS.UPDATE,
+    entity_type: AUDIT_ENTITY_TYPES.APICLIENT,
+    entity_id: params?.request?.body?.idclient || params?.request?.query?.idclient || null,
+    status: r.code === 200,
+    result_code: r.code,
+    message:
+      r.code === 200 ? null : r?.data?.error || r?.data?.message || String(r.data || ""),
+  });
   return r;
 }
 
@@ -181,6 +257,14 @@ export async function fnDeleteApiClient(params) {
     if (!idclient) {
       r.data = { error: "idclient is required." };
       r.code = 400;
+      await recordAudit(params, {
+        action: AUDIT_ACTIONS.DELETE,
+        entity_type: AUDIT_ENTITY_TYPES.APICLIENT,
+        entity_id: null,
+        status: false,
+        result_code: 400,
+        message: r.data.error,
+      });
       return r;
     }
 
@@ -192,9 +276,24 @@ export async function fnDeleteApiClient(params) {
       r.data = { success: false, message: "ApiClient not found." };
       r.code = 404;
     }
+    await recordAudit(params, {
+      action: AUDIT_ACTIONS.DELETE,
+      entity_type: AUDIT_ENTITY_TYPES.APICLIENT,
+      entity_id: idclient,
+      status: Boolean(deleted),
+      result_code: r.code,
+    });
   } catch (error) {
     r.data = { error: error.message };
     r.code = 500;
+    await recordAudit(params, {
+      action: AUDIT_ACTIONS.DELETE,
+      entity_type: AUDIT_ENTITY_TYPES.APICLIENT,
+      entity_id: params?.request?.body?.idclient || params?.request?.query?.idclient || null,
+      status: false,
+      result_code: 500,
+      message: error?.message || String(error),
+    });
   }
   return r;
 }

@@ -4,6 +4,7 @@ import { getActiveBots, disableBot, updateBotRuntimeState } from "../../db/bot.j
 import { getAppVarsObject } from "../utils.js";
 import { resolveAppVarPlaceholder } from "../../handler/utils.js";
 import { createBotLog } from "../../db/bot_log.js";
+import { isEnvironmentExposed } from "../envExposure.js";
 import crypto from "node:crypto";
 
 /** Mínimo de bots para que un fallo simultáneo sea estadísticamente un incidente de plataforma. */
@@ -401,8 +402,16 @@ export class BotLifecycleTask {
         RUNTIME_SUPPORTED_PROVIDERS.includes(b.provider)
       );
 
+      // Un bot cuyo entorno no está expuesto en esta instancia (EXPOSE_*_API) no se
+      // arranca, sin exención de la app system: el bot de sistema (prd) solo debe correr
+      // donde EXPOSE_PROD_API=true. Como `expectedBotIds` deriva de esta lista, un bot
+      // fuera del set también se detiene si quedaba corriendo de un arranque anterior.
+      const exposedSupportedBots = supportedBots.filter((bot) =>
+        isEnvironmentExposed(bot.environment)
+      );
+
       // Actualizar metadata de cada bot activo (provider, environment)
-      for (const bot of supportedBots) {
+      for (const bot of exposedSupportedBots) {
         const existing = this.botMeta.get(bot.idbot) || {};
         this.botMeta.set(bot.idbot, {
           ...existing,
@@ -414,7 +423,7 @@ export class BotLifecycleTask {
       // También detener bots que ya no deben estar corriendo.
       // El BotManager tiene la lista de bots activos en memoria.
       const runningBotIds = new Set(this.manager.listActiveBots());
-      const expectedBotIds = new Set(supportedBots.map((b) => b.idbot));
+      const expectedBotIds = new Set(exposedSupportedBots.map((b) => b.idbot));
 
       // Detener bots que ya no están en la lista activa
       for (const runningId of runningBotIds) {
@@ -459,7 +468,7 @@ export class BotLifecycleTask {
       }
 
       // Iniciar o mantener bots activos soportados
-      for (const bot of supportedBots) {
+      for (const bot of exposedSupportedBots) {
         try {
           // Construir objeto de app vars para el ambiente del bot
           const appvars_obj = getAppVarsObject(bot.app?.vrs || []);
@@ -572,7 +581,7 @@ export class BotLifecycleTask {
 
       // Se evalúa al final del ciclo, con las rachas de fallo de esta pasada ya
       // registradas por el manager.
-      await this.evaluatePlatformOutage(supportedBots.length);
+      await this.evaluatePlatformOutage(exposedSupportedBots.length);
     } catch (error) {
       await this.persistLog(this.buildLogData({
         botId: null,

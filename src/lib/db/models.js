@@ -39,6 +39,7 @@ export const ModelNames = {
   Bot: prefixTableName("bot"),
   BotBackup: prefixTableName("bot_bkp"),
   BotLog: prefixTableName("bot_log"),
+  AuditLog: prefixTableName("audit_log"),
   PasswordRecovery: prefixTableName("password_recovery"),
 };
 
@@ -1229,6 +1230,166 @@ export const BotLog = dbsequelize.define(
       {
         name: "idx_botlog_error_type",
         fields: ["error_type"],
+      },
+    ],
+  },
+);
+
+// ============================================
+// MODELO AuditLog
+//
+// Pista de auditoría de acciones de usuario (`ofapi_audit_log`).
+// Registra de forma inmutable (append-only) las mutaciones hechas por
+// usuarios del sistema (GUI + tools MCP usan los mismos endpoints
+// /api/system/*): login/logout y CRUD de apps, endpoints, appvars,
+// bots, interval tasks, usuarios, api clients y api keys.
+//
+// `before_data`/`after_data` son snapshots JSON ya SANITIZADOS por
+// auditService.recordAudit() (password, token, valores de AppVars =>
+// "[REDACTED]").
+//
+// A propósito NO declara FK contra User/Application/Endpoint/Bot/etc.:
+// la pista debe sobrevivir al borrado de la entidad auditada (misma
+// razón que EndpointBackup/BotBackup).
+//
+// `entity_id`/`actor_id` guardan la PK como string porque hay PKs UUID
+// y PKs numéricas en distintas entidades.
+// ============================================
+export const AuditLog = dbsequelize.define(
+  ModelNames.AuditLog,
+  {
+    id: {
+      type: DataTypes.BIGINT,
+      primaryKey: true,
+      autoIncrement: true,
+      allowNull: false,
+      comment: "Autoincrement PK (append-only, alta volumetría)",
+    },
+    trace_id: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      comment: "Correlation ID of the request (ofapi-trace-id)",
+    },
+    timestamp: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW,
+      comment: "Event timestamp",
+    },
+    actor_kind: {
+      type: DataTypes.STRING(20),
+      allowNull: false,
+      defaultValue: "user",
+      comment: "user|apikey|system",
+    },
+    actor_id: {
+      type: DataTypes.STRING(64),
+      allowNull: true,
+      comment: "PK of the acting system user/client as string (no FK)",
+    },
+    actor_username: {
+      type: DataTypes.STRING(120),
+      allowNull: true,
+      comment: "Username or client name that performed the action",
+    },
+    idclient: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      comment: "Resolved api client UUID when acting via client credentials",
+    },
+    action: {
+      type: DataTypes.STRING(30),
+      allowNull: false,
+      comment: "login|login_failed|logout|create|update|delete|enable|disable|restore|bulk_delete",
+    },
+    entity_type: {
+      type: DataTypes.STRING(30),
+      allowNull: false,
+      comment: "app|appvar|endpoint|bot|interval_task|user|apiclient|apikey",
+    },
+    entity_id: {
+      type: DataTypes.STRING(64),
+      allowNull: true,
+      comment: "PK of the audited entity as string (UUID or numeric, no FK)",
+    },
+    idapp: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      comment: "Owning application UUID",
+    },
+    environment: {
+      type: DataTypes.STRING(10),
+      allowNull: true,
+      comment: "Environment (dev, qa, prd) or null for user-level actions",
+    },
+    target_username: {
+      type: DataTypes.STRING(120),
+      allowNull: true,
+      comment: "Target username (login attempts, reset_password, delete user...)",
+    },
+    status: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: true,
+      comment: "true = operation succeeded, false = failed/rejected",
+    },
+    result_code: {
+      type: DataTypes.SMALLINT,
+      allowNull: true,
+      comment: "HTTP/result status code (200, 400, 403, 500...)",
+    },
+    message: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      comment: "Human-readable summary (error detail, deleted targets in bulk...)",
+    },
+    before_data: jsonField("before_data", {
+      comment: "Sanitized previous state snapshot (null on create)",
+    }),
+    after_data: jsonField("after_data", {
+      comment: "Sanitized resulting state snapshot (null on delete)",
+    }),
+    ip: {
+      type: DataTypes.STRING(45),
+      allowNull: true,
+      comment: "Client IPv4/IPv6",
+    },
+    user_agent: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      comment: "Client user agent",
+    },
+  },
+  {
+    freezeTableName: true,
+    timestamps: false,
+    paranoid: false,
+    comment: "User action audit trail",
+    hooks: {},
+    indexes: [
+      {
+        name: "idx_audit_entity",
+        fields: ["entity_type", "entity_id"],
+      },
+      {
+        name: "idx_audit_actor_time",
+        fields: ["actor_username", "timestamp"],
+      },
+      {
+        name: "idx_audit_action_time",
+        fields: ["action", "timestamp"],
+      },
+      {
+        name: "idx_audit_idapp_time",
+        fields: ["idapp", "timestamp"],
+      },
+      {
+        name: "idx_audit_timestamp",
+        fields: ["timestamp"],
+      },
+      {
+        name: "idx_audit_trace_id",
+        fields: ["trace_id"],
       },
     ],
   },

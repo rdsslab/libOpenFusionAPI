@@ -64,6 +64,14 @@ export const upsertBot = async (data) => {
     if (!data.idbot) {
       data.idbot = uuidv4();
     }
+
+    // Capturar el estado previo para auditoría (null en creación).
+    let previous = null;
+    if (data.idbot) {
+      const existing = await Bot.findByPk(data.idbot);
+      previous = existing ? (existing.get ? existing.get({ plain: true }) : existing.toJSON()) : null;
+    }
+
     const [result, created] = await Bot.upsert(data, { returning: true });
 
     // Cada cambio de configuración deja una versión en `ofapi_bot_bkp`. Un fallo aquí
@@ -76,7 +84,7 @@ export const upsertBot = async (data) => {
       console.error("[bot.js] Error creating bot backup:", error);
     }
 
-    return { result, created };
+    return { result, created, previous };
   } catch (error) {
     console.error("[bot.js] Error in upsertBot:", error, data);
     throw error;

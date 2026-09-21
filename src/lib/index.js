@@ -32,6 +32,7 @@ import { createFunctionVM } from "./server/createFunctionVM.js";
 import { CreateMCPHandler } from "./server/endpoint/handlerBuild/mcp.js";
 import { setServerListening } from "./server/utils.js";
 import { getCorrectedNow } from "./server/timeSync.js";
+import { buildExposureNotice } from "./server/envExposure.js";
 import { defaultUser, login } from "./db/user.js";
 import { defaultMethods } from "./db/method.js";
 //import { defaultHandlers } from "./db/handler.js";
@@ -344,6 +345,12 @@ export default class ServerAPI extends EventEmitter {
       JWT_KEY,
       HOST,
     );
+
+    // Aviso de exposición de entornos (EXPOSE_*_API): visible al arrancar para que el
+    // operador confirme qué environments ejecuta esta instancia (vital en despliegues
+    // de varias instancias compartiendo la misma BD).
+    const exposureNotice = buildExposureNotice();
+    console.log(`[envExposure]\n${exposureNotice}`);
 
     await this.fastify.listen({ port: PORT, host: host });
     setServerListening(true);

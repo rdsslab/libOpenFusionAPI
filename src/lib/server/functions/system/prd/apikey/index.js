@@ -9,6 +9,11 @@ import {
   getApiKeyByFilters,
 } from "../../../../../db/apikey.js";
 import { getAppById } from "../../../../../db/app.js";
+import {
+  recordAudit,
+  AUDIT_ACTIONS,
+  AUDIT_ENTITY_TYPES,
+} from "../../../../audit/auditService.js";
 
 
 export async function fnUpsertApiKey(params) {
@@ -38,6 +43,14 @@ export async function fnUpsertApiKey(params) {
     // autoincrement del PK la genere. Antes se pasaba "" y SQLite respondía
     // SQLITE_MISMATCH al guardarlo en una columna BIGINT PRIMARY KEY.
     if (!ak.idkey) delete ak.idkey;
+
+    let before = null;
+    if (ak.idkey) {
+      const existingKey = await getApiKeyById(ak.idkey);
+      if (existingKey) {
+        before = existingKey.get ? existingKey.get({ plain: true }) : existingKey.toJSON();
+      }
+    }
 
     ak.enabled = true;
     ak.startAt = new Date(ak.startAt || new Date());
@@ -72,9 +85,31 @@ export async function fnUpsertApiKey(params) {
 
     r.data = data;
     r.code = 200;
+
+    await recordAudit(params, {
+      action: before ? AUDIT_ACTIONS.UPDATE : AUDIT_ACTIONS.CREATE,
+      entity_type: AUDIT_ENTITY_TYPES.APIKEY,
+      entity_id: r.data?.idkey ?? ak.idkey ?? null,
+      idapp: ak.idapp,
+      before,
+      after: r.data,
+      status: true,
+      result_code: 200,
+    });
   } catch (error) {
     r.data = error;
     r.code = 500;
+    await recordAudit(params, {
+      action: AUDIT_ACTIONS.UPDATE,
+      entity_type: AUDIT_ENTITY_TYPES.APIKEY,
+      entity_id: params?.request?.body?.idkey || null,
+      idapp: params?.request?.body?.idapp || null,
+      before: null,
+      after: null,
+      status: false,
+      result_code: 500,
+      message: error?.message || String(error),
+    });
   }
   return r;
 }
@@ -113,13 +148,34 @@ export async function fnDeleteApiKey(params) {
   let r = { data: undefined, code: 204 };
 
   try {
-    let data = await deleteApiKey(params?.request?.query?.idkey);
+    const idkey = params?.request?.query?.idkey;
+    const existingKey = idkey ? await getApiKeyById(idkey) : null;
+    let data = await deleteApiKey(idkey);
 
     r.data = data;
     r.code = 200;
+
+    await recordAudit(params, {
+      action: AUDIT_ACTIONS.DELETE,
+      entity_type: AUDIT_ENTITY_TYPES.APIKEY,
+      entity_id: idkey || null,
+      idapp: existingKey?.idapp || null,
+      before: existingKey,
+      after: null,
+      status: Boolean(r.data),
+      result_code: 200,
+    });
   } catch (error) {
     r.data = error;
     r.code = 500;
+    await recordAudit(params, {
+      action: AUDIT_ACTIONS.DELETE,
+      entity_type: AUDIT_ENTITY_TYPES.APIKEY,
+      entity_id: params?.request?.query?.idkey || null,
+      status: false,
+      result_code: 500,
+      message: error?.message || String(error),
+    });
   }
   return r;
 }

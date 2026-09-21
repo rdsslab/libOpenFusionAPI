@@ -8,6 +8,11 @@ import {
 import { getIntervalTaskRuns } from "../../../../../db/interval_task_run.js";
 import { validateCron } from "../../../../../timer/schedule.js";
 import { readIntervalTaskSkill } from "../../../../intervalTaskDocs.js";
+import {
+  recordAudit,
+  AUDIT_ACTIONS,
+  AUDIT_ENTITY_TYPES,
+} from "../../../../audit/auditService.js";
 
 function wakeIntervalTaskWorker(params) {
   params?.reply?.openfusionapi?.server?.TasksInterval?.wake?.();
@@ -44,6 +49,15 @@ export async function fnUpsertIntervalTask(params) {
           code: "MISSING_IDENDPOINT",
         };
         r.code = 400;
+        await recordAudit(params, {
+          action: AUDIT_ACTIONS.CREATE,
+          entity_type: AUDIT_ENTITY_TYPES.INTERVAL_TASK,
+          entity_id: body.idtask || null,
+          idapp: body.idapp || null,
+          status: false,
+          result_code: 400,
+          message: r.data.error,
+        });
         return r;
       }
     }
@@ -54,6 +68,15 @@ export async function fnUpsertIntervalTask(params) {
       if (!body.cron) {
         r.data = { error: "cron is required when schedule_mode is 'cron'" };
         r.code = 400;
+        await recordAudit(params, {
+          action: AUDIT_ACTIONS.UPDATE,
+          entity_type: AUDIT_ENTITY_TYPES.INTERVAL_TASK,
+          entity_id: body.idtask || null,
+          idapp: body.idapp || null,
+          status: false,
+          result_code: 400,
+          message: r.data.error,
+        });
         return r;
       }
 
@@ -61,28 +84,77 @@ export async function fnUpsertIntervalTask(params) {
       if (!check.valid) {
         r.data = { error: `Invalid cron expression: ${check.error}` };
         r.code = 400;
+        await recordAudit(params, {
+          action: AUDIT_ACTIONS.UPDATE,
+          entity_type: AUDIT_ENTITY_TYPES.INTERVAL_TASK,
+          entity_id: body.idtask || null,
+          idapp: body.idapp || null,
+          status: false,
+          result_code: 400,
+          message: r.data.error,
+        });
         return r;
       }
     }
 
-    r.data = await upsertIntervalTask(body);
+    const upserted = await upsertIntervalTask(body);
+    r.data = { result: upserted.result, created: upserted.created };
     r.code = 200;
     wakeIntervalTaskWorker(params);
+
+    await recordAudit(params, {
+      action: upserted.previous ? AUDIT_ACTIONS.UPDATE : AUDIT_ACTIONS.CREATE,
+      entity_type: AUDIT_ENTITY_TYPES.INTERVAL_TASK,
+      entity_id: upserted.result.idtask,
+      idapp: upserted.result.idapp,
+      environment: upserted.result.environment || null,
+      before: upserted.previous,
+      after: upserted.result,
+      status: true,
+      result_code: 200,
+    });
   } catch (error) {
     if (error?.code === "INVALID_TASK_SCHEDULE") {
       r.data = { error: error.message, code: error.code };
       r.code = 400;
+      await recordAudit(params, {
+        action: AUDIT_ACTIONS.UPDATE,
+        entity_type: AUDIT_ENTITY_TYPES.INTERVAL_TASK,
+        entity_id: params?.request?.body?.idtask || null,
+        idapp: params?.request?.body?.idapp || null,
+        status: false,
+        result_code: 400,
+        message: error.message,
+      });
       return r;
     }
 
     if (error?.code === "INTERVAL_TASK_NOT_FOUND") {
       r.data = { error: error.message, code: error.code };
       r.code = 404;
+      await recordAudit(params, {
+        action: AUDIT_ACTIONS.UPDATE,
+        entity_type: AUDIT_ENTITY_TYPES.INTERVAL_TASK,
+        entity_id: params?.request?.body?.idtask || null,
+        idapp: params?.request?.body?.idapp || null,
+        status: false,
+        result_code: 404,
+        message: error.message,
+      });
       return r;
     }
 
     r.data = error;
     r.code = 500;
+    await recordAudit(params, {
+      action: AUDIT_ACTIONS.UPDATE,
+      entity_type: AUDIT_ENTITY_TYPES.INTERVAL_TASK,
+      entity_id: params?.request?.body?.idtask || null,
+      idapp: params?.request?.body?.idapp || null,
+      status: false,
+      result_code: 500,
+      message: error?.message || String(error),
+    });
   }
   return r;
 }
@@ -173,9 +245,28 @@ export async function fndeleteIntervalTask(params) {
     r.data = await deleteIntervalTask(idtask);
     r.code = 200;
     if (r.data) wakeIntervalTaskWorker(params);
+
+    const isArray = Array.isArray(idtask);
+    await recordAudit(params, {
+      action: AUDIT_ACTIONS.DELETE,
+      entity_type: AUDIT_ENTITY_TYPES.INTERVAL_TASK,
+      entity_id: isArray ? null : idtask || null,
+      idapp: null,
+      status: Boolean(r.data),
+      result_code: r.data ? 200 : 404,
+      message: isArray ? `Deleted ${r.data || 0} interval task(s)` : null,
+    });
   } catch (error) {
     r.data = error;
     r.code = 500;
+    await recordAudit(params, {
+      action: AUDIT_ACTIONS.DELETE,
+      entity_type: AUDIT_ENTITY_TYPES.INTERVAL_TASK,
+      entity_id: null,
+      status: false,
+      result_code: 500,
+      message: error?.message || String(error),
+    });
   }
   return r;
 }

@@ -14,6 +14,11 @@ import {
 import { getBotLogs } from "../../../../../db/bot_log.js";
 import { getAppVarsByIdApp } from "../../../../../db/appvars.js";
 import { readBotSkill, readBotProviderSkill } from "../../../../botDocs.js";
+import {
+  recordAudit,
+  AUDIT_ACTIONS,
+  AUDIT_ENTITY_TYPES,
+} from "../../../../audit/auditService.js";
 
 export async function fnGetAllBots(params) {
   let r = { code: 204, data: undefined };
@@ -222,7 +227,7 @@ export async function fnUpsertBot(params) {
     const requestedIdBot = data.idbot;
     const warning = await checkBotTokenAppVar(data);
     const revived = await reviveSystemDisabledBot(data);
-    const { result, created } = await upsertBot(data);
+    const { result, created, previous } = await upsertBot(data);
     const wasCreated = typeof created === "boolean" ? created : !requestedIdBot;
     // Un cambio de configuración es una petición implícita de reintento: el hash de
     // config del manager reiniciará el worker, pero solo si el cooldown no lo bloquea.
@@ -230,10 +235,33 @@ export async function fnUpsertBot(params) {
     r.data = { success: true, data: result, created: wasCreated };
     if (warning) r.data.warning = warning;
     if (revived) r.data.info = revived;
+
+    await recordAudit(params, {
+      action: previous ? AUDIT_ACTIONS.UPDATE : AUDIT_ACTIONS.CREATE,
+      entity_type: AUDIT_ENTITY_TYPES.BOT,
+      entity_id: result.idbot,
+      idapp: data.idapp,
+      environment: result.environment || data.environment || null,
+      before: previous,
+      after: result,
+      status: true,
+      result_code: 200,
+    });
   } catch (error) {
     console.error("[fnUpsertBot] error:", error);
     r.data = { success: false, error: error?.message || String(error) };
     r.code = 500;
+    await recordAudit(params, {
+      action: AUDIT_ACTIONS.UPDATE,
+      entity_type: AUDIT_ENTITY_TYPES.BOT,
+      entity_id: params?.request?.body?.idbot || null,
+      idapp: params?.request?.body?.idapp || null,
+      before: null,
+      after: null,
+      status: false,
+      result_code: 500,
+      message: error?.message || String(error),
+    });
   }
   return r;
 }
@@ -242,6 +270,7 @@ export async function fnDeleteBot(params) {
   let r = { code: 200, data: undefined };
   try {
     const idbot = params.request.query?.idbot || params.request.body?.idbot;
+    const previousBot = await getBotById(idbot);
     const success = await deleteBot(idbot);
     if (!success) {
       r.code = 404;
@@ -249,10 +278,31 @@ export async function fnDeleteBot(params) {
     } else {
       r.data = { success: true };
     }
+    await recordAudit(params, {
+      action: AUDIT_ACTIONS.DELETE,
+      entity_type: AUDIT_ENTITY_TYPES.BOT,
+      entity_id: idbot,
+      idapp: previousBot?.idapp || null,
+      environment: previousBot?.environment || null,
+      before: previousBot,
+      after: null,
+      status: success,
+      result_code: success ? 200 : 404,
+    });
   } catch (error) {
     console.error("[fnDeleteBot] error:", error);
     r.data = { success: false, error: error?.message || String(error) };
     r.code = 500;
+    await recordAudit(params, {
+      action: AUDIT_ACTIONS.DELETE,
+      entity_type: AUDIT_ENTITY_TYPES.BOT,
+      entity_id: params?.request?.query?.idbot || params?.request?.body?.idbot || null,
+      before: null,
+      after: null,
+      status: false,
+      result_code: 500,
+      message: error?.message || String(error),
+    });
   }
   return r;
 }
@@ -285,10 +335,26 @@ export async function fnEnableDisableBot(params) {
       if (shouldEnable) resetBotBackoff(params, idbot, "manual_enable");
       r.data = { success: true, enabled: shouldEnable };
     }
+    await recordAudit(params, {
+      action: shouldEnable ? AUDIT_ACTIONS.ENABLE : AUDIT_ACTIONS.DISABLE,
+      entity_type: AUDIT_ENTITY_TYPES.BOT,
+      entity_id: idbot,
+      status: success,
+      result_code: success ? 200 : 404,
+      after: { enabled: shouldEnable },
+    });
   } catch (error) {
     console.error("[fnEnableDisableBot] error:", error);
     r.data = { success: false, error: error?.message || String(error) };
     r.code = 500;
+    await recordAudit(params, {
+      action: AUDIT_ACTIONS.DISABLE,
+      entity_type: AUDIT_ENTITY_TYPES.BOT,
+      entity_id: params?.request?.query?.idbot || params?.request?.body?.idbot || null,
+      status: false,
+      result_code: 500,
+      message: error?.message || String(error),
+    });
   }
   return r;
 }

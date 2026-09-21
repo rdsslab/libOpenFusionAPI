@@ -3,6 +3,7 @@ import { getApplicationTreeByFilters } from "../../../db/app.js";
 import { Handlers } from "../../../handler/handler.js";
 import { readHandlerSkill } from "../../handlerDocs.js";
 import { internal_url_endpoint } from "../../utils_path.js";
+import { isEnvironmentExposed, buildExposureNotice } from "../../envExposure.js";
 import * as z from "zod";
 //import uFetch from "@rddslab/uFetch";
 import { URLAutoEnvironment } from "../../functionVars.js";
@@ -53,6 +54,7 @@ export const CreateMCPHandler = async (app_name, environment) => {
         "Top-level input fields: handler.",
         "Output: markdown skill guide (persona, guidelines, constraints, templates) for the requested handler type.",
         "Agent guidance: call this before composing payloads when creating or modifying an endpoint, and never guess the payload structure for handlers you have not read a skill for.",
+        "Instance exposure: non-exposed environments on this instance answer 403 ENV_NOT_EXPOSED. On the system MCP server, call `platform_instance_status` to know which environments are executable here.",
       ].join("\n"),
       inputSchema: {
         handler: z.enum(handlerKeys).describe("Endpoint handler type to get the skill guide for."),
@@ -72,6 +74,41 @@ export const CreateMCPHandler = async (app_name, environment) => {
       };
     }
   });
+
+  // Reporte de exposición de entornos de esta instancia (EXPOSE_*_API). Solo en el MCP
+  // server del app "system", que es siempre accesible en cualquier instancia: los agentes
+  // lo consultan antes de intentar probar endpoints en otro entorno, y la respuesta les
+  // dice qué entornos son ejecutables aquí y cuáles responderán 403 ENV_NOT_EXPOSED.
+  if (String(app_name).toLowerCase() === "system") {
+    const instanceNotice = buildExposureNotice();
+    _mcpConfig.tools.push({
+      name: "platform_instance_status",
+      info: {
+        title: "Platform instance status / exposed environments",
+        description: [
+          "Purpose: REPORT which environments (dev, qa, prd) are executable on THIS server instance and which rule applies to the rest.",
+          "Access: public",
+          "HTTP target: internal (computed in-process; no HTTP endpoint)",
+          `Environment: ${environment}`,
+          "Required fields: none.",
+          "Top-level input fields: none.",
+          "Output: markdown notice with exposed environments, the 403 ENV_NOT_EXPOSED contract, and the 'system' app exemption.",
+          "Agent guidance: call this tool BEFORE testing or invoking an endpoint in any environment other than the one this MCP server reports, to avoid 403 ENV_NOT_EXPOSED responses.",
+        ].join("\n"),
+        inputSchema: {},
+        annotations: { readOnlyHint: true },
+      },
+      handler: async () => ({
+        content: [
+          {
+            type: "text",
+            mimeType: "text/markdown",
+            text: instanceNotice,
+          },
+        ],
+      }),
+    });
+  }
 
   const getAccessLevelLabel = (access) => {
     switch (access) {
@@ -928,6 +965,7 @@ This tool lets you test an endpoint over HTTP without writing a local script (Py
 ### Safety
 
 - A write on \`prd\` is irreversible. Only GET and HEAD endpoints are safe to run unattended.
+- A non-exposed environment on this instance answers 403 \`ENV_NOT_EXPOSED\`. On the system MCP server, call \`platform_instance_status\` before testing an endpoint in another environment.
 - The saved \`data_test\` belongs to the editor workflow and may not be a valid test for your case; always prefer your own \`payload\`.
 - If it makes sense, first validate the code statically with \`validate_endpoint_code\` (\`dry_run: false\`).
 `;
@@ -946,7 +984,10 @@ This tool lets you test an endpoint over HTTP without writing a local script (Py
     return (
       endpoint.method != "WS" &&
       endpoint.handler != "MCP" &&
-      endpoint?.mcp?.enabled
+      endpoint?.mcp?.enabled &&
+      // En una instancia que solo expone ciertos entornos (EXPOSE_*_API), se omiten las
+      // tools de entornos no ejecutables aquí (la app system está exenta y siempre lista).
+      isEnvironmentExposed(endpoint.environment, app_name)
     );
   });
 
@@ -1429,6 +1470,7 @@ _mcpConfig.tools.push({
       "Top-level input fields: none.",
       "Output: compact markdown table with MCP tool name, HTTP method, resource path, and handler.",
       `Agent guidance: call this tool FIRST. It returns a lightweight table (no schemas, no examples). Use the tool names from the table to invoke specific endpoints, or call list_api_endpoints_${app_name} for full per-endpoint documentation only when needed.`,
+      `Instance exposure: on this server only the exposed environments are executable (403 ENV_NOT_EXPOSED otherwise); on the system MCP server, \`platform_instance_status\` lists them.`,
     ].join("\n"),
     inputSchema: {},
     annotations: { readOnlyHint: true },

@@ -8,6 +8,11 @@ import {
   shouldDisableForFailures,
   validateCron,
 } from "../timer/schedule.js";
+import {
+  getExposedEnvironmentsList,
+  isExposureConfigured,
+  MANAGED_ENVIRONMENTS,
+} from "../server/envExposure.js";
 
 /**
  * Columnas de estado observado del scheduler. Las escribe el worker, nunca el usuario:
@@ -105,7 +110,15 @@ export const upsertIntervalTask = async (data) => {
     const [result, created] = await IntervalTask.upsert(payload, {
       returning: true,
     });
-    return { result, created };
+    return {
+      result,
+      created,
+      previous: previous
+        ? previous.get
+          ? previous.get({ plain: true })
+          : previous.toJSON()
+        : null,
+    };
   } catch (error) {
     // El idtask inexistente es un error de entrada, no una falla: se propaga como 404 sin
     // ensuciar el log con un stack.
@@ -272,11 +285,34 @@ export const getIntervalTask = async (filter = {}) => {
   }
 };
 
+/**
+ * Filtro de entornos para tareas. Sin EXPOSE_*_API configurado no se filtra nada
+ * (compatibilidad total, incluye entornos propios fuera de dev/qa/prd). Con exposición
+ * configurada, solo se ejecutan las tareas de entornos expuestos; los entornos propios
+ * (no gestionables por EXPOSE_*_API) siempre se permiten. Sin exención de la app system:
+ * sus tareas son schedulers y correrlas en dos servidores espejo duplicaría ejecuciones.
+ */
+function buildTaskEnvironmentFilter() {
+  if (!isExposureConfigured()) {
+    return { enabled: true };
+  }
+
+  return {
+    enabled: true,
+    environment: {
+      [Op.or]: [
+        { [Op.in]: getExposedEnvironmentsList() },
+        { [Op.notIn]: MANAGED_ENVIRONMENTS },
+      ],
+    },
+  };
+}
+
 export const getIntervalTaskProcess = async () => {
   const now = new Date();
 
   let filter = {
-    endpoint: { enabled: true },
+    endpoint: buildTaskEnvironmentFilter(),
     app: { enabled: true },
     tasks: {
       enabled: true,
@@ -350,7 +386,7 @@ export const getNextIntervalTaskRun = async () => {
       {
         model: Endpoint,
         attributes: [],
-        where: { enabled: true },
+        where: buildTaskEnvironmentFilter(),
         required: true,
         include: [
           {

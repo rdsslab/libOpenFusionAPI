@@ -251,6 +251,7 @@ export const upsertEndpoint = async (
 
     // Resolve the target endpoint first so updates/migrations can replace the
     // destination row and keep MCP-name uniqueness checks scoped to that row.
+    let previous = null;
     if (data.idapp && data.environment && data.resource && data.method) {
       const existing = await Endpoint.findOne({
         where: {
@@ -262,6 +263,17 @@ export const upsertEndpoint = async (
       });
       if (existing) {
         data.idendpoint = existing.idendpoint;
+        previous = existing.get ? existing.get({ plain: true }) : existing.toJSON();
+      }
+    }
+
+    // Update directo por idendpoint: capturar el estado previo para auditoría.
+    if (!previous && data.idendpoint) {
+      const existingById = await Endpoint.findByPk(data.idendpoint);
+      if (existingById) {
+        previous = existingById.get
+          ? existingById.get({ plain: true })
+          : existingById.toJSON();
       }
     }
 
@@ -278,7 +290,7 @@ export const upsertEndpoint = async (
       }
     
 
-    return { result, created };
+    return { result, created, previous };
   } catch (error) {
     console.error("Error retrieving:", error, data);
     throw error; // c4ca4238-a0b9-2382-0dcc-509a6f75849b

@@ -21,13 +21,11 @@ import {
   deliverOtpByEmail,
   deliverOtpByTelegram,
 } from "./recoveryService.js";
-
-const getActorUsername = (params) =>
-  params?.request?.openfusionapi?.user?.admin?.username ||
-  params?.request?.openfusionapi?.user?.username ||
-  "-";
-
-const getTraceId = (params) => params?.request?.headers?.["ofapi-trace-id"] || "";
+import {
+  recordAudit,
+  AUDIT_ACTIONS,
+  AUDIT_ENTITY_TYPES,
+} from "../../../../audit/auditService.js";
 
 export async function fnCreateUser(params) {
   let r = { data: undefined, code: 204 };
@@ -41,18 +39,24 @@ export async function fnCreateUser(params) {
     r.data = error;
     r.code = 500;
   }
-  console.log(
-    `[audit] user:create actor=${getActorUsername(params)} target=${r?.data?.username || "-"} success=${r?.data?.success ?? false} code=${r.code} trace_id=${getTraceId(params)}`
-  );
+  await recordAudit(params, {
+    action: AUDIT_ACTIONS.CREATE,
+    entity_type: AUDIT_ENTITY_TYPES.USER,
+    entity_id: r?.data?.iduser ?? params?.request?.body?.iduser ?? null,
+    target_username: r?.data?.username || params?.request?.body?.username || null,
+    status: r?.data?.success ?? r.code === 200,
+    result_code: r.code,
+    message: r.code === 200 ? null : r?.data?.message || r?.data?.error || String(r.data || ""),
+  });
   return r;
 }
 
-
-
 export async function fnLogin(params) {
   let r = { code: 204, data: undefined };
+  let attemptedUsername = "-";
   try {
     let auth_data = getUserPasswordTokenFromRequest(params.request);
+    attemptedUsername = auth_data.Basic.username;
     const xForwardedProto = params?.request?.headers?.["x-forwarded-proto"];
     const isHttpsRequest =
       params?.request?.protocol === "https" ||
@@ -83,6 +87,15 @@ export async function fnLogin(params) {
     r.data = error;
     r.code = 500;
   }
+  await recordAudit(params, {
+    action: r.code === 200 ? AUDIT_ACTIONS.LOGIN : AUDIT_ACTIONS.LOGIN_FAILED,
+    entity_type: AUDIT_ENTITY_TYPES.USER,
+    target_username: attemptedUsername,
+    actor: { kind: "user", id: null, username: attemptedUsername, idclient: null },
+    status: r.code === 200,
+    result_code: r.code,
+    message: r.code === 200 ? "Login succeeded" : "Login failed",
+  });
   return r;
 }
 
@@ -100,6 +113,12 @@ export async function fnLogout(params) {
     r.data = error;
     r.code = 500;
   }
+  await recordAudit(params, {
+    action: AUDIT_ACTIONS.LOGOUT,
+    entity_type: AUDIT_ENTITY_TYPES.USER,
+    status: r.code === 200,
+    result_code: r.code,
+  });
   return r;
 }
 
@@ -142,9 +161,18 @@ export async function fnUpdateUserPassword(params) {
     r.data = error;
     r.code = 500;
   }
-  console.log(
-    `[audit] user:change_password actor=${getActorUsername(params)} code=${r.code} trace_id=${getTraceId(params)}`
-  );
+  await recordAudit(params, {
+    action: AUDIT_ACTIONS.UPDATE,
+    entity_type: AUDIT_ENTITY_TYPES.USER,
+    entity_id:
+      params?.request?.body?.iduser ??
+      params?.request?.query?.iduser ??
+      r?.data?.iduser ??
+      null,
+    status: r.code === 200,
+    result_code: r.code,
+    message: r.code === 200 ? "Password changed" : r?.data?.message || r?.data?.error || String(r.data || ""),
+  });
   return r;
 }
 
@@ -156,6 +184,14 @@ export async function fnResetUserPassword(params) {
     if (!iduser || !newPassword) {
       r.data = { error: "iduser and newPassword are required." };
       r.code = 400;
+      await recordAudit(params, {
+        action: AUDIT_ACTIONS.UPDATE,
+        entity_type: AUDIT_ENTITY_TYPES.USER,
+        entity_id: iduser || null,
+        status: false,
+        result_code: 400,
+        message: r.data.error,
+      });
       return r;
     }
 
@@ -171,20 +207,53 @@ export async function fnResetUserPassword(params) {
     r.data = { error: error.message };
     r.code = 500;
   }
-  console.log(
-    `[audit] user:reset_password actor=${getActorUsername(params)} target=${iduser} code=${r.code} trace_id=${getTraceId(params)}`
-  );
+  await recordAudit(params, {
+    action: AUDIT_ACTIONS.UPDATE,
+    entity_type: AUDIT_ENTITY_TYPES.USER,
+    entity_id: params?.request?.body?.iduser || params?.request?.query?.iduser || null,
+    status: r.code === 200,
+    result_code: r.code,
+    message:
+      r.code === 200
+        ? "Password reset by administrator"
+        : r?.data?.message || r?.data?.error || r?.data?.success === false
+          ? "Password reset rejected"
+          : String(r.data || ""),
+  });
   return r;
 }
 
 export async function fnUpdateUser(params) {
   let r = { data: undefined, code: 204 };
+  const iduserId = params?.request?.body?.iduser || params?.request?.query?.iduser;
+
+  const auditNow = () =>
+    recordAudit(params, {
+      action: AUDIT_ACTIONS.UPDATE,
+      entity_type: AUDIT_ENTITY_TYPES.USER,
+      entity_id: iduserId || null,
+      before: beforeSnapshot,
+      after: r.code === 200 ? r.data : null,
+      status: r.code === 200,
+      result_code: r.code,
+      message:
+        r.code === 200 ? null : r?.data?.error || r?.data?.message || String(r.data || ""),
+    });
+
+  let beforeSnapshot = null;
+
   try {
-    const iduser = params?.request?.body?.iduser || params?.request?.query?.iduser;
+    const iduser = iduserId;
     if (!iduser) {
       r.data = { error: "iduser is required." };
       r.code = 400;
+      await auditNow();
       return r;
+    }
+
+    const prefetch = await getUserById(iduser);
+    if (prefetch) {
+      beforeSnapshot = prefetch?.toJSON ? prefetch.toJSON() : prefetch;
     }
 
     const actor = params?.request?.openfusionapi?.user?.admin || params?.request?.openfusionapi?.user;
@@ -197,11 +266,13 @@ export async function fnUpdateUser(params) {
     if (!actorIsAdmin && params?.request?.body?.ctrl !== undefined) {
       r.data = { error: "Permission denied: only an as_admin account may modify user ctrl." };
       r.code = 403;
+      await auditNow();
       return r;
     }
     if (!actorIsAdmin && Number(actor?.iduser) === targetId) {
       r.data = { error: "Permission denied: you cannot modify your own access." };
       r.code = 403;
+      await auditNow();
       return r;
     }
 
@@ -212,6 +283,7 @@ export async function fnUpdateUser(params) {
       if (targetCtrl.as_admin === true) {
         r.data = { error: "Permission denied: cannot modify an as_admin account." };
         r.code = 403;
+        await auditNow();
         return r;
       }
     }
@@ -223,20 +295,40 @@ export async function fnUpdateUser(params) {
     r.data = { error: error.message };
     r.code = 500;
   }
-  console.log(
-    `[audit] user:update actor=${getActorUsername(params)} target=${iduser} code=${r.code} trace_id=${getTraceId(params)}`
-  );
+  await auditNow();
   return r;
 }
 
 export async function fnDeleteUser(params) {
   let r = { data: undefined, code: 204 };
+  const iduserId = params?.request?.body?.iduser || params?.request?.query?.iduser;
+
+  const auditNow = () =>
+    recordAudit(params, {
+      action: AUDIT_ACTIONS.DELETE,
+      entity_type: AUDIT_ENTITY_TYPES.USER,
+      entity_id: iduserId || null,
+      before: beforeSnapshot,
+      status: r.code === 200 || r.code === 404,
+      result_code: r.code,
+      message:
+        r.code === 200 ? null : r?.data?.error || r?.data?.message || String(r.data || ""),
+    });
+
+  let beforeSnapshot = null;
+
   try {
-    const iduser = params?.request?.body?.iduser || params?.request?.query?.iduser;
+    const iduser = iduserId;
     if (!iduser) {
       r.data = { error: "iduser is required." };
       r.code = 400;
+      await auditNow();
       return r;
+    }
+
+    const prefetch = await getUserById(iduser);
+    if (prefetch) {
+      beforeSnapshot = prefetch?.toJSON ? prefetch.toJSON() : prefetch;
     }
 
     const actor = params?.request?.openfusionapi?.user?.admin || params?.request?.openfusionapi?.user;
@@ -249,6 +341,7 @@ export async function fnDeleteUser(params) {
     if (Number(actor?.iduser) === targetId) {
       r.data = { error: "Permission denied: you cannot delete your own account." };
       r.code = 403;
+      await auditNow();
       return r;
     }
 
@@ -259,6 +352,7 @@ export async function fnDeleteUser(params) {
       if (targetCtrl.as_admin === true) {
         r.data = { error: "Permission denied: cannot delete an as_admin account." };
         r.code = 403;
+        await auditNow();
         return r;
       }
     }
@@ -275,9 +369,7 @@ export async function fnDeleteUser(params) {
     r.data = { error: error.message };
     r.code = 500;
   }
-  console.log(
-    `[audit] user:delete actor=${getActorUsername(params)} target=${iduser} code=${r.code} trace_id=${getTraceId(params)}`
-  );
+  await auditNow();
   return r;
 }
 
@@ -481,9 +573,18 @@ export async function fnResetPasswordConfirm(params) {
     r.data = { error: error.message };
     r.code = 500;
   }
-  console.log(
-    `[audit] user:password_recovery_confirm username=${String((params?.request?.body || {}).username || "").trim()} success=${r?.data?.success ?? false} code=${r.code} trace_id=${getTraceId(params)}`
-  );
+  await recordAudit(params, {
+    action: AUDIT_ACTIONS.UPDATE,
+    entity_type: AUDIT_ENTITY_TYPES.USER,
+    entity_id: null,
+    target_username: String((params?.request?.body || {}).username || "").trim() || null,
+    status: r?.data?.success ?? r.code === 200,
+    result_code: r.code,
+    message:
+      r?.data?.success ?? false
+        ? "Password recovered via OTP"
+        : r?.data?.error || "Password recovery failed",
+  });
   return r;
 }
 
@@ -523,6 +624,14 @@ export async function fnLinkTelegram(params) {
     r.data = { error: error.message };
     r.code = 500;
   }
+  await recordAudit(params, {
+    action: AUDIT_ACTIONS.UPDATE,
+    entity_type: AUDIT_ENTITY_TYPES.USER,
+    entity_id: params?.request?.openfusionapi?.user?.admin?.iduser || null,
+    status: r.code === 200,
+    result_code: r.code,
+    message: r.code === 200 ? "Telegram chat linked" : r?.data?.error || String(r.data || ""),
+  });
   return r;
 }
 

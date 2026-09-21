@@ -154,6 +154,16 @@ export const system_app = {
       "environment": "prd",
       "createdAt": "2026-09-13T00:00:00.000Z",
       "updatedAt": "2026-09-13T00:00:00.000Z"
+    },
+    {
+      "value": "365",
+      "idvar": "8f9a0b1c-2d3e-4f5a-b6c7-d8e9f0a1b2c3",
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "name": "$_VAR_AUDIT_LOG_RETENTION_DAYS",
+      "type": "string",
+      "environment": "prd",
+      "createdAt": "2026-09-20T00:00:00.000Z",
+      "updatedAt": "2026-09-20T00:00:00.000Z"
     }
   ],
   "bots": [
@@ -238,6 +248,23 @@ export const system_app = {
           "mode": "events"
         }
       },
+      "exec_time_limit": 60,
+      "history_limit": 50,
+      "max_failed_attempts": 10,
+      "allow_concurrent": 0,
+      "iduser": null,
+      "idkey": null
+    },
+    {
+      "idtask": 6,
+      "idendpoint": "c3d4e5f6-7a8b-4c9d-ab0e-f1a2b3c4d5e6",
+      "schedule_mode": "cron",
+      "cron": "30 3 * * *",
+      "timezone": "America/Guayaquil",
+      "note": "Prune Audit Log Retention",
+      "enabled": true,
+      "interval": 86400,
+      "params": {},
       "exec_time_limit": 60,
       "history_limit": 50,
       "max_failed_attempts": 10,
@@ -1821,6 +1848,9 @@ export const system_app = {
                   "get_system_logs": {
                     "type": "string"
                   },
+                  "audit_log_search": {
+                    "type": "string"
+                  },
                   "apps_list": {
                     "type": "string"
                   },
@@ -1884,6 +1914,7 @@ export const system_app = {
                 "endpoint_migrate": "/endpoints/migrate",
                 "appvar_migrate": "/appvars/migrate",
                 "get_system_logs": "/api/system/logs",
+                "audit_log_search": "/system/audit/log",
                 "apps_list": "/api/system/api/apps-list",
                 "bot_skill": "/bots/skill",
                 "interval_task_skill": "/interval_tasks/skill",
@@ -1914,7 +1945,7 @@ export const system_app = {
       "price_kb_request": 0,
       "price_kb_response": 0,
       "keywords": "onboarding,guide,agent,AI,best practices",
-      "code": "const trace_id = request?.headers?.['ofapi-trace-id'] || '';\n$_RETURN_DATA_ = {\n  summary: \`1. Always inspect each tool description and input schema first; treat the system catalog as source of truth. 2. Every resource belongs to an application: start with apps_list to resolve the target idapp before creating endpoints, application variables or bots. 3. For endpoint creation/updates, choose handler first and match payload shape to that handler. 4. Read current endpoint data before updates and patch incrementally. 5. Validate JSON Schema with validate_json_schema_for_mcp before publishing. 6. Use trace_id in logs to follow one execution path end to end. 7. OpenFusionAPI supports recurring interval tasks: a task schedules an EXISTING endpoint to run unattended and holds no code of its own, so it is never created with endpoint_upsert. If the user asks to schedule an endpoint or to diagnose a task that is not running, call get_interval_task_skill FIRST; then inspect with list_interval_tasks and get_interval_task_runs (read-only) and, only with explicit user authorization, write with upsert_interval_task, run_interval_task_now, reset_interval_task_attempts or delete_interval_task. 8. OpenFusionAPI also runs long-lived messaging bots (Telegram today). Bots are NOT endpoints: they live in their own ofapi_bot table and are managed with list_bots, upsert_bot, enable_disable_bot and delete_bot. If the user asks for a bot, call get_bot_skill FIRST and then get_bot_provider_skill; never try to build a bot with endpoint_upsert. 9. CORS is enforced per endpoint: a browser request only reads an endpoint's response if its Origin matches the endpoint's 'cors' allowlist. To let a known frontend call an endpoint cross-origin, set cors: [\"https://app.example.com\"] or an object {\"origin\": [...], \"credentials\": true} when creating it with endpoint_upsert; omitting cors keeps the deployment-wide default policy. Origins outside the allowlist are denied and no Access-Control-Allow-Origin header is emitted. 10. OpenFusionAPI throttles repeated failed authentication attempts: after several 401 responses from the same source, the IP (and IP+username pair) enters a lockout with exponential backoff and the API answers 429 with Retry-After until it cools down, logging {type:'possible_attack'} entries at log level 3 in ofapi_log. A 429 means the caller (or the IP behind it) hit that limit: wait for Retry-After instead of retrying or changing credentials blindly, and check ofapi_log for 'possible_attack' entries to distinguish a brute-force attack from a misconfigured client.\`,\n  links: {\n    handler_documentation: '/api/handler/documentation',\n    handler_skill: '/api/handler/skill',\n    endpoint_upsert: '/api/endpoint',\n    get_system_logs: '/api/system/logs',\n    apps_list: '/api/system/api/apps-list',\n    bot_skill: '/bots/skill',\n    interval_task_skill: '/interval_tasks/skill',\n    interval_tasks_byidapp: '/interval_tasks/byidapp',\n    interval_tasks_runs: '/interval_tasks/runs',\n    interval_tasks_upsert: '/interval_tasks/upsert',\n    interval_tasks_run_now: '/interval_tasks/run_now',\n    interval_tasks_reset_attempts: '/interval_tasks/reset_attempts',\n    interval_tasks_delete: '/interval_tasks/delete'\n  },\n  trace_id\n};",
+      "code": "const trace_id = request?.headers?.['ofapi-trace-id'] || '';\n$_RETURN_DATA_ = {\n  summary: \`1. Always inspect each tool description and input schema first; treat the system catalog as source of truth. 2. Every resource belongs to an application: start with apps_list to resolve the target idapp before creating endpoints, application variables or bots. 3. For endpoint creation/updates, choose handler first and match payload shape to that handler. 4. Read current endpoint data before updates and patch incrementally. 5. Validate JSON Schema with validate_json_schema_for_mcp before publishing. 6. Use trace_id in logs to follow one execution path end to end. 6b. Admin and security workflows: use audit_log_search (and audit_log_stats) to see who did what — every user action through these tools is recorded in the audit trail (ofapi_audit_log); correlate rows with get_system_logs via trace_id. 7. OpenFusionAPI supports recurring interval tasks: a task schedules an EXISTING endpoint to run unattended and holds no code of its own, so it is never created with endpoint_upsert. If the user asks to schedule an endpoint or to diagnose a task that is not running, call get_interval_task_skill FIRST; then inspect with list_interval_tasks and get_interval_task_runs (read-only) and, only with explicit user authorization, write with upsert_interval_task, run_interval_task_now, reset_interval_task_attempts or delete_interval_task. 8. OpenFusionAPI also runs long-lived messaging bots (Telegram today). Bots are NOT endpoints: they live in their own ofapi_bot table and are managed with list_bots, upsert_bot, enable_disable_bot and delete_bot. If the user asks for a bot, call get_bot_skill FIRST and then get_bot_provider_skill; never try to build a bot with endpoint_upsert. 9. CORS is enforced per endpoint: a browser request only reads an endpoint's response if its Origin matches the endpoint's 'cors' allowlist. To let a known frontend call an endpoint cross-origin, set cors: [\"https://app.example.com\"] or an object {\"origin\": [...], \"credentials\": true} when creating it with endpoint_upsert; omitting cors keeps the deployment-wide default policy. Origins outside the allowlist are denied and no Access-Control-Allow-Origin header is emitted. 10. OpenFusionAPI throttles repeated failed authentication attempts: after several 401 responses from the same source, the IP (and IP+username pair) enters a lockout with exponential backoff and the API answers 429 with Retry-After until it cools down, logging {type:'possible_attack'} entries at log level 3 in ofapi_log. A 429 means the caller (or the IP behind it) hit that limit: wait for Retry-After instead of retrying or changing credentials blindly, and check ofapi_log for 'possible_attack' entries to distinguish a brute-force attack from a misconfigured client.\`,\n  links: {\n    handler_documentation: '/api/handler/documentation',\n    handler_skill: '/api/handler/skill',\n    endpoint_upsert: '/api/endpoint',\n    get_system_logs: '/api/system/logs',\n    apps_list: '/api/system/api/apps-list',\n    bot_skill: '/bots/skill',\n    interval_task_skill: '/interval_tasks/skill',\n    interval_tasks_byidapp: '/interval_tasks/byidapp',\n    interval_tasks_runs: '/interval_tasks/runs',\n    interval_tasks_upsert: '/interval_tasks/upsert',\n    interval_tasks_run_now: '/interval_tasks/run_now',\n    interval_tasks_reset_attempts: '/interval_tasks/reset_attempts',\n    interval_tasks_delete: '/interval_tasks/delete'\n  },\n  trace_id\n};",
       "cache_time": 3600,
       "createdAt": "2026-05-19T00:00:00.000Z",
       "updatedAt": "2026-05-19T00:00:00.000Z"
@@ -11404,6 +11435,328 @@ export const system_app = {
           "status_success": 1,
           "status_redirect": 1,
           "status_client_error": 2,
+          "status_server_error": 3,
+          "level": 0
+        }
+      },
+      "cors": {},
+      "mcp": {
+        "enabled": true,
+        "name": "audit_log_search",
+        "title": "Search User Action Audit Log",
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nSearches the user-action audit trail (ofapi_audit_log) with optional filters: actor_username, action (login, login_failed, logout, create, update, delete, enable, disable, restore, bulk_delete), entity_type (app, appvar, endpoint, bot, interval_task, user, apiclient, apikey), entity_id, idapp, environment (dev/qa/prd), target_username, status, idclient, and the time window from/to. Paginated with limit (max 200) and offset. Each row is lightweight: it excludes the before/after snapshots; pass the row `id` to this same tool to get the full entry with sanitized before_data/after_data.",
+        "operation_mode": "read",
+        "requires_explicit_confirmation": false,
+        "side_effects": "No persistent write side effects expected.",
+        "safe_alternative": "N/A",
+        "exampleRequest": {
+          "entity_type": "app",
+          "action": "create",
+          "limit": 50
+        },
+        "notes": [
+          "The audit trail only records USER actions executed through the system endpoints (everything in this catalog). It is not a substitute for ofapi_log.",
+          "Rows are append-only: nothing edits or deletes an audit entry except the configurable retention pruning.",
+          "Sensitive values (passwords, tokens, AppVar values) are persisted redacted as \"[REDACTED]\".",
+          "To inspect what changed in one operation, get the row by id to read before_data/after_data.",
+          "Use trace_id to correlate an audit row with the underlying ofapi_log trace for the same request."
+        ]
+      },
+      "json_schema": {
+        "in": {
+          "enabled": true,
+          "schema": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "integer",
+                "description": "Audit row id. When provided, returns the full entry (with sanitized before_data/after_data) instead of a list."
+              },
+              "actor_username": {
+                "type": "string",
+                "description": "Exact username of the actor (system user or API client) that executed the action."
+              },
+              "actor_kind": {
+                "type": "string",
+                "enum": [
+                  "user",
+                  "apikey",
+                  "system"
+                ],
+                "description": "Kind of actor."
+              },
+              "action": {
+                "type": "string",
+                "enum": [
+                  "login",
+                  "login_failed",
+                  "logout",
+                  "create",
+                  "update",
+                  "delete",
+                  "enable",
+                  "disable",
+                  "restore",
+                  "bulk_delete"
+                ],
+                "description": "Audited action."
+              },
+              "entity_type": {
+                "type": "string",
+                "enum": [
+                  "app",
+                  "appvar",
+                  "endpoint",
+                  "bot",
+                  "interval_task",
+                  "user",
+                  "apiclient",
+                  "apikey"
+                ],
+                "description": "Type of audited entity."
+              },
+              "entity_id": {
+                "type": "string",
+                "description": "Exact primary key of the entity as string."
+              },
+              "idapp": {
+                "type": "string",
+                "description": "Application UUID owner of the entity."
+              },
+              "idclient": {
+                "type": "string",
+                "description": "API client UUID that executed the action."
+              },
+              "environment": {
+                "type": "string",
+                "enum": [
+                  "dev",
+                  "qa",
+                  "prd"
+                ],
+                "description": "Environment of the entity."
+              },
+              "target_username": {
+                "type": "string",
+                "description": "Username affected by the action (e.g. login or password reset target)."
+              },
+              "status": {
+                "type": "boolean",
+                "description": "true = action succeeded, false = action failed."
+              },
+              "from": {
+                "type": "string",
+                "description": "Start datetime (inclusive) for the timestamp window. Use together with to."
+              },
+              "to": {
+                "type": "string",
+                "description": "End datetime (inclusive) for the timestamp window. Use together with from."
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 200,
+                "default": 50,
+                "description": "Maximum records to return."
+              },
+              "offset": {
+                "type": "integer",
+                "minimum": 0,
+                "default": 0,
+                "description": "Pagination offset."
+              }
+            }
+          }
+        },
+        "out": {
+          "enabled": false,
+          "schema": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "custom_data": {},
+      "headers_test": {},
+      "data_test": {
+        "query": [],
+        "body": {
+          "selection": 0,
+          "json": {
+            "code": {
+              "entity_type": "app",
+              "limit": 50
+            }
+          },
+          "xml": {
+            "code": ""
+          },
+          "text": {
+            "value": ""
+          },
+          "form": [],
+          "urlencoded": []
+        },
+        "headers": [],
+        "auth": {
+          "selection": 0,
+          "basic": {
+            "username": "",
+            "password": ""
+          },
+          "bearer": {
+            "token": ""
+          }
+        },
+        "last_response": {
+          "data": "",
+          "sizeKBResponse": -1
+        }
+      },
+      "idendpoint": "5a6b7c8d-9e0f-1234-abcd-ef12345678ab",
+      "rowkey": 907,
+      "enabled": true,
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "environment": "prd",
+      "timeout": 30,
+      "resource": "/system/audit/log",
+      "method": "GET",
+      "handler": "FUNCTION",
+      "access": 2,
+      "title": "Search User Action Audit Log",
+      "description": "Returns user-action audit trail entries with optional filters and pagination (lightweight rows); pass an `id` to get a full entry with sanitized before/after snapshots.",
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "keywords": "audit,auditoria,log,security,trace,user actions,activity",
+      "code": "fnAuditLogSearch",
+      "cache_time": 0,
+      "createdAt": "2025-11-21T22:04:52.722Z",
+      "updatedAt": "2025-11-22T00:11:42.101Z"
+    },
+    {
+      "ctrl": {
+        "admin": true,
+        "users": [],
+        "log": {
+          "status_info": 1,
+          "status_success": 1,
+          "status_redirect": 1,
+          "status_client_error": 2,
+          "status_server_error": 3,
+          "level": 0
+        }
+      },
+      "cors": {},
+      "mcp": {
+        "enabled": true,
+        "name": "audit_log_stats",
+        "title": "Audit Log Stats",
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns aggregate counts of the user-action audit trail over a window: total events and failures, plus groupings by action, actor_username and entity_type.",
+        "operation_mode": "read",
+        "requires_explicit_confirmation": false,
+        "side_effects": "No persistent write side effects expected.",
+        "safe_alternative": "N/A",
+        "exampleRequest": {
+          "last_days": 7
+        },
+        "notes": [
+          "Defaults to the last 30 days; use `last_days` to shrink or widen the window.",
+          "Fast aggregate over ofapi_audit_log; use audit_log_search for the underlying rows."
+        ]
+      },
+      "json_schema": {
+        "in": {
+          "enabled": true,
+          "schema": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "last_days": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 3650,
+                "default": 30,
+                "description": "Number of days in the aggregation window."
+              }
+            }
+          }
+        },
+        "out": {
+          "enabled": false,
+          "schema": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "custom_data": {},
+      "headers_test": {},
+      "data_test": {
+        "query": [],
+        "body": {
+          "selection": 0,
+          "json": {
+            "code": {
+              "last_days": 7
+            }
+          },
+          "xml": {
+            "code": ""
+          },
+          "text": {
+            "value": ""
+          },
+          "form": [],
+          "urlencoded": []
+        },
+        "headers": [],
+        "auth": {
+          "selection": 0,
+          "basic": {
+            "username": "",
+            "password": ""
+          },
+          "bearer": {
+            "token": ""
+          }
+        },
+        "last_response": {
+          "data": "",
+          "sizeKBResponse": -1
+        }
+      },
+      "idendpoint": "6b7c8d9e-0f1a-2345-bcde-f123456789bc",
+      "rowkey": 908,
+      "enabled": true,
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "environment": "prd",
+      "timeout": 30,
+      "resource": "/system/audit/log/stats",
+      "method": "GET",
+      "handler": "FUNCTION",
+      "access": 2,
+      "title": "Audit Log Stats",
+      "description": "Aggregate counts of the user-action audit trail over a window (default last 30 days).",
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "keywords": "audit,auditoria,stats,count,summary,user actions",
+      "code": "fnAuditLogStats",
+      "cache_time": 0,
+      "createdAt": "2025-11-21T22:04:52.722Z",
+      "updatedAt": "2025-11-22T00:11:42.101Z"
+    },
+    {
+      "ctrl": {
+        "admin": true,
+        "users": [],
+        "log": {
+          "status_info": 1,
+          "status_success": 1,
+          "status_redirect": 1,
+          "status_client_error": 2,
           "status_server_error": 3
         }
       },
@@ -15110,6 +15463,52 @@ export const system_app = {
       "cache_time": 0,
       "createdAt": "2026-09-06T00:00:00.000Z",
       "updatedAt": "2026-09-06T00:00:00.000Z"
+    },
+    {
+      "ctrl": {},
+      "cors": {},
+      "mcp": {},
+      "json_schema": {
+        "in": {
+          "enabled": false,
+          "schema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": true
+          }
+        },
+        "out": {
+          "enabled": false,
+          "schema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": true
+          }
+        }
+      },
+      "custom_data": {},
+      "headers_test": {},
+      "data_test": {},
+      "idendpoint": "c3d4e5f6-7a8b-4c9d-ab0e-f1a2b3c4d5e6",
+      "rowkey": 906,
+      "enabled": true,
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "environment": "prd",
+      "timeout": 60,
+      "resource": "/audit/log/prune",
+      "method": "POST",
+      "handler": "FUNCTION",
+      "access": 2,
+      "title": "Prune Audit Log Retention",
+      "description": "Deletes audit trail entries older than the configured retention (AppVar $_VAR_AUDIT_LOG_RETENTION_DAYS, default 365). Maintenance endpoint expected to be invoked periodically by an interval task.",
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "keywords": "audit,auditoria,retention,prune,cleanup,maintenance",
+      "code": "fnAuditLogRetentionPrune",
+      "cache_time": 0,
+      "createdAt": "2026-09-20T00:00:00.000Z",
+      "updatedAt": "2026-09-20T00:00:00.000Z"
     }
   ]
 }
