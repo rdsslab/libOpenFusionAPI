@@ -29,7 +29,7 @@
 //    /unsubscribe - (admin) cancela la suscripción
 //
 //  Grupo vinculado a una aplicación (ver $VAR_GROUP_APP_MAP):
-//    /linkapp <idapp>  - (usuario validado + admin) vincula el grupo a una app
+//    /linkapp [nombre|idapp]  - (usuario validado + admin) vincula el grupo a una app (busca por nombre o elige de la lista)
 //    /unlinkapp        - (usuario validado + admin) desvincula el grupo
 //    /appinfo          - Muestra la app vinculada a este grupo
 //    /status           - Estatus general de la app vinculada
@@ -66,11 +66,13 @@ const STATE = {
   CHANGE_PASSWORD: "change:password",
   CHANGE_NEWPASSWORD: "change:newpassword",
   CHANGE_CONFIRM: "change:confirm",
+  LINKAPP_PICK: "linkapp:pick",
 };
 
 const setState = (chatId, s) => {
-  if (s) states.set(String(chatId), { step: s, username: "", otp: "", newPassword: "" });
-  else states.delete(String(chatId));
+  if (s === undefined || s === null) states.delete(String(chatId));
+  else if (typeof s === "string") states.set(String(chatId), { step: s });
+  else states.set(String(chatId), { ...s });
 };
 const getState = (chatId) => states.get(String(chatId));
 
@@ -90,7 +92,7 @@ const GROUP_HELP = [
   "I'm the OpenFusionAPI assistant for application groups.",
   "",
   "Group commands:",
-  "/linkapp <idapp> - Link this group to an application (validated users only)",
+  "/linkapp [name|idapp] - Link this group to an application (validated users only)",
   "/unlinkapp - Unlink this group",
   "/appinfo - Show the linked application",
   "/status - General status of the linked application",
@@ -361,15 +363,115 @@ $BOT.command("changepassword", async (ctx) => {
 });
 
 // ── Vinculación de grupos a aplicaciones ─────────────────────────────────────
+const MAX_PICKER = 20;
+
+const searchApps = (entries, query) => {
+  const q = String(query || "").trim().toLowerCase();
+  if (!q) return entries;
+  const exact = entries.find(([id]) => String(id).toLowerCase() === q);
+  if (exact) return [exact];
+  return entries.filter(
+    ([id, name]) =>
+      String(name || "").toLowerCase().includes(q) ||
+      String(id).toLowerCase().includes(q)
+  );
+};
+
+const performLink = async (chatId, idapp, linkedBy) => {
+  const map = await readGroupMap();
+  map[String(chatId)] = {
+    idapp: String(idapp),
+    environment: ENV,
+    linked_by: linkedBy,
+    linked_at: new Date().toISOString(),
+  };
+  return writeGroupMap(map);
+};
+
+const sendPicker = async (ctx, entries, linkedBy, fromId) => {
+  setState(ctx.chat.id, { step: STATE.LINKAPP_PICK, entries, linkedBy, fromId });
+  const lines = entries.map(
+    ([id, name], i) => `  ${i + 1}. <b>${esc(name || "?")}</b> (<code>${esc(String(id).slice(0, 8))}</code>)`
+  );
+  const text = [
+    "📋 <b>Select the application to link this group:</b>",
+    "",
+    ...lines,
+    "",
+    "Press a button, or reply with the number or the name of the application.",
+    "Send /cancel to abort.",
+  ].join("\n");
+  await ctx.reply(text, {
+    parse_mode: "HTML",
+    reply_markup: {
+      inline_keyboard: entries.map(([id, name]) => [
+        { text: String(name || "Select").slice(0, 100), callback_data: `linkapp:${id}` },
+      ]),
+    },
+  });
+};
+
+const handleGroupPick = async (ctx) => {
+  const s = getState(ctx.chat.id);
+  if (!s || s.step !== STATE.LINKAPP_PICK) return;
+  if (s.fromId && s.fromId !== ctx.from.id) return;
+  const entries = Array.isArray(s.entries) ? s.entries : [];
+  const text = String(ctx.message.text || "").trim();
+  if (text.startsWith("/")) return;
+  try {
+    if (!(await isGroupAdmin(ctx.chat, ctx.from.id))) {
+      setState(ctx.chat.id, null);
+      await ctx.reply("Only group administrators can link this group.");
+      return;
+    }
+    const user = await validateUser(ctx.from.id);
+    if (!user.valid) {
+      setState(ctx.chat.id, null);
+      await ctx.reply("You are not a validated OpenFusionAPI user.");
+      return;
+    }
+    const linkedBy = user.username || String(ctx.from.id);
+    let picked = null;
+    if (/^\d+$/.test(text)) {
+      const idx = parseInt(text, 10) - 1;
+      if (idx >= 0 && idx < entries.length) picked = entries[idx];
+      else {
+        await ctx.reply(`Enter a number between 1 and ${entries.length}, or type the application name.`);
+        return;
+      }
+    }
+    if (!picked) {
+      const apps = await getAppsIndex();
+      const matches = searchApps([...apps.entries()], text);
+      if (matches.length === 0) {
+        await ctx.reply(`No application matches "<b>${esc(text)}</b>". Reply with a number from the list or a name, or send /cancel.`, { parse_mode: "HTML" });
+        return;
+      }
+      if (matches.length > 1) {
+        setState(ctx.chat.id, null);
+        await sendPicker(ctx, matches.slice(0, MAX_PICKER), linkedBy, ctx.from.id);
+        return;
+      }
+      picked = matches[0];
+    }
+    setState(ctx.chat.id, null);
+    const [idapp, name] = picked;
+    const ok = await performLink(String(ctx.chat.id), String(idapp), linkedBy);
+    await ctx.reply(ok
+      ? `✅ This group is now linked to <b>${esc(name)}</b> (${esc(String(idapp))}).\nUse /status or /activity to query the application, and I will post its news here periodically.`
+      : "Could not save the link. Check the bot token and permissions, then try again.",
+      { parse_mode: "HTML" });
+  } catch (error) {
+    ofapi.log({ message: `linkapp pick: ${error?.message}` });
+    setState(ctx.chat.id, null);
+    await ctx.reply("An unexpected error occurred. Try again.");
+  }
+};
+
 $BOT.command("linkapp", async (ctx) => {
   const chat = ctx.chat;
-  if (!isGroupChat(chat)) {
+  if (!chat || !isGroupChat(chat)) {
     await ctx.reply("This command only works in a group where I have admin rights.");
-    return;
-  }
-  const idapp = String((ctx.message?.text || "").split(/\s+/)[1] || "").trim().toLowerCase();
-  if (!idapp) {
-    await ctx.reply("Usage: /linkapp <idapp>\nSend me /linkapp followed by the application id (see /appinfo or the platform catalog).");
     return;
   }
   if (!(await isGroupAdmin(chat, ctx.from.id))) {
@@ -381,31 +483,76 @@ $BOT.command("linkapp", async (ctx) => {
     await ctx.reply("You are not a validated OpenFusionAPI user. First run /link in a private chat with me to link your account.");
     return;
   }
-  const apps = await getAppsIndex();
-  if (!apps.has(String(idapp))) {
-    await ctx.reply("That application id does not exist in this server.");
-    return;
-  }
+  const query = String((ctx.message?.text || "").split(/\s+/)[1] || "").trim().toLowerCase();
+  const linkedBy = user.username || String(ctx.from.id);
+  setState(ctx.chat.id, null);
   try {
-    const map = await readGroupMap();
-    map[String(chat.id)] = {
-      idapp: String(idapp),
-      environment: ENV,
-      linked_by: user.username || String(ctx.from.id),
-      linked_at: new Date().toISOString(),
-    };
-    const ok = await writeGroupMap(map);
-    if (!ok) {
-      await ctx.reply("Could not save the link. Check the bot token and permissions, then try again.");
+    const apps = await getAppsIndex();
+    const entries = [...apps.entries()];
+    if (!entries.length) {
+      await ctx.reply("There are no applications in this server yet.");
       return;
     }
-    await ctx.reply(
-      `✅ This group is now linked to <b>${esc(apps.get(String(idapp)))}</b> (${esc(String(idapp))}).\nUse /status or /activity to query the application, and I will post its news here periodically.`,
-      { parse_mode: "HTML" }
-    );
+    if (!query) {
+      await sendPicker(ctx, entries.slice(0, MAX_PICKER), linkedBy, ctx.from.id);
+      return;
+    }
+    const matches = searchApps(entries, query);
+    if (matches.length === 0) {
+      await ctx.reply(`No application matches "<b>${esc(query)}</b>". Send /linkapp to pick from the list.`, { parse_mode: "HTML" });
+      return;
+    }
+    if (matches.length > 1) {
+      await sendPicker(ctx, matches.slice(0, MAX_PICKER), linkedBy, ctx.from.id);
+      return;
+    }
+    const [idapp, name] = matches[0];
+    const ok = await performLink(String(chat.id), String(idapp), linkedBy);
+    await ctx.reply(ok
+      ? `✅ This group is now linked to <b>${esc(name)}</b> (${esc(String(idapp))}).\nUse /status or /activity to query the application, and I will post its news here periodically.`
+      : "Could not save the link. Check the bot token and permissions, then try again.",
+      { parse_mode: "HTML" });
   } catch (error) {
     ofapi.log({ message: `linkapp: ${error?.message}` });
     await ctx.reply("An unexpected error occurred. Try again.");
+  }
+});
+
+$BOT.on("callback_query:data", async (ctx) => {
+  const data = String(ctx.callbackQuery?.data || "");
+  if (!data.startsWith("linkapp:")) return;
+  const idapp = data.slice("linkapp:".length);
+  const chat = ctx.chat;
+  if (!chat || !isGroupChat(chat)) return;
+  try {
+    if (!(await isGroupAdmin(chat, ctx.from.id))) {
+      await ctx.answerCallbackQuery({ text: "Only group administrators can link this group." });
+      return;
+    }
+    const user = await validateUser(ctx.from.id);
+    if (!user.valid) {
+      await ctx.answerCallbackQuery({ text: "You are not a validated OpenFusionAPI user." });
+      return;
+    }
+    const apps = await getAppsIndex();
+    const name = apps.get(String(idapp));
+    if (name === undefined) {
+      await ctx.answerCallbackQuery({ text: "That application no longer exists in this server." });
+      return;
+    }
+    const ok = await performLink(String(chat.id), String(idapp), user.username || String(ctx.from.id));
+    setState(chat.id, null);
+    if (ok) {
+      await ctx.editMessageText(
+        `✅ This group is now linked to <b>${esc(name)}</b> (${esc(String(idapp))}).\nUse /status or /activity to query the application, and I will post its news here periodically.`,
+        { parse_mode: "HTML" }
+      );
+    } else {
+      await ctx.answerCallbackQuery({ text: "Could not save the link. Try again." });
+    }
+  } catch (error) {
+    ofapi.log({ message: `linkapp callback: ${error?.message}` });
+    await ctx.answerCallbackQuery({ text: "An unexpected error occurred." });
   }
 });
 
@@ -450,7 +597,7 @@ $BOT.command("appinfo", async (ctx) => {
   const map = await readGroupMap();
   const entry = map[String(chat.id)];
   if (!entry) {
-    await ctx.reply("This group is not linked to any application. An administrator can run /linkapp <idapp>.");
+    await ctx.reply("This group is not linked to any application. An administrator can run /linkapp to pick one.");
     return;
   }
   const apps = await getAppsIndex();
@@ -658,7 +805,10 @@ $BOT.command("unsubscribe", async (ctx) => {
 
 // ── Flujo de texto (solo chat privado) ───────────────────────────────────────
 $BOT.on("message:text", async (ctx) => {
-  if (!isPrivateChat(ctx.chat)) return;
+  if (!isPrivateChat(ctx.chat)) {
+    if (isGroupChat(ctx.chat)) await handleGroupPick(ctx);
+    return;
+  }
   const s = getState(ctx.chat.id);
   if (!s) {
     await ctx.reply("Send /start to see the available commands.");
