@@ -13051,7 +13051,7 @@ export const system_app = {
         "enabled": true,
         "name": "system_health_stats",
         "title": "System Health Stats",
-        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns a compact health snapshot of the OpenFusionAPI system: total apps, total endpoints (enabled and MCP-enabled), and recent error metrics grouped by HTTP status code. Very small payload — ideal as a first call to orient an agent before deeper exploration. The 'last_hours' parameter controls the time window for log metrics (default: 1 hour).",
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns a compact health snapshot of the OpenFusionAPI system: CPU usage and RAM usage, total apps, total endpoints (enabled and MCP-enabled), and recent error metrics grouped by HTTP status code. Very small payload — ideal as a first call to orient an agent before deeper exploration. The 'last_hours' parameter controls the time window for log metrics (default: 1 hour).",
         "operation_mode": "read",
         "requires_explicit_confirmation": false,
         "side_effects": "No persistent write side effects expected.",
@@ -13093,6 +13093,23 @@ export const system_app = {
               },
               "window_hours": {
                 "type": "integer"
+              },
+              "system": {
+                "type": "object",
+                "properties": {
+                  "cpu_usage": {
+                    "type": "number"
+                  },
+                  "memory_used_gb": {
+                    "type": "number"
+                  },
+                  "memory_total_gb": {
+                    "type": "number"
+                  },
+                  "memory_used_pct": {
+                    "type": "number"
+                  }
+                }
               },
               "apps": {
                 "type": "object",

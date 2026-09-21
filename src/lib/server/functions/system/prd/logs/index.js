@@ -321,12 +321,29 @@ export async function fnGetSystemHealthStats(params) {
       if (sc >= 400) errorCount++;
     }
 
+    // Snapshot de CPU/RAM (best-effort: si falla, no derriba el health)
+    let system = null;
+    try {
+      const info = await getSystemInfoDynamic();
+      if (info && !info.error) {
+        system = {
+          cpu_usage: info.cpuUsage,
+          memory_used_gb: info.usedMemory,
+          memory_total_gb: info.totalMemory,
+          memory_used_pct: info.memoryUsage,
+        };
+      }
+    } catch (error) {
+      console.error("health/stats: sistema no disponible:", error);
+    }
+
     r.data = {
       // getCorrectedNow() en vez de new Date(): este campo es justamente lo que se usaría
       // para diagnosticar si el reloj del host/contenedor está desincronizado, así que
       // debe reflejar la hora corregida, no la hora cruda potencialmente equivocada.
       timestamp: new Date(getCorrectedNow()).toISOString(),
       window_hours: last_hours,
+      system,
       apps: { total: totalApps },
       endpoints: {
         total: totalEndpoints,

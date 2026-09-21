@@ -306,17 +306,26 @@ $BOT.command("health", async (ctx) => {
       return;
     }
     const logs = d.logs || {};
+    const sys = d.system || {};
     const byStatus = Object.entries(logs.by_status_code || {})
       .sort((a, b) => b[1] - a[1])
       .slice(0, 8)
       .map(([c, n]) => `${c}: ${n}`)
       .join(", ");
+    const cpuLine = sys.cpu_usage !== undefined && sys.cpu_usage !== null
+      ? `🖥 CPU: <b>${sys.cpu_usage}%</b>`
+      : "";
+    const memLine = sys.memory_total_gb
+      ? `🧠 RAM: <b>${sys.memory_used_gb} / ${sys.memory_total_gb} GB</b> (${sys.memory_used_pct}%)`
+      : "";
     const msg = [
       "🛡 <b>OpenFusionAPI — health</b>",
       `📊 Logs (${d.window_hours ?? 1}h): <b>${logs.total_in_window ?? 0}</b> total, <b>${logs.errors_in_window ?? 0}</b> errors`,
       byStatus ? `   ${esc(byStatus)}` : "",
       `🔌 Endpoints: <b>${d.endpoints?.total ?? 0}</b> (${d.endpoints?.enabled ?? 0} enabled, ${d.endpoints?.mcp_enabled ?? 0} MCP)`,
       `📦 Apps: <b>${d.apps?.total ?? 0}</b>`,
+      cpuLine,
+      memLine,
     ].filter(Boolean).join("\n");
     await ctx.reply(msg, { parse_mode: "HTML" });
   } catch (error) {
