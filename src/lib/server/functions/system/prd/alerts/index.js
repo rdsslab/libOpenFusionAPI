@@ -16,6 +16,8 @@
  *  - $_VAR_ADMIN_GROUP_CHAT_ID chat_id del grupo de administración
  *  - $_VAR_ALERT_4XX_THRESHOLD umbral de 4xx por ventana para alertar (default 20)
  *  - $_VAR_ADMIN_ALERT_CURSOR  cursor de deduplicación (JSON ISO), escritura interna
+ *  - $_VAR_ADMIN_ALERTS_MODE   "on" | "paused": si está en "paused" el envío se
+ *                              omite (status "paused"). No afecta a respond_inline.
  */
 import { getLogs } from "../../../../../db/log.js";
 import { getBotLogs } from "../../../../../db/bot_log.js";
@@ -326,9 +328,10 @@ export async function fnAdminAutoAlerts(params) {
 
   const initial = { code: 200, data: undefined };
   try {
-    const [token, chatId] = await Promise.all([
+    const [token, chatId, alertsMode] = await Promise.all([
       getAppVarValue("$_VAR_TELEGRAM_TOKEN"),
       getAppVarValue("$_VAR_ADMIN_GROUP_CHAT_ID"),
+      getAppVarValue("$_VAR_ADMIN_ALERTS_MODE"),
     ]);
 
     const report =
@@ -344,6 +347,21 @@ export async function fnAdminAutoAlerts(params) {
         scanned_to: report.to ? iso(new Date(report.to)) : undefined,
         counts: report.counts || {},
       };
+      return initial;
+    }
+
+    if (alertsMode === "paused") {
+      initial.data = {
+        mode,
+        status: "paused",
+        counts: report.counts || {},
+        scanned_from: report.from ? iso(new Date(report.from)) : undefined,
+        scanned_to: report.to ? iso(new Date(report.to)) : undefined,
+      };
+      if (respondInline && report.message) {
+        initial.data.report_text = report.message;
+        initial.data.html = true;
+      }
       return initial;
     }
 

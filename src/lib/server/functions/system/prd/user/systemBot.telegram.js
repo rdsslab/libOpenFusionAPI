@@ -23,6 +23,15 @@
 //    /changepassword   - Cambiar la contraseña
 //    /cancel           - Cancelar el flujo en curso
 //
+//  Comandos de sistema (chat privado y grupos):
+//    /whoami           - Datos de la cuenta vinculada al usuario de Telegram
+//    /myapps           - Grupos vinculados por este usuario
+//    /listapps         - Lista las aplicaciones del servidor
+//    /uptime           - Tiempo de actividad del servidor
+//    /systeminfo       - Node, host, OS, CPU y RAM del servidor
+//    /audit            - Últimos eventos del log de auditoría (admin)
+//    /alerts           - pause | resume | status de las alertas de administración
+//
 //  Grupo no vinculado:
 //    /start, /help, /health
 //    /subscribe   - (admin) suscribe el grupo a las alertas de administración
@@ -33,8 +42,13 @@
 //    /unlinkapp        - (usuario validado + admin) desvincula el grupo
 //    /appinfo          - Muestra la app vinculada a este grupo
 //    /status           - Estatus general de la app vinculada
+//    /apistats         - Uso de endpoints de la app vinculada (últimos 7 días)
+//    /traceslow        - Peticiones más lentas de la app vinculada (últimas 24h)
+//    /logs [error|warn|info] - Logs recientes de la app vinculada (default: error/5xx)
 //    /activity         - Novedades recientes de la app vinculada (bajo demanda)
 //    /errors           - Errores 5xx recientes de la app vinculada
+//    /tasks            - Tareas de intervalo de la app vinculada
+//    /taskrun <idtask> - (admin) ejecuta ahora una tarea de intervalo
 //    /health           - Salud general del sistema
 //
 // Config via AppVars (env prd) de la app system:
@@ -42,6 +56,7 @@
 //   - $_VAR_GROUP_APP_MAP         { chat_id: { idapp, environment, linked_by, linked_at } }
 //   - $_VAR_GROUP_APP_CURSORS     { chat_id: "ISO" } cursor por grupo (escritura del scan)
 //   - $_VAR_ADMIN_GROUP_CHAT_ID   grupo de administración para alertas admin
+//   - $_VAR_ADMIN_ALERTS_MODE     "on" | "paused" (control de /alerts sobre fnAdminAutoAlerts)
 //
 // Los flujos de recuperación SOLO operan en chat privado. En grupos el bot solo
 // responde comandos de estatus/vínculo.
@@ -84,7 +99,14 @@ const PRIVATE_HELP = [
   "/forgot - Request a one-time code to reset your password",
   "/reset - Redeem the code with a new password",
   "/changepassword - Change your password",
-  "/health - System status",
+  "/whoami - Your linked account info",
+  "/myapps - Applications you linked",
+  "/listapps - List the applications in this server",
+  "/uptime - System uptime",
+  "/systeminfo - Node, host, OS and CPU details",
+  "/health - System status (CPU/RAM/last logs)",
+  "/audit - Recent audit events (admin)",
+  "/alerts - Pause or resume admin alerts",
   "/cancel - Abort the current operation",
 ].join("\n");
 
@@ -96,9 +118,21 @@ const GROUP_HELP = [
   "/unlinkapp - Unlink this group",
   "/appinfo - Show the linked application",
   "/status - General status of the linked application",
+  "/apistats - Endpoint usage of the linked app",
+  "/traceslow - Slowest requests of the linked app",
+  "/logs [error|warn|info] - Recent logs of the linked app",
   "/activity - Recent activity of the linked application",
   "/errors - Recent 5xx errors of the linked application",
+  "/tasks - List interval tasks of the linked app",
+  "/taskrun <idtask> - Run an interval task now (admin)",
+  "/myapps - Your linked applications",
+  "/listapps - List the applications in this server",
+  "/whoami - Your linked account info",
+  "/uptime - System uptime",
+  "/systeminfo - Node, host, OS and CPU details",
   "/health - System status",
+  "/audit - Recent audit events (admin)",
+  "/alerts - Pause or resume admin alerts",
   "/subscribe - (admin) Receive admin alerts here",
   "/unsubscribe - (admin) Stop admin alerts",
 ].join("\n");
@@ -342,6 +376,227 @@ $BOT.command("health", async (ctx) => {
   } catch (error) {
     ofapi.log({ message: `health: ${error?.message}` });
     await ctx.reply("Could not query the system status.");
+  }
+});
+
+// ── Información de sistema (información estática/dinámica) ───────────────────
+const getSystemInfoStatic = async () => {
+  try {
+    const res = await api("/information/static", "get", { token: scanToken() });
+    const { ok, body } = await parseBody(res);
+    if (!ok) return null;
+    return body?.data ?? body;
+  } catch (error) {
+    ofapi.log({ message: `getSystemInfoStatic: ${error?.message}` });
+    return null;
+  }
+};
+
+const getSystemInfoDynamic = async () => {
+  try {
+    const res = await api("/information/dynamic", "get", { token: scanToken() });
+    const { ok, body } = await parseBody(res);
+    if (!ok) return null;
+    return body?.data ?? body;
+  } catch (error) {
+    ofapi.log({ message: `getSystemInfoDynamic: ${error?.message}` });
+    return null;
+  }
+};
+
+const requireValidated = async (ctx) => {
+  const user = await validateUser(ctx.from.id);
+  if (!user.valid) {
+    await ctx.reply("You are not a validated OpenFusionAPI user. First run /link in a private chat with me to link your account.");
+  }
+  return user.valid ? user : null;
+};
+
+$BOT.command("uptime", async (ctx) => {
+  try {
+    const st = await getSystemInfoStatic();
+    const lines = ["⏱ <b>OpenFusionAPI — uptime</b>"];
+    if (st?.uptime?.formatted) {
+      lines.push(`• Server: <b>${esc(st.uptime.formatted)}</b>`);
+      if (st.uptime.startTime) {
+        lines.push(`• Since: <code>${esc(String(st.uptime.startTime).replace("T", " ").slice(0, 19))} UTC</code>`);
+      }
+      lines.push(`• Server time: <code>${esc(new Date().toISOString().replace("T", " ").slice(0, 19))} UTC</code>`);
+    }
+    if (isGroupChat(ctx.chat)) {
+      const entry = await getLinkedEntry(ctx.chat);
+      if (entry?.linked_at) {
+        const days = Math.max(0, Math.floor((Date.now() - Date.parse(entry.linked_at)) / 86400000));
+        const hours = Math.max(0, Math.floor(((Date.now() - Date.parse(entry.linked_at)) % 86400000) / 3600000));
+        lines.push(`• This group linked: <b>${days}d ${hours}h</b> ago`);
+      }
+    }
+    if (lines.length === 1) lines.push("No uptime data available.");
+    await ctx.reply(lines.join("\n"), { parse_mode: "HTML" });
+  } catch (error) {
+    ofapi.log({ message: `uptime: ${error?.message}` });
+    await ctx.reply("Could not query the system uptime.");
+  }
+});
+
+$BOT.command("systeminfo", async (ctx) => {
+  try {
+    const [st, dyn] = await Promise.all([getSystemInfoStatic(), getSystemInfoDynamic()]);
+    const lines = ["🖥 <b>OpenFusionAPI — system info</b>"];
+    if (st) {
+      if (st.nodeVersion) lines.push(`• Node: <code>${esc(st.nodeVersion)}</code>`);
+      if (st.hostname) {
+        lines.push(`• Host: <code>${esc(st.hostname)}</code>${st.localIp && st.localIp !== "N/A" ? ` (<code>${esc(st.localIp)}</code>)` : ""}`);
+      }
+      if (st.platform) lines.push(`• OS: <b>${esc(st.platform)}</b> ${esc(st.architecture || "")}${st.osRelease ? ` (${esc(st.osRelease)})` : ""}`);
+      if (st.cpuModel) lines.push(`• CPU: <b>${esc(st.cpuModel)}</b> × ${st.cpuCores ?? "?"}${st.cpuSpeed ? ` @ ${esc(st.cpuSpeed)}` : ""}`);
+      if (st.uptime?.formatted) lines.push(`• Uptime: <b>${esc(st.uptime.formatted)}</b>`);
+    }
+    if (dyn) {
+      if (dyn.cpuUsage !== undefined) lines.push(`• CPU load: <b>${dyn.cpuUsage}%</b>`);
+      if (dyn.memoryUsage !== undefined) lines.push(`• RAM: <b>${dyn.usedMemory} / ${dyn.totalMemory} GB</b> (${dyn.memoryUsage}%)`);
+    }
+    if (lines.length === 1) lines.push("No system info available.");
+    await ctx.reply(lines.join("\n"), { parse_mode: "HTML" });
+  } catch (error) {
+    ofapi.log({ message: `systeminfo: ${error?.message}` });
+    await ctx.reply("Could not query the system information.");
+  }
+});
+
+$BOT.command("whoami", async (ctx) => {
+  try {
+    const user = await validateUser(ctx.from.id);
+    if (!user.valid) {
+      await ctx.reply("You are not a validated OpenFusionAPI user. First run /link in a private chat with me to link your account.");
+      return;
+    }
+    await ctx.reply(
+      [
+        "👤 <b>Your account</b>",
+        `• Telegram id: <code>${ctx.from.id}</code>`,
+        `• Username: <b>${esc(user.username || "?")}</b>`,
+        user.name ? `• Name: <b>${esc(user.name)}</b>` : "",
+        `• iduser: <code>${esc(String(user.iduser ?? "?"))}</code>`,
+        `• Role: ${user.admin === true ? "<b>Administrator</b>" : "user"}`,
+      ].filter(Boolean).join("\n"),
+      { parse_mode: "HTML" }
+    );
+  } catch (error) {
+    ofapi.log({ message: `whoami: ${error?.message}` });
+    await ctx.reply("Could not resolve your account.");
+  }
+});
+
+$BOT.command("listapps", async (ctx) => {
+  try {
+    const apps = await getAppsIndex();
+    const entries = [...apps.entries()];
+    if (!entries.length) {
+      await ctx.reply("There are no applications in this server yet.");
+      return;
+    }
+    const lines = entries.slice(0, 40).map(([idapp, name], i) => `  ${i + 1}. <b>${esc(name || "?")}</b> (<code>${esc(String(idapp).slice(0, 8))}</code>)`);
+    await ctx.reply(
+      [
+        `📦 <b>Applications (${entries.length})</b>`,
+        "",
+        ...lines,
+        entries.length > 40 ? `… and ${entries.length - 40} more` : "",
+        "",
+        "Use /linkapp in a group to link one.",
+      ].filter(Boolean).join("\n"),
+      { parse_mode: "HTML" }
+    );
+  } catch (error) {
+    ofapi.log({ message: `listapps: ${error?.message}` });
+    await ctx.reply("Could not list the applications.");
+  }
+});
+
+$BOT.command("audit", async (ctx) => {
+  if (isGroupChat(ctx.chat) && !(await isGroupAdmin(ctx.chat, ctx.from.id))) {
+    await ctx.reply("Only group administrators can read the audit log here.");
+    return;
+  }
+  const user = await validateUser(ctx.from.id);
+  if (!user.valid || user.admin !== true) {
+    await ctx.reply("This command requires an administrator account.");
+    return;
+  }
+  try {
+    const res = await api("/system/audit/log", "get", {
+      token: scanToken(),
+      data: { limit: 10 },
+    });
+    const { ok, status, body } = await parseBody(res);
+    if (!ok) {
+      await ctx.reply(`Could not read the audit log (HTTP ${status}).`);
+      return;
+    }
+    const d = body?.data ?? body;
+    const rows = d?.rows || (Array.isArray(d) ? d : []);
+    if (!rows.length) {
+      await ctx.reply("No audit events found.");
+      return;
+    }
+    const lines = ["🕵️ <b>Recent audit events</b>"];
+    for (const r of rows.slice(0, 10)) {
+      const time = String(r.timestamp || "").replace("T", " ").slice(0, 19);
+      const badge = r.status === false ? "❌" : "✅";
+      const detail = [
+        `<code>${esc(time)}</code>`,
+        `<b>${esc(r.action || "?")}</b>`,
+        esc(r.entity_type || ""),
+        r.actor_username ? `· ${esc(r.actor_username)}` : "",
+      ].join(" ");
+      lines.push(`• ${badge} ${detail.trim()}`);
+    }
+    await ctx.reply(lines.join("\n"), { parse_mode: "HTML" });
+  } catch (error) {
+    ofapi.log({ message: `audit: ${error?.message}` });
+    await ctx.reply("Could not read the audit log.");
+  }
+});
+
+const ADMIN_ALERTS_MODE_VAR = "$_VAR_ADMIN_ALERTS_MODE";
+
+$BOT.command("alerts", async (ctx) => {
+  const chat = ctx.chat;
+  if (!chat) return;
+  if (isGroupChat(chat)) {
+    if (!(await isGroupAdmin(chat, ctx.from.id))) {
+      await ctx.reply("Only group administrators can control admin alerts.");
+      return;
+    }
+  } else if (!(await requireValidated(ctx))) {
+    return;
+  }
+  const arg = String((ctx.message?.text || "").split(/\s+/)[1] || "").trim().toLowerCase();
+  try {
+    const current = await getVarValue(ADMIN_ALERTS_MODE_VAR);
+    const paused = current === "paused";
+    if (!arg || arg === "status") {
+      await ctx.reply(
+        `Admin alerts are currently <b>${paused ? "paused ⏸" : "running ▶️"}</b>.\nUse /alerts pause or /alerts resume.`,
+        { parse_mode: "HTML" }
+      );
+      return;
+    }
+    if (arg === "pause") {
+      const ok = await writeVarValue(ADMIN_ALERTS_MODE_VAR, "paused");
+      await ctx.reply(ok ? "Admin alerts are now <b>paused</b>. The subscription stays active; use /alerts resume to enable them again." : "Could not pause admin alerts.");
+      return;
+    }
+    if (arg === "resume") {
+      const ok = await writeVarValue(ADMIN_ALERTS_MODE_VAR, "on");
+      await ctx.reply(ok ? "Admin alerts are now <b>running</b> again." : "Could not resume admin alerts.");
+      return;
+    }
+    await ctx.reply("Usage: /alerts pause | resume | status");
+  } catch (error) {
+    ofapi.log({ message: `alerts: ${error?.message}` });
+    await ctx.reply("An unexpected error occurred. Try again.");
   }
 });
 
@@ -767,6 +1022,241 @@ $BOT.command("activity", async (ctx) => {
   } catch (error) {
     ofapi.log({ message: `activity: ${error?.message}` });
     await ctx.reply("Could not scan the application activity.");
+  }
+});
+
+// ── Comandos de la app vinculada: apistats / traceslow / logs / tasks ────────
+const linkedEntry = async (ctx) => {
+  if (!isGroupChat(ctx.chat)) {
+    await ctx.reply("This command only works in a linked group.");
+    return null;
+  }
+  const entry = await getLinkedEntry(ctx.chat);
+  if (!entry) {
+    await ctx.reply("This group is not linked to an application. An administrator can run /linkapp to pick one.");
+    return null;
+  }
+  return entry;
+};
+
+const fmtTime = (value) => String(value || "").replace("T", " ").slice(0, 19);
+
+$BOT.command("myapps", async (ctx) => {
+  try {
+    const user = await validateUser(ctx.from.id);
+    if (!user.valid) {
+      await ctx.reply("You are not a validated OpenFusionAPI user. First run /link in a private chat with me to link your account.");
+      return;
+    }
+    const who = user.username || String(ctx.from.id);
+    const map = await readGroupMap();
+    const mine = Object.entries(map).filter(([, entry]) => String(entry.linked_by || "") === String(who));
+    if (!mine.length) {
+      await ctx.reply("You have not linked any group to an application yet.");
+      return;
+    }
+    const apps = await getAppsIndex();
+    const lines = ["🔗 <b>Groups you linked</b>"];
+    for (const [chatId, entry] of mine.slice(0, 20)) {
+      const name = apps.get(String(entry.idapp)) || entry.idapp;
+      lines.push(`• <b>${esc(name)}</b> — chat <code>${esc(chatId)}</code>${entry.linked_at ? ` · ${esc(fmtTime(entry.linked_at))}` : ""}`);
+    }
+    await ctx.reply(lines.join("\n"), { parse_mode: "HTML" });
+  } catch (error) {
+    ofapi.log({ message: `myapps: ${error?.message}` });
+    await ctx.reply("Could not list your linked applications.");
+  }
+});
+
+$BOT.command("apistats", async (ctx) => {
+  const entry = await linkedEntry(ctx);
+  if (!entry) return;
+  const apps = await getAppsIndex();
+  const name = apps.get(String(entry.idapp)) || entry.idapp;
+  try {
+    const res = await api("/system/log/app/endpoints/usage", "get", {
+      token: scanToken(),
+      data: { idapp: entry.idapp, environment: entry.environment || ENV, last_days: 7, top: 5 },
+    });
+    const { ok, status, body } = await parseBody(res);
+    if (!ok) {
+      await ctx.reply(`Could not read the usage stats (HTTP ${status}).`);
+      return;
+    }
+    const d = body?.data ?? body;
+    const lines = [
+      `📈 <b>${esc(name)} — endpoint usage</b> (${(d.window?.last_days ?? 7)}d)`,
+      `• Requests: <b>${d.totals?.total_requests_in_window ?? 0}</b> · endpoints: <b>${d.totals?.total_endpoints ?? 0}</b>`,
+    ];
+    const most = (d.most_used || []).slice(0, 5);
+    if (most.length) {
+      lines.push("", "<b>Most used</b>");
+      for (const e of most) {
+        lines.push(`  <code>${esc(e.method || "?")}</code> ${esc(e.resource || "?")} → <b>${e.requestCount ?? 0}</b>`);
+      }
+    }
+    await ctx.reply(lines.join("\n"), { parse_mode: "HTML" });
+  } catch (error) {
+    ofapi.log({ message: `apistats: ${error?.message}` });
+    await ctx.reply("Could not read the usage stats.");
+  }
+});
+
+$BOT.command("traceslow", async (ctx) => {
+  const entry = await linkedEntry(ctx);
+  if (!entry) return;
+  const apps = await getAppsIndex();
+  const name = apps.get(String(entry.idapp)) || entry.idapp;
+  try {
+    const res = await api("/system/log", "get", {
+      token: scanToken(),
+      data: {
+        idapp: entry.idapp,
+        environment: entry.environment || ENV,
+        last_hours: 24,
+        order: "response_time",
+        orderDirection: "DESC",
+        limit: 10,
+      },
+    });
+    const { ok, status, body } = await parseBody(res);
+    if (!ok) {
+      await ctx.reply(`Could not read the logs (HTTP ${status}).`);
+      return;
+    }
+    const rows = Array.isArray(body) ? body : body?.data;
+    if (!rows || !rows.length) {
+      await ctx.reply(`No requests for <b>${esc(name)}</b> in the last 24h. 👍`);
+      return;
+    }
+    const lines = [`🐢 <b>${esc(name)} — slowest requests (last 24h)</b>`];
+    for (const r of rows.slice(0, 10)) {
+      lines.push(`• <code>${esc(fmtTime(r.timestamp))}</code> ${esc(r.method || "?")} <code>${esc(r.url || "?")}</code> → <b>${r.response_time ?? 0}ms</b>`);
+    }
+    await ctx.reply(lines.join("\n"), { parse_mode: "HTML" });
+  } catch (error) {
+    ofapi.log({ message: `traceslow: ${error?.message}` });
+    await ctx.reply("Could not read the slow request trace.");
+  }
+});
+
+$BOT.command("logs", async (ctx) => {
+  const entry = await linkedEntry(ctx);
+  if (!entry) return;
+  const arg = String((ctx.message?.text || "").split(/\s+/)[1] || "").trim().toLowerCase();
+  const statusMap = { error: "5xx", warn: "4xx", warning: "4xx", info: "2xx" };
+  const statusCode = statusMap[arg] || "5xx";
+  const apps = await getAppsIndex();
+  const name = apps.get(String(entry.idapp)) || entry.idapp;
+  try {
+    const res = await api("/system/log", "get", {
+      token: scanToken(),
+      data: {
+        idapp: entry.idapp,
+        environment: entry.environment || ENV,
+        status_code: statusCode,
+        last_hours: 24,
+        limit: 10,
+      },
+    });
+    const { ok, status, body } = await parseBody(res);
+    if (!ok) {
+      await ctx.reply(`Could not read the logs (HTTP ${status}).`);
+      return;
+    }
+    const rows = Array.isArray(body) ? body : body?.data;
+    const label = arg || "error";
+    if (!rows || !rows.length) {
+      await ctx.reply(`No <b>${esc(label)}</b> logs for <b>${esc(name)}</b> in the last 24h. 👍`, { parse_mode: "HTML" });
+      return;
+    }
+    const lines = [`📜 <b>${esc(name)} — ${esc(label)} logs (last 24h)</b>`];
+    for (const r of rows.slice(0, 10)) {
+      lines.push(`• <code>${esc(fmtTime(r.timestamp))}</code> ${esc(r.method || "?")} <code>${esc(r.url || "?")}</code> → HTTP <b>${r.status || "?"}</b> (${r.response_time ?? 0}ms)`);
+    }
+    await ctx.reply(lines.join("\n"), { parse_mode: "HTML" });
+  } catch (error) {
+    ofapi.log({ message: `logs: ${error?.message}` });
+    await ctx.reply("Could not read the logs.");
+  }
+});
+
+$BOT.command("tasks", async (ctx) => {
+  const entry = await linkedEntry(ctx);
+  if (!entry) return;
+  const apps = await getAppsIndex();
+  const name = apps.get(String(entry.idapp)) || entry.idapp;
+  try {
+    const res = await api("/interval_tasks/byidapp", "get", {
+      token: scanToken(),
+      data: { idapp: entry.idapp },
+    });
+    const { ok, status, body } = await parseBody(res);
+    if (!ok) {
+      await ctx.reply(`Could not read the interval tasks (HTTP ${status}).`);
+      return;
+    }
+    const rows = Array.isArray(body) ? body : body?.data;
+    if (!rows || !rows.length) {
+      await ctx.reply(`No interval tasks for <b>${esc(name)}</b>.`, { parse_mode: "HTML" });
+      return;
+    }
+    const lines = [`🗓 <b>${esc(name)} — interval tasks</b>`];
+    for (const t of rows.slice(0, 15)) {
+      const badge = t.task_enabled === false ? "🔴" : "🟢";
+      const schedule = t.schedule_mode === "cron"
+        ? `\`${esc(t.cron || "?")}\``
+        : `${t.interval ? `${t.interval}s` : ""}`;
+      const next = t.next_run ? ` · next ${esc(fmtTime(t.next_run))}` : "";
+      lines.push(`${badge} <code>${esc(String(t.idtask).slice(0, 8))}</code> <b>${esc(t.resource || "?")}</b> (${schedule})${next}`);
+      if (t.note) lines.push(`   <i>${esc(String(t.note).slice(0, 80))}</i>`);
+    }
+    lines.push("", "Run one with /taskrun <idtask> (copy the full id below first).", "");
+    for (const t of rows.slice(0, 15)) {
+      lines.push(`<code>${esc(t.idtask)}</code>`);
+    }
+    await ctx.reply(lines.join("\n"), { parse_mode: "HTML" });
+  } catch (error) {
+    ofapi.log({ message: `tasks: ${error?.message}` });
+    await ctx.reply("Could not read the interval tasks.");
+  }
+});
+
+$BOT.command("taskrun", async (ctx) => {
+  const entry = await linkedEntry(ctx);
+  if (!entry) return;
+  if (!(await isGroupAdmin(ctx.chat, ctx.from.id))) {
+    await ctx.reply("Only group administrators can trigger interval tasks.");
+    return;
+  }
+  const user = await validateUser(ctx.from.id);
+  if (!user.valid) {
+    await ctx.reply("You are not a validated OpenFusionAPI user. First run /link in a private chat with me to link your account.");
+    return;
+  }
+  const idtask = String((ctx.message?.text || "").split(/\s+/)[1] || "").trim();
+  if (!idtask) {
+    await ctx.reply("Usage: /taskrun <idtask>\nSend /tasks to list the available tasks of the linked app.");
+    return;
+  }
+  try {
+    const res = await api("/interval_tasks/run_now", "post", {
+      token: scanToken(),
+      data: { idtask },
+    });
+    const { ok, status, body } = await parseBody(res);
+    if (!ok) {
+      await ctx.reply(`Could not trigger the task (HTTP ${status}).`);
+      return;
+    }
+    const d = body?.data ?? body;
+    const msg = d?.success === false
+      ? `Could not run the task: ${esc(d?.message || d?.error || "unknown error")}`
+      : `✅ Task <code>${esc(idtask)}</code> triggered — it will run on the next scheduler cycle.`;
+    await ctx.reply(msg, { parse_mode: "HTML" });
+  } catch (error) {
+    ofapi.log({ message: `taskrun: ${error?.message}` });
+    await ctx.reply("Could not trigger the task.");
   }
 });
 
