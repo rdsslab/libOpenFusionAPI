@@ -245,7 +245,7 @@ const readCursors = async () => parseJsonVar(await getVarValue(CURSORS_VAR), {})
 // ── Catálogo de apps para resolver idapp → nombre ────────────────────────────
 const getAppsIndex = async () => {
   try {
-    const res = await api("/api/app/list", "get", { token: scanToken() });
+    const res = await api("/api/apps/catalog", "post", { token: scanToken(), data: {} });
     const { ok, body } = await parseBody(res);
     const list = Array.isArray(body) ? body : body?.data;
     if (!ok || !Array.isArray(list)) return new Map();
@@ -1056,7 +1056,9 @@ $BOT.command("myapps", async (ctx) => {
     const map = await readGroupMap();
     const mine = Object.entries(map).filter(([, entry]) => String(entry.linked_by || "") === String(who));
     if (!mine.length) {
-      await ctx.reply("You have not linked any group to an application yet.");
+      await ctx.reply(
+        "You haven't linked any group to an application yet. Go to a group you administer and run /linkapp there."
+      );
       return;
     }
     const apps = await getAppsIndex();

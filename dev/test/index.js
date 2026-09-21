@@ -75,6 +75,11 @@ async function runAllTests() {
         args: ["bot_config_hash_test.js"],
       },
       {
+        label: "bot_system_routes_test.js",
+        command: "node",
+        args: ["bot_system_routes_test.js"],
+      },
+      {
         label: "bot_resilience_test.js",
         command: "node",
         args: ["bot_resilience_test.js"],
