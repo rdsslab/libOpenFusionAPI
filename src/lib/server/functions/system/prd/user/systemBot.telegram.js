@@ -274,10 +274,21 @@ const changePassword = async (token, username, oldPassword, newPassword) => {
 // ── Comandos compartidos ─────────────────────────────────────────────────────
 $BOT.command("start", async (ctx) => {
   setState(ctx.chat.id, null);
-  const text = isPrivateChat(ctx.chat)
-    ? ["Hello, I'm the OpenFusionAPI assistant.", "", PRIVATE_HELP].join("\n")
-    : ["Hello, I'm the OpenFusionAPI assistant.", "", GROUP_HELP].join("\n");
-  await ctx.reply(text);
+  const header = isPrivateChat(ctx.chat)
+    ? ["Hello, I'm the OpenFusionAPI assistant.", "", PRIVATE_HELP]
+    : ["Hello, I'm the OpenFusionAPI assistant.", "", GROUP_HELP];
+  const lines = [...header];
+  try {
+    const res = await api("/server/version", "get", { token: scanToken() });
+    const { ok, body } = await parseBody(res);
+    const d = body?.data ?? body;
+    if (ok && d?.version) {
+      lines.push("", `🤖 OpenFusionAPI runtime: <b>v${esc(d.version)}</b>`);
+    }
+  } catch (error) {
+    ofapi.log({ message: `start: version: ${error?.message}` });
+  }
+  await ctx.reply(lines.join("\n"), { parse_mode: "HTML" });
 });
 
 $BOT.command("help", async (ctx) => {
