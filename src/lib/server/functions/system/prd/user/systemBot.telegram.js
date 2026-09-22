@@ -1178,7 +1178,7 @@ $BOT.command("logs", async (ctx) => {
     }
     const lines = [`📜 <b>${esc(name)} — ${esc(label)} logs (last 24h)</b>`];
     for (const r of rows.slice(0, 10)) {
-      lines.push(`• <code>${esc(fmtTime(r.timestamp))}</code> ${esc(r.method || "?")} <code>${esc(r.url || "?")}</code> → HTTP <b>${r.status || "?"}</b> (${r.response_time ?? 0}ms)`);
+      lines.push(`• <code>${esc(fmtTime(r.timestamp))}</code> ${esc(r.method || "?")} <code>${esc(r.url || "?")}</code> → HTTP <b>${r.status_code ?? r.status ?? "?"}</b> (${r.response_time ?? 0}ms)`);
     }
     await ctx.reply(lines.join("\n"), { parse_mode: "HTML" });
   } catch (error) {
@@ -1256,8 +1256,8 @@ $BOT.command("taskrun", async (ctx) => {
       return;
     }
     const d = body?.data ?? body;
-    const msg = d?.success === false
-      ? `Could not run the task: ${esc(d?.message || d?.error || "unknown error")}`
+    const msg = d?.message
+      ? `✅ Task <code>${esc(idtask)}</code> triggered — ${esc(d.message)}`
       : `✅ Task <code>${esc(idtask)}</code> triggered — it will run on the next scheduler cycle.`;
     await ctx.reply(msg, { parse_mode: "HTML" });
   } catch (error) {
@@ -1508,8 +1508,10 @@ $BOT.on("message:text", async (ctx) => {
         }
         const token = l.data?.token || l.token;
         const res = await changePassword(token, username, oldPassword, newPassword);
-        if (res.ok) await ctx.reply("Password updated successfully.");
-        else await ctx.reply("Could not change the password. Check the security requirements.");
+        const success = res.ok && res.body?.success !== false;
+        const errorMsg = typeof res.body?.error === "string" ? res.body.error : "";
+        if (success) await ctx.reply("Password updated successfully.");
+        else await ctx.reply(errorMsg ? `Could not change the password: ${esc(errorMsg)}` : "Could not change the password. Check the security requirements.");
       } catch (error) {
         ofapi.log({ message: `change flow: ${error?.message}` });
         await ctx.reply("An unexpected error occurred. Try again.");

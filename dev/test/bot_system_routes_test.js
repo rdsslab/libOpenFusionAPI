@@ -49,6 +49,36 @@ test("getAppsIndex usa la ruta real de catálogo /api/apps/catalog", () => {
   );
 });
 
+test("/logs muestra el código de estado real (status_code, no status)", () => {
+  const line = BOT_SOURCE.split("\n").find((l) => l.includes("HTTP <b>"));
+  assert.ok(line, "no se encontró la línea de render del log HTTP");
+  assert.ok(
+    line.includes("status_code"),
+    `la línea de /logs usa r.status en vez de r.status_code:\n  ${line}`,
+  );
+});
+
+test("/taskrun no conserva la rama muerta d.success === false", () => {
+  assert.ok(
+    !BOT_SOURCE.includes("d?.success === false"),
+    'systemBot.telegram.js conserva la rama inalcanzable "d?.success === false" de /taskrun',
+  );
+});
+
+test("/changepassword del bot consulta body.success además de res.ok", () => {
+  const flow = BOT_SOURCE.slice(
+    BOT_SOURCE.indexOf('$BOT.command("changepassword"'),
+  );
+  assert.ok(
+    flow.includes("res.body?.success !== false"),
+    'el flujo /changepassword del bot no evalúa res.body?.success',
+  );
+  assert.ok(
+    flow.includes("res.body?.error"),
+    'el flujo /changepassword del bot no expone el error devuelto por el handler',
+  );
+});
+
 console.log(
   `\nbot_system_routes_test: ${passed} passed, ${failed} failed${failed ? "" : " ✅"}\n`,
 );

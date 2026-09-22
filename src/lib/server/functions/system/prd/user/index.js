@@ -153,12 +153,12 @@ export async function fnUpdateUserPassword(params) {
   let r = { data: undefined, code: 204 };
 
   try {
-    let data = await updateUserPassword(params?.request?.body);
+    const data = await updateUserPassword(params?.request?.body);
 
     r.data = data;
-    r.code = 200;
+    r.code = data && data.success === false ? 400 : 200;
   } catch (error) {
-    r.data = error;
+    r.data = { success: false, error: error?.message || String(error) };
     r.code = 500;
   }
   await recordAudit(params, {
