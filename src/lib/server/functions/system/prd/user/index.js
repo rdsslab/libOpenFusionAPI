@@ -137,6 +137,9 @@ export async function fnGetUsersList(params) {
         ctrl: u.ctrl
           ? JSON.parse(JSON.stringify(u.ctrl))
           : { as_admin: false, env: {} },
+        custom_data: u.custom_data
+          ? JSON.parse(JSON.stringify(u.custom_data))
+          : {},
       };
     });
 

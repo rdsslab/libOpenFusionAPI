@@ -28,6 +28,7 @@ import {
 } from "../../../../../db/appvars.js";
 import { fnGetSystemHealthStats } from "../logs/index.js";
 import { sendTelegramMessage } from "../user/sendTelegramMessage.js";
+import { fnGetUsersList } from "../user/index.js";
 
 const SYSTEM_APP_ID = "cfcd2084-95d5-65ef-66e7-dff9f98764da";
 const ENV = "prd";
@@ -117,10 +118,14 @@ async function collectIntrusions({ from, to }) {
 
 async function collectServerErrors({ from, to }) {
   try {
+    const codesCsv = String(
+      (await getAppVarValue("$_VAR_TELEGRAM_ERROR_NOTIFY_CODES")) ?? ""
+    ).trim();
+    const statusCodes = codesCsv || "5xx";
     const rows = await getLogs({
       start_date: iso(new Date(from)),
       end_date: iso(new Date(to)),
-      status_code: "5xx",
+      status_code: statusCodes,
       lightweight: true,
       limit: 300,
       raw: true,
@@ -132,19 +137,23 @@ async function collectServerErrors({ from, to }) {
     }
     return [...byUrl.entries()].sort((a, b) => b[1] - a[1]);
   } catch (error) {
-    console.error("[admin alerts] 5xx query:", error.message);
+    console.error("[admin alerts] server error query:", error.message);
     return [];
   }
 }
 
 async function countClientErrors({ from, to }) {
   try {
+    const codesCsv = String(
+      (await getAppVarValue("$_VAR_TELEGRAM_ERROR_NOTIFY_CODES")) ?? ""
+    ).trim();
+    const statusCodes = codesCsv || "5xx";
     const rows = await getLogs({
       start_date: iso(new Date(from)),
       end_date: iso(new Date(to)),
-      status_code: "4xx",
+      status_code: statusCodes,
       lightweight: true,
-      limit: 5000,
+      limit: 500,
       raw: true,
     });
     return rows.length;
@@ -312,8 +321,71 @@ async function sendReport(report, token, chatId) {
 }
 
 /**
+ * Calcula la lista de destinatarios del fan-out: el grupo de administradores
+ * (chatId) más cada usuario del sistema con ctrl.as_admin === true que tenga
+ * custom_data.telegram_chat_id. La inclusión de administradores individuales
+ * se controla con la AppVar booleana $_VAR_TELEGRAM_ERROR_NOTIFY_SYSTEM_ADMINS
+ * (por defecto habilitado; solo se desactiva con el valor explícito "false").
+ * @param {{ chatId?: string }} params
+ * @returns {Promise<string[]>}
+ */
+async function getAdminsFanOutList(params) {
+  const chatId = params?.chatId || "";
+  const notifySystemAdmins = String(
+    (await getAppVarValue("$_VAR_TELEGRAM_ERROR_NOTIFY_SYSTEM_ADMINS")) ?? ""
+  )
+    .trim()
+    .toLowerCase();
+  const recipients = chatId ? [chatId] : [];
+  const fanOutAdmins = !(
+    notifySystemAdmins === "false" ||
+    notifySystemAdmins === "0" ||
+    notifySystemAdmins === "off"
+  );
+  if (notifySystemAdmins !== "" && !fanOutAdmins) {
+    return recipients;
+  }
+  try {
+    const list = await fnGetUsersList({ request: { body: {} }, body: {} });
+    const users = Array.isArray(list?.data) ? list.data : [];
+    for (const user of users) {
+      if (user?.ctrl?.as_admin !== true) continue;
+      const chat = user?.custom_data?.telegram_chat_id;
+      if (chat && !recipients.includes(chat)) recipients.push(chat);
+    }
+  } catch (error) {
+    console.error("[admin alerts] fan-out admins list failed:", error?.message || error);
+  }
+  return recipients;
+}
+
+/**
+ * Envía el reporte a cada destinatario del fan-out (grupo + admins).
+ * Devuelve { sent, reason }: sent=true si al menos uno se entregó,
+ * reason es el primer motivo de fallo o null si todos se entregaron.
+ * @param {object} report
+ * @param {string} token
+ * @param {string[]} recipients
+ * @returns {Promise<{ sent: boolean, reason: string|null }>}
+ */
+async function sendReportFanOut(report, token, recipients) {
+  if (!Array.isArray(recipients) || recipients.length === 0) {
+    return { sent: false, reason: "NO_RECIPIENTS" };
+  }
+  if (!token || token.includes("PLACEHOLDER")) {
+    return { sent: false, reason: "NO_TOKEN" };
+  }
+  const deliveries = await Promise.all(
+    recipients.map((chatId) => sendReport(report, token, chatId))
+  );
+  const anySent = deliveries.some((d) => d.sent);
+  const firstReason = deliveries.find((d) => !d.sent)?.reason || null;
+  return { sent: anySent, reason: anySent ? null : firstReason };
+}
+
+/**
  * Handler principal.
- * @param {object} params de ejecución de FUNCTION (request, user_data, server_data, ...).
+ * @param {object} params de ejecución de FUNCTION (request, server_data, ...).
  */
 export async function fnAdminAutoAlerts(params) {
   const request = params?.request || {};
@@ -328,10 +400,11 @@ export async function fnAdminAutoAlerts(params) {
 
   const initial = { code: 200, data: undefined };
   try {
-    const [token, chatId, alertsMode] = await Promise.all([
+    const [token, chatId, alertsMode, colsCsv] = await Promise.all([
       getAppVarValue("$_VAR_TELEGRAM_TOKEN"),
       getAppVarValue("$_VAR_ADMIN_GROUP_CHAT_ID"),
       getAppVarValue("$_VAR_ADMIN_ALERTS_MODE"),
+      getAppVarValue("$_VAR_TELEGRAM_ERROR_NOTIFY_CODES"),
     ]);
 
     const report =
@@ -365,16 +438,15 @@ export async function fnAdminAutoAlerts(params) {
       return initial;
     }
 
+    const adminsFanOut = await getAdminsFanOutList({ chatId });
     const delivery = respondInline
       ? { sent: false, reason: "inline" }
-      : await sendReport(report, token, chatId);
+      : await sendReportFanOut(report, token, adminsFanOut);
     initial.data = {
       mode,
       status: respondInline ? "inline" : delivery.sent ? "sent" : "skipped",
       reason: delivery.reason || null,
       counts: report.counts || {},
-      scanned_from: report.from ? iso(new Date(report.from)) : undefined,
-      scanned_to: report.to ? iso(new Date(report.to)) : undefined,
     };
     if (respondInline && report.message) {
       initial.data.report_text = report.message;

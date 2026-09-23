@@ -553,10 +553,12 @@ export async function createUser(data) {
       email: data.email || null,
       enabled: data.enabled ?? true,
       ctrl: data.ctrl || {},
+      custom_data: data.custom_data ?? {},
       change_password: data.change_password ?? true,
       start_date: data.start_date || "2000-01-01",
       end_date: data.end_date || "9999-12-31",
       exp_time: data.exp_time ?? 3600,
+      custom_data: data.custom_data !== undefined ? data.custom_data : null,
     });
 
     // Retornar estructura limpia
