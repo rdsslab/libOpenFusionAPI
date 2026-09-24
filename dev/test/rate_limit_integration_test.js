@@ -186,6 +186,31 @@ test("3 fallos seguidos de login bloquean la IP y loguean el ataque", async () =
   assert.equal(countAuthCalls(), 3);
 });
 
+test("401 sin credenciales no cuenta como fallo ni dispara lockout", async () => {
+  const clock = makeClock(0);
+  const { runtime, countAuthCalls, possibleAttackLogs, rateLimitService } =
+    buildRuntime({ clock, maxFailures: 3 });
+
+  // requests SIN credentials (p. ej. polling del panel web): 401 pero sin intento
+  for (let i = 0; i < 5; i++) {
+    const req = makeRequest();
+    delete req.headers.authorization;
+    const reply = makeReply();
+    await runtime.preValidationService.preValidation(req, reply);
+    assert.equal(reply.statusCode, 401, `request ${i + 1} debe ser 401`);
+    runtime.requestFlowService.onResponse(req, reply);
+  }
+
+  // ningún 401 sin credenciales debe alimentar el conteo ni el lockout ni el log
+  assert.equal(
+    rateLimitService.isBlocked("203.0.113.9", undefined).blocked,
+    false,
+    "sin credenciales no debe entrar en lockout"
+  );
+  assert.equal(possibleAttackLogs().length, 0, "no debe emitirse el log de ataque");
+  assert.equal(countAuthCalls(), 5, "check_auth se ejecuta pero no se cuenta");
+});
+
 test("el siguiente request recibe 429 con Retry-After sin ejecutar check_auth", async () => {
   const clock = makeClock(0);
   const { runtime, countAuthCalls, possibleAttackLogs } = buildRuntime({

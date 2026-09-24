@@ -6,10 +6,13 @@
  * (ver dev/test/rate_limit_policy_test.js).
  *
  * Un request 401 sobre un endpoint con `access > 0` cuenta como "posible ataque":
- * fuerza bruta sobre el inicio de sesión. Tras una racha de fallos consecutivos de
- * la misma IP (y, si se conoce, el mismo usuario), la entrada entra en lockout con
- * backoff exponencial. Mientras está bloqueada, el preValidation responde 429 con
- * `Retry-After` evitando llegar siquiera a comparar las credenciales.
+ * fuerza bruta sobre el inicio de sesión. Solo se cuentan los 401 en los que el
+ * request presentó credenciales (header `Authorization` o cookie `OFAPI_TOKEN`);
+ * un 401 por ausencia de credenciales (cliente no autenticado) no alimenta el
+ * conteo. Tras una racha de fallos consecutivos de la misma IP (y, si se conoce,
+ * el mismo usuario), la entrada entra en lockout con backoff exponencial. Mientras
+ * está bloqueada, el preValidation responde 429 con `Retry-After` evitando llegar
+ * siquiera a comparar las credenciales.
  */
 
 /** Máximo de fallos consecutivos admitidos antes del primer lockout. */

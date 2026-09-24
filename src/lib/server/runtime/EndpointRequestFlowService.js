@@ -1,5 +1,19 @@
 import { validateEndpointContext } from "./contracts.js";
 
+/**
+ * Indica si el request realmente intentó autenticarse: traía credenciales en el
+ * header `Authorization` (Basic/Bearer) o en la cookie `OFAPI_TOKEN`. Un 401 por
+ * ausencia completa de credenciales (p. ej. un navegador consultando un endpoint
+ * protegido sin token) no es un intento de fuerza bruta: no debe alimentar el
+ * rate limiter ni emitir alertas de "posible ataque".
+ */
+function hasCredentials(request) {
+  const auth = request?.headers?.authorization;
+  if (typeof auth === "string" && auth.trim() !== "") return true;
+  const cookie = request?.cookies?.OFAPI_TOKEN;
+  return typeof cookie === "string" && cookie.trim() !== "";
+}
+
 export class EndpointRequestFlowService {
   constructor({
     serverApi,
@@ -44,9 +58,14 @@ export class EndpointRequestFlowService {
   /**
    * Registra un fallo de autenticación (401) en el rate limiter. Al cruzar el
    * umbral por primera vez emite un log de "posible ataque" con nivel 3.
+   *
+   * Solo cuenta los 401 en los que el request presentó credenciales: un 401 por
+   * ausencia de credenciales (cliente no autenticado) no es un intento de fuerza
+   * bruta y no debe disparar lockout ni notificaciones de intrusión.
    */
   trackAuthFailure(request, reply) {
     if (!this.rateLimitService || reply.statusCode !== 401) return;
+    if (!hasCredentials(request)) return;
 
     const ip = this.getIPFromRequest(request);
     const username = this.getBasicUsernameFromRequest(request);
