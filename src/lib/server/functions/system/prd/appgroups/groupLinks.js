@@ -119,11 +119,16 @@ export async function getGroupLinksForChat(chatId) {
 /**
  * Crea o actualiza el vínculo chat -> app en la var de la app.
  * Re-vincular conserva `notify_changes` previo si no se pasa uno nuevo.
+ *
+ * Semántica de `environment`: un entorno EXPLÍCITO (p. ej. el que elige el
+ * operador desde el picker del bot) se aplica SIEMPRE — antes `current.environment`
+ * ganaba por defecto y un cambio de entorno quedaba ignorado. Si el llamador no
+ * envía entorno, se conserva el previo del vínculo o se usa el default `ENV`.
  */
 export async function writeAppGroupLink({
   idapp,
   chat_id,
-  environment = ENV,
+  environment,
   linked_by = "",
   linked_at = new Date().toISOString(),
   notify_changes,
@@ -132,7 +137,7 @@ export async function writeAppGroupLink({
   const map = await readAppGroupsMap(idapp);
   const current = map[key] || {};
   const next = {
-    environment: current.environment || environment,
+    environment: environment ?? current.environment ?? ENV,
     linked_by: linked_by !== undefined ? linked_by : current.linked_by || "",
     linked_at: linked_at || current.linked_at || new Date().toISOString(),
   };

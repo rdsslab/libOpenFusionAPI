@@ -38,8 +38,14 @@
 //    /unsubscribe - (admin) cancela la suscripción
 //
 //  Grupo vinculado a una o varias aplicaciones ($_VAR_TELEGRAM_GROUPS por app):
-//    /linkapp [nombre|idapp]  - (usuario validado + admin) vincula el grupo a una app (busca por nombre o elige de la lista)
-//    /unlinkapp [app]  - (usuario validado + admin) desvincula el grupo de una app (el picker si hay varias)
+//    /linkapp [app [entorno]]  - (usuario validado + admin) vincula el grupo a una app.
+//        Sin argumentos muestra un selector en 2 pasos: app y luego entorno (dev|qa|prd)
+//        de sus endpoints habilitados. Si ya estaba vinculada en otro entorno, pide
+//        confirmación antes de cambiar. Apps sin endpoints habilitados se muestran
+//        con aviso y no son vinculables.
+//    /unlinkapp [app]  - (usuario validado + admin) desvincula el grupo de una app.
+//        Sin argumentos muestra la lista de apps vinculadas (con su entorno); con
+//        argumento desvincula directo (el picker si hay varias).
 //    /appinfo          - Muestra las apps vinculadas a este grupo
 //    /status           - Estatus general de las apps vinculadas
 //    /apistats         - Uso de endpoints de las apps vinculadas (últimos 7 días)
@@ -88,7 +94,9 @@ const STATE = {
   CHANGE_PASSWORD: "change:password",
   CHANGE_NEWPASSWORD: "change:newpassword",
   CHANGE_CONFIRM: "change:confirm",
-  LINKAPP_PICK: "linkapp:pick",
+  LINKAPP_APP_PICK: "linkapp:app_pick",
+  LINKAPP_ENV_PICK: "linkapp:env_pick",
+  LINKAPP_CONFIRM: "linkapp:confirm",
   UNLINKAPP_PICK: "unlinkapp:pick",
 };
 
@@ -122,8 +130,8 @@ const GROUP_HELP = [
   "I'm the OpenFusionAPI assistant for application groups.",
   "",
   "Group commands:",
-  "/linkapp [name|idapp] - Link this group to an application (validated users only)",
-  "/unlinkapp - Unlink this group",
+  "/linkapp [app [env]] - Link this group to an application and environment (validated users only; picker without arguments)",
+  "/unlinkapp [app] - Unlink this group (picker shows the linked apps)",
   "/appinfo - Show the linked application",
   "/status - General status of the linked application",
   "/apistats - Endpoint usage of the linked app",
@@ -267,11 +275,10 @@ const readChatLinks = async (chatId) => {
   return (data.by_chat[String(chatId)] || []).map((l) => ({ ...l, idapp: String(l.idapp) }));
 };
 
-const writeAppGroupLink = async (idapp, chatId, linkedBy) => {
-  const res = await api("/appgroup/link", "post", {
-    token: scanToken(),
-    data: { action: "link", chat_id: String(chatId), idapp: String(idapp), linked_by: linkedBy, environment: ENV },
-  });
+const writeAppGroupLink = async (idapp, chatId, linkedBy, environment) => {
+  const data = { action: "link", chat_id: String(chatId), idapp: String(idapp), linked_by: linkedBy };
+  if (environment) data.environment = environment;
+  const res = await api("/appgroup/link", "post", { token: scanToken(), data });
   const r = await parseBody(res);
   return !!r.ok;
 };
@@ -308,6 +315,40 @@ const getAppsIndex = async () => {
     return index;
   } catch (error) {
     ofapi.log({ message: `getAppsIndex: ${error?.message}` });
+    return new Map();
+  }
+};
+
+const ENV_ORDER = ["dev", "qa", "prd"];
+const sortEnvs = (envs) =>
+  [...envs].sort((a, b) => {
+    const ia = ENV_ORDER.indexOf(a);
+    const ib = ENV_ORDER.indexOf(b);
+    return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib) || String(a).localeCompare(String(b));
+  });
+
+// Índice rico: idapp -> { name, environments } (entornos con endpoints habilitados).
+// Usado por el selector de /linkapp y las confirmaciones de entorno.
+const getAppsEnvIndex = async () => {
+  try {
+    const res = await api("/api/apps/catalog", "post", { token: scanToken(), data: {} });
+    const { ok, body } = await parseBody(res);
+    const list = Array.isArray(body) ? body : body?.data;
+    if (!ok || !Array.isArray(list)) return new Map();
+    const index = new Map();
+    for (const app of list) {
+      if (!app?.idapp) continue;
+      const envs = Array.isArray(app.environments)
+        ? app.environments.filter((e) => e && typeof e === "string")
+        : [];
+      index.set(String(app.idapp), {
+        name: app.app || app.name || app.idapp,
+        environments: sortEnvs(envs),
+      });
+    }
+    return index;
+  } catch (error) {
+    ofapi.log({ message: `getAppsEnvIndex: ${error?.message}` });
     return new Map();
   }
 };
@@ -713,96 +754,271 @@ const searchApps = (entries, query) => {
   );
 };
 
-const performLink = async (chatId, idapp, linkedBy) => writeAppGroupLink(idapp, chatId, linkedBy);
+// Muestra/edit el mensaje de flujo: en un callback edita el mensaje actual de
+// Telegram (sin dejar menús huérfanos); en un comando por texto responde normal.
+const sendFlowMessage = async (ctx, text, extra = {}) => {
+  const opts = { parse_mode: "HTML", ...extra };
+  if (ctx.callbackQuery) {
+    try {
+      return await ctx.editMessageText(text, opts);
+    } catch (_error) {
+      /* el mensaje no era editable: cae al reply */
+    }
+  }
+  return await ctx.reply(text, opts);
+};
 
-const sendPicker = async (ctx, entries, linkedBy, fromId) => {
-  setState(ctx.chat.id, { step: STATE.LINKAPP_PICK, entries, linkedBy, fromId });
-  const lines = entries.map(
-    ([id, name], i) => `  ${i + 1}. <b>${esc(name || "?")}</b> (<code>${esc(String(id).slice(0, 8))}</code>)`
+const performLink = async (chatId, idapp, linkedBy, environment) =>
+  writeAppGroupLink(idapp, chatId, linkedBy, environment);
+
+const finishLink = async (ctx, idapp, environment, name, linkedBy) => {
+  const ok = await performLink(String(ctx.chat.id), String(idapp), linkedBy, environment);
+  setState(ctx.chat.id, null);
+  const label = `${esc(name || "?")} · <code>${esc(environment)}</code>`;
+  await sendFlowMessage(
+    ctx,
+    ok
+      ? `✅ This group is now linked to <b>${label}</b>.\nUse /status, /apistats or /activity to query the application.`
+      : "Could not save the link. Check the bot token and permissions, then try again."
   );
+  return ok;
+};
+
+// Vincula (app, entorno) Respeta el modelo de 1 entorno por app por grupo:
+//   - misma (app, env) ya vinculada -> solo informa.
+//   - app vinculada en OTRO entorno -> pide confirmación antes de cambiar.
+//   - sin vínculo previo -> vincula directo.
+const linkAppWithEnv = async (ctx, idapp, environment, name, linkedBy) => {
+  try {
+    const links = await readChatLinks(String(ctx.chat.id));
+    const existing = links.find((l) => l.idapp === String(idapp));
+    const env = String(environment);
+    if (existing && existing.environment && existing.environment !== env) {
+      setState(String(ctx.chat.id), {
+        step: STATE.LINKAPP_CONFIRM,
+        idapp: String(idapp),
+        environment: env,
+        name: name || String(idapp),
+        linkedBy,
+        fromId: ctx.from.id,
+      });
+      await sendFlowMessage(
+        ctx,
+        `⚠️ <b>${esc(name || idapp)}</b> is already linked to this group in environment <b>${esc(existing.environment)}</b>.\n\nSwitch it to <b>${esc(env)}</b>?`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: `✅ Switch to ${env}`, callback_data: `linkapp-switch:${idapp}:${env}` }],
+              [{ text: "Cancel", callback_data: "linkapp-cancel" }],
+            ],
+          },
+        }
+      );
+      return;
+    }
+    if (existing && existing.environment === env) {
+      setState(String(ctx.chat.id), null);
+      await sendFlowMessage(ctx, `🔗 <b>${esc(name || idapp)}</b> is already linked in <b>${esc(env)}</b>.`);
+      return;
+    }
+    await finishLink(ctx, String(idapp), env, name, linkedBy);
+  } catch (error) {
+    ofapi.log({ message: `linkapp env: ${error?.message}` });
+    setState(String(ctx.chat.id), null);
+    await sendFlowMessage(ctx, "An unexpected error occurred. Try again.");
+  }
+};
+
+// ── Paso 1: elegir aplicación (botones + reply numérico/nombre) ──────────────
+const sendAppPicker = async (ctx, index, linkedBy, fromId, links) => {
+  const rows = [];
+  for (const [idapp, info] of index.entries()) {
+    const link = (links || []).find((l) => l.idapp === String(idapp));
+    rows.push({
+      idapp: String(idapp),
+      name: info.name,
+      environments: info.environments,
+      linkEnv: link?.environment || undefined,
+    });
+  }
+  const entries = rows.slice(0, MAX_PICKER);
+  setState(ctx.chat.id, { step: STATE.LINKAPP_APP_PICK, entries, linkedBy, fromId });
+  const lines = entries.map((r, i) => {
+    const badges = [
+      r.linkEnv ? `🔗(${esc(r.linkEnv)})` : "",
+      r.environments.length === 0 ? "⚠️" : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+    return `  ${i + 1}. <b>${esc(r.name || "?")}</b>${badges ? ` ${badges}` : ""} (<code>${esc(r.idapp.slice(0, 8))}</code>)`;
+  });
   const text = [
-    "📋 <b>Select the application to link this group:</b>",
+    "📋 <b>Step 1 — choose the application:</b>",
+    "⚠️ no enabled endpoints · 🔗 already linked",
     "",
     ...lines,
     "",
     "Press a button, or reply with the number or the name of the application.",
+    "Apps with a single environment link in one tap; the rest ask for the environment next.",
     "Send /cancel to abort.",
   ].join("\n");
   await ctx.reply(text, {
     parse_mode: "HTML",
     reply_markup: {
-      inline_keyboard: entries.map(([id, name]) => [
-        { text: String(name || "Select").slice(0, 100), callback_data: `linkapp:${id}` },
+      inline_keyboard: entries.map((r) => [
+        {
+          text: `${r.name}${r.linkEnv ? ` (${r.linkEnv}) 🔗` : ""}${r.environments.length === 0 ? " ⚠️" : ""}`.slice(0, 100),
+          callback_data: `appsel:${r.idapp}`,
+        },
       ]),
     },
   });
 };
 
-const handleGroupPick = async (ctx) => {
+const handleAppPick = async (ctx) => {
   const s = getState(ctx.chat.id);
-  if (!s || s.step !== STATE.LINKAPP_PICK) return;
-  if (s.fromId && s.fromId !== ctx.from.id) return;
-  const entries = Array.isArray(s.entries) ? s.entries : [];
+  if (!s || s.step !== STATE.LINKAPP_APP_PICK) return false;
+  if (s.fromId && s.fromId !== ctx.from.id) return false;
   const text = String(ctx.message.text || "").trim();
-  if (text.startsWith("/")) return;
+  if (text.startsWith("/")) return false;
   try {
     if (!(await isGroupAdmin(ctx.chat, ctx.from.id))) {
       setState(ctx.chat.id, null);
       await ctx.reply("Only group administrators can link this group.");
-      return;
+      return true;
     }
     const user = await validateUser(ctx.from.id);
     if (!user.valid) {
       setState(ctx.chat.id, null);
       await ctx.reply("You are not a validated OpenFusionAPI user.");
-      return;
+      return true;
     }
     const linkedBy = user.username || String(ctx.from.id);
+    const entries = Array.isArray(s.entries) ? s.entries : [];
     let picked = null;
     if (/^\d+$/.test(text)) {
       const idx = parseInt(text, 10) - 1;
       if (idx >= 0 && idx < entries.length) picked = entries[idx];
       else {
         await ctx.reply(`Enter a number between 1 and ${entries.length}, or type the application name.`);
-        return;
+        return true;
       }
-    }
-    if (!picked) {
-      const apps = await getAppsIndex();
-      const matches = searchApps([...apps.entries()], text);
-      if (matches.length === 0) {
+    } else {
+      const q = String(text).trim().toLowerCase();
+      const idx = entries.findIndex(
+        (r) => String(r.name || "").toLowerCase().includes(q) || String(r.idapp).toLowerCase().includes(q)
+      );
+      if (idx === -1) {
         await ctx.reply(`No application matches "<b>${esc(text)}</b>". Reply with a number from the list or a name, or send /cancel.`, { parse_mode: "HTML" });
-        return;
+        return true;
       }
-      if (matches.length > 1) {
-        setState(ctx.chat.id, null);
-        await sendPicker(ctx, matches.slice(0, MAX_PICKER), linkedBy, ctx.from.id);
-        return;
-      }
-      picked = matches[0];
+      picked = entries[idx];
     }
-    setState(ctx.chat.id, null);
-    const [idapp, name] = picked;
-    const ok = await performLink(String(ctx.chat.id), String(idapp), linkedBy);
-    await ctx.reply(ok
-      ? `✅ This group is now linked to <b>${esc(name)}</b> (${esc(String(idapp))}).\nUse /status or /activity to query the application, and I will post its news here periodically.`
-      : "Could not save the link. Check the bot token and permissions, then try again.",
-      { parse_mode: "HTML" });
+    if (!picked) return true;
+    if (picked.environments.length === 0) {
+      setState(ctx.chat.id, null);
+      await ctx.reply(
+        `⚠️ <b>${esc(picked.name)}</b> has no enabled endpoints in any environment, so it cannot be linked.`,
+        { parse_mode: "HTML" }
+      );
+      return true;
+    }
+    if (picked.environments.length === 1) {
+      setState(ctx.chat.id, null);
+      await linkAppWithEnv(ctx, picked.idapp, picked.environments[0], picked.name, linkedBy);
+      return true;
+    }
+    await sendEnvPicker(ctx, picked, linkedBy, ctx.from.id);
+    return true;
   } catch (error) {
-    ofapi.log({ message: `linkapp pick: ${error?.message}` });
+    ofapi.log({ message: `linkapp step1: ${error?.message}` });
     setState(ctx.chat.id, null);
     await ctx.reply("An unexpected error occurred. Try again.");
+    return true;
+  }
+};
+
+// ── Paso 2: elegir entorno (botones + reply dev|qa|prd) ──────────────────────
+const sendEnvPicker = async (ctx, appInfo, linkedBy, fromId) => {
+  setState(ctx.chat.id, {
+    step: STATE.LINKAPP_ENV_PICK,
+    idapp: String(appInfo.idapp),
+    name: appInfo.name,
+    environments: appInfo.environments,
+    linkedBy,
+    fromId,
+  });
+  const lines = appInfo.environments.map(
+    (env, i) => `  ${i + 1}. <code>${esc(env)}</code>${appInfo.linkEnv === env ? " (current) 🔗" : ""}`
+  );
+  const text = [
+    `📍 <b>Step 2 — environment for ${esc(appInfo.name)}:</b>`,
+    "",
+    ...lines,
+    appInfo.linkEnv ? `\nCurrently linked: <b>${esc(appInfo.linkEnv)}</b>. Choose another environment to switch.` : "",
+    "",
+    "Press a button, or reply with the environment name (dev, qa, prd).",
+    "Send /cancel to abort.",
+  ].join("\n");
+  await ctx.reply(text, {
+    parse_mode: "HTML",
+    reply_markup: {
+      inline_keyboard: appInfo.environments.map((env) => [
+        { text: env === appInfo.linkEnv ? `${env} 🔗 (current)` : env, callback_data: `linkapp:${appInfo.idapp}:${env}` },
+      ]),
+    },
+  });
+};
+
+const handleEnvPick = async (ctx) => {
+  const s = getState(ctx.chat.id);
+  if (!s || s.step !== STATE.LINKAPP_ENV_PICK) return false;
+  if (s.fromId && s.fromId !== ctx.from.id) return false;
+  const text = String(ctx.message.text || "").trim().toLowerCase();
+  if (text.startsWith("/")) return false;
+  try {
+    if (!(await isGroupAdmin(ctx.chat, ctx.from.id))) {
+      setState(ctx.chat.id, null);
+      await ctx.reply("Only group administrators can link this group.");
+      return true;
+    }
+    const user = await validateUser(ctx.from.id);
+    if (!user.valid) {
+      setState(ctx.chat.id, null);
+      await ctx.reply("You are not a validated OpenFusionAPI user.");
+      return true;
+    }
+    const envs = Array.isArray(s.environments) ? s.environments : [];
+    let env = null;
+    if (/^\d+$/.test(text)) {
+      const idx = parseInt(text, 10) - 1;
+      if (idx >= 0 && idx < envs.length) env = envs[idx];
+    } else {
+      env = envs.find((e) => String(e).toLowerCase() === text);
+    }
+    if (!env) {
+      await ctx.reply(`Enter a valid environment (${envs.join(", ")}), or send /cancel.`);
+      return true;
+    }
+    setState(ctx.chat.id, null);
+    await linkAppWithEnv(ctx, s.idapp, env, s.name, user.username || String(ctx.from.id));
+    return true;
+  } catch (error) {
+    ofapi.log({ message: `linkapp step2: ${error?.message}` });
+    setState(ctx.chat.id, null);
+    await ctx.reply("An unexpected error occurred. Try again.");
+    return true;
   }
 };
 
 const sendUnlinkPicker = async (ctx, links, apps) => {
   setState(ctx.chat.id, {
     step: STATE.UNLINKAPP_PICK,
-    entries: links.map((l) => ({ idapp: l.idapp })),
+    entries: links.map((l) => ({ idapp: l.idapp, environment: l.environment })),
     fromId: ctx.from.id,
   });
   const lines = links.map(
-    (l, i) => `  ${i + 1}. <b>${esc(apps.get(String(l.idapp)) || l.idapp)}</b> (<code>${esc(String(l.idapp).slice(0, 8))}</code>)`
+    (l, i) => `  ${i + 1}. <b>${esc(apps.get(String(l.idapp)) || l.idapp)}</b> — <code>${esc(l.environment || ENV)}</code> (<code>${esc(String(l.idapp).slice(0, 8))}</code>)`
   );
   const text = [
     "🔗 <b>This group is linked to several applications. Pick which one to unlink:</b>",
@@ -817,7 +1033,7 @@ const sendUnlinkPicker = async (ctx, links, apps) => {
     reply_markup: {
       inline_keyboard: links.map((l) => [
         {
-          text: String(apps.get(String(l.idapp)) || l.idapp).slice(0, 100),
+          text: `${apps.get(String(l.idapp)) || l.idapp} — ${l.environment || ENV}`.slice(0, 100),
           callback_data: `unlinkapp:${l.idapp}`,
         },
       ]),
@@ -872,45 +1088,87 @@ $BOT.command("linkapp", async (ctx) => {
     await ctx.reply("You are not a validated OpenFusionAPI user. First run /link in a private chat with me to link your account.");
     return;
   }
-  const query = String((ctx.message?.text || "").split(/\s+/)[1] || "").trim().toLowerCase();
+  const tokens = String(ctx.message?.text || "").split(/\s+/).slice(1).filter(Boolean);
   const linkedBy = user.username || String(ctx.from.id);
   setState(ctx.chat.id, null);
   try {
     const apps = await getAppsIndex();
-    const entries = [...apps.entries()];
-    if (!entries.length) {
+    const index = await getAppsEnvIndex();
+    if (!apps.size) {
       await ctx.reply("There are no applications in this server yet.");
       return;
     }
-    if (!query) {
-      await sendPicker(ctx, entries.slice(0, MAX_PICKER), linkedBy, ctx.from.id);
+    // Soporta la sintaxis opcional: /linkapp <app> <entorno>
+    let appQuery = tokens.join(" ").trim().toLowerCase();
+    let envArg = undefined;
+    if (tokens.length >= 2) {
+      const last = tokens[tokens.length - 1].toLowerCase();
+      if (last === "dev" || last === "qa" || last === "prd") {
+        envArg = last;
+        appQuery = tokens.slice(0, -1).join(" ").trim().toLowerCase();
+      }
+    }
+    if (!appQuery) {
+      const links = await readChatLinks(chat.id);
+      await sendAppPicker(ctx, index, linkedBy, ctx.from.id, links);
       return;
     }
-    const matches = searchApps(entries, query);
+    const matches = searchApps([...apps.entries()], appQuery);
     if (matches.length === 0) {
-      await ctx.reply(`No application matches "<b>${esc(query)}</b>". Send /linkapp to pick from the list.`, { parse_mode: "HTML" });
+      await ctx.reply(`No application matches "<b>${esc(appQuery)}</b>". Use /linkapp to pick from the list.`, { parse_mode: "HTML" });
       return;
     }
     if (matches.length > 1) {
-      await sendPicker(ctx, matches.slice(0, MAX_PICKER), linkedBy, ctx.from.id);
+      const links = await readChatLinks(chat.id);
+      await sendAppPicker(ctx, index, linkedBy, ctx.from.id, links);
       return;
     }
     const [idapp, name] = matches[0];
-    const ok = await performLink(String(chat.id), String(idapp), linkedBy);
-    await ctx.reply(ok
-      ? `✅ This group is now linked to <b>${esc(name)}</b> (${esc(String(idapp))}).\nUse /status or /activity to query the application, and I will post its news here periodically.`
-      : "Could not save the link. Check the bot token and permissions, then try again.",
-      { parse_mode: "HTML" });
+    const info = index.get(String(idapp)) || { name, environments: [] };
+    if (envArg) {
+      if (!info.environments.includes(envArg)) {
+        const available = info.environments.length
+          ? info.environments.join(", ")
+          : "none";
+        await ctx.reply(
+          `⚠️ <b>${esc(name)}</b> has no enabled endpoints in <b>${esc(envArg)}</b>.\nAvailable environments: ${esc(available)}`,
+          { parse_mode: "HTML" }
+        );
+        return;
+      }
+      await linkAppWithEnv(ctx, String(idapp), envArg, name, linkedBy);
+      return;
+    }
+    if (info.environments.length === 0) {
+      await ctx.reply(
+        `⚠️ <b>${esc(name)}</b> has no enabled endpoints in any environment, so it cannot be linked.`,
+        { parse_mode: "HTML" }
+      );
+      return;
+    }
+    if (info.environments.length === 1) {
+      await linkAppWithEnv(ctx, String(idapp), info.environments[0], name, linkedBy);
+      return;
+    }
+    const links = await readChatLinks(chat.id);
+    const link = links.find((l) => l.idapp === String(idapp));
+    await sendEnvPicker(
+      ctx,
+      { idapp: String(idapp), name, environments: info.environments, linkEnv: link?.environment },
+      linkedBy,
+      ctx.from.id
+    );
   } catch (error) {
     ofapi.log({ message: `linkapp: ${error?.message}` });
     await ctx.reply("An unexpected error occurred. Try again.");
   }
 });
 
+// ── Paso 1 (callback): elegir aplicación ─────────────────────────────────────
 $BOT.on("callback_query:data", async (ctx) => {
   const data = String(ctx.callbackQuery?.data || "");
-  if (!data.startsWith("linkapp:")) return;
-  const idapp = data.slice("linkapp:".length);
+  if (!data.startsWith("appsel:")) return;
+  const idapp = data.slice("appsel:".length);
   const chat = ctx.chat;
   if (!chat || !isGroupChat(chat)) return;
   try {
@@ -923,25 +1181,140 @@ $BOT.on("callback_query:data", async (ctx) => {
       await ctx.answerCallbackQuery({ text: "You are not a validated OpenFusionAPI user." });
       return;
     }
-    const apps = await getAppsIndex();
-    const name = apps.get(String(idapp));
-    if (name === undefined) {
+    const index = await getAppsEnvIndex();
+    const entry = index.get(String(idapp));
+    if (!entry) {
       await ctx.answerCallbackQuery({ text: "That application no longer exists in this server." });
       return;
     }
-    const ok = await performLink(String(chat.id), String(idapp), user.username || String(ctx.from.id));
-    setState(chat.id, null);
-    if (ok) {
-      await ctx.editMessageText(
-        `✅ This group is now linked to <b>${esc(name)}</b> (${esc(String(idapp))}).\nUse /status or /activity to query the application, and I will post its news here periodically.`,
-        { parse_mode: "HTML" }
-      );
-    } else {
-      await ctx.answerCallbackQuery({ text: "Could not save the link. Try again." });
+    const linkedBy = user.username || String(ctx.from.id);
+    if (entry.environments.length === 0) {
+      await ctx.answerCallbackQuery({ text: `${entry.name} has no enabled endpoints in any environment.` });
+      return;
     }
+    const links = await readChatLinks(chat.id);
+    const link = links.find((l) => l.idapp === String(idapp));
+    if (entry.environments.length === 1) {
+      await ctx.answerCallbackQuery({ text: `Linking ${entry.name}…` });
+      await linkAppWithEnv(ctx, String(idapp), entry.environments[0], entry.name, linkedBy);
+      return;
+    }
+    await ctx.answerCallbackQuery();
+    await ctx.editMessageText(
+      `📍 <b>Step 2 — environment for ${esc(entry.name)}:</b>\n\n${entry.environments
+        .map((env, i) => `  ${i + 1}. <code>${esc(env)}</code>${link?.environment === env ? " (current) 🔗" : ""}`)
+        .join("\n")}${link?.environment ? `\n\nCurrently linked: <b>${esc(link.environment)}</b>. Choose another environment to switch.` : ""}\n\nPress a button to link.`,
+      {
+        parse_mode: "HTML",
+        reply_markup: {
+          inline_keyboard: entry.environments.map((env) => [
+            {
+              text: env === link?.environment ? `${env} 🔗 (current)` : env,
+              callback_data: `linkapp:${idapp}:${env}`,
+            },
+          ]),
+        },
+      }
+    );
+  } catch (error) {
+    ofapi.log({ message: `appsel callback: ${error?.message}` });
+    await ctx.answerCallbackQuery({ text: "An unexpected error occurred." });
+  }
+});
+
+// ── Paso 2 (callback): vincular (app, entorno) ───────────────────────────────
+$BOT.on("callback_query:data", async (ctx) => {
+  const data = String(ctx.callbackQuery?.data || "");
+  if (!data.startsWith("linkapp:")) return;
+  const rest = data.slice("linkapp:".length);
+  const sep = rest.indexOf(":");
+  const idapp = sep === -1 ? rest : rest.slice(0, sep);
+  const environment = sep === -1 ? undefined : rest.slice(sep + 1);
+  const chat = ctx.chat;
+  if (!chat || !isGroupChat(chat)) return;
+  try {
+    if (!(await isGroupAdmin(chat, ctx.from.id))) {
+      await ctx.answerCallbackQuery({ text: "Only group administrators can link this group." });
+      return;
+    }
+    const user = await validateUser(ctx.from.id);
+    if (!user.valid) {
+      await ctx.answerCallbackQuery({ text: "You are not a validated OpenFusionAPI user." });
+      return;
+    }
+    const index = await getAppsEnvIndex();
+    const entry = index.get(String(idapp));
+    if (!entry) {
+      await ctx.answerCallbackQuery({ text: "That application no longer exists in this server." });
+      return;
+    }
+    let env = environment;
+    if (!env) {
+      // Callback legacy (linkapp:<idapp> sin entorno): resuelve si hay 1 solo entorno.
+      if (entry.environments.length === 1) env = entry.environments[0];
+      else {
+        await ctx.answerCallbackQuery({ text: "Pick the environment again — run /linkapp." });
+        return;
+      }
+    }
+    env = String(env);
+    if (!entry.environments.includes(env)) {
+      await ctx.answerCallbackQuery({ text: `Invalid environment for ${entry.name}.` });
+      return;
+    }
+    await ctx.answerCallbackQuery({ text: `Linking ${entry.name}…`, show_alert: false });
+    await linkAppWithEnv(ctx, String(idapp), env, entry.name, user.username || String(ctx.from.id));
   } catch (error) {
     ofapi.log({ message: `linkapp callback: ${error?.message}` });
     await ctx.answerCallbackQuery({ text: "An unexpected error occurred." });
+  }
+});
+
+// ── Confirmación de cambio de entorno ────────────────────────────────────────
+$BOT.on("callback_query:data", async (ctx) => {
+  const data = String(ctx.callbackQuery?.data || "");
+  if (!data.startsWith("linkapp-switch:")) return;
+  const rest = data.slice("linkapp-switch:".length);
+  const sep = rest.indexOf(":");
+  const idapp = rest.slice(0, sep);
+  const environment = rest.slice(sep + 1);
+  const chat = ctx.chat;
+  if (!chat || !isGroupChat(chat)) return;
+  try {
+    if (!(await isGroupAdmin(chat, ctx.from.id))) {
+      await ctx.answerCallbackQuery({ text: "Only group administrators can link this group." });
+      return;
+    }
+    const user = await validateUser(ctx.from.id);
+    if (!user.valid) {
+      await ctx.answerCallbackQuery({ text: "You are not a validated OpenFusionAPI user." });
+      return;
+    }
+    const index = await getAppsEnvIndex();
+    const entry = index.get(String(idapp));
+    if (!entry || !entry.environments.includes(String(environment))) {
+      await ctx.answerCallbackQuery({ text: "Invalid environment. Run /linkapp again." });
+      return;
+    }
+    const name = entry.name;
+    await ctx.answerCallbackQuery();
+    await finishLink(ctx, String(idapp), String(environment), name, user.username || String(ctx.from.id));
+  } catch (error) {
+    ofapi.log({ message: `linkapp-switch callback: ${error?.message}` });
+    await ctx.answerCallbackQuery({ text: "An unexpected error occurred." });
+  }
+});
+
+$BOT.on("callback_query:data", async (ctx) => {
+  const data = String(ctx.callbackQuery?.data || "");
+  if (data !== "linkapp-cancel") return;
+  const chat = ctx.chat;
+  setState(chat?.id, null);
+  try {
+    await ctx.answerCallbackQuery({ text: "Cancelled." });
+    if (chat) await ctx.editMessageText("❌ Cancelled.");
+  } catch (_) {
+    /* ignore */
   }
 });
 
@@ -1060,10 +1433,10 @@ $BOT.command("appinfo", async (ctx) => {
 // ── Estatus bajo demanda de las apps vinculadas ──────────────────────────────
 const getLinkedEntries = async (chat) => readChatLinks(chat?.id);
 
-const queryAppSummary = async (idapp, lastDays = 1) => {
+const queryAppSummary = async (idapp, lastDays = 1, environment) => {
   const res = await api("/log/app/summary", "get", {
     token: scanToken(),
-    data: { idapp, environment: ENV, last_days: lastDays },
+    data: { idapp, environment: environment || ENV, last_days: lastDays },
   });
   const { ok, body } = await parseBody(res);
   if (!ok) return { ok: false, status: res.status, rows: [] };
@@ -1086,7 +1459,7 @@ $BOT.command("status", async (ctx) => {
   const parts = [];
   for (const entry of entries) {
     try {
-      const { ok, rows } = await queryAppSummary(entry.idapp, 1);
+      const { ok, rows } = await queryAppSummary(entry.idapp, 1, entry.environment);
       if (!ok) {
         parts.push(`⚠️ <b>${esc(apps.get(String(entry.idapp)) || entry.idapp)}</b>: could not read the activity.`);
         continue;
@@ -1104,7 +1477,7 @@ $BOT.command("status", async (ctx) => {
       const failures = ["4xx", "5xx"].filter((c) => classes[c] > 0)
         .map((c) => `${c}: ${classes[c]}`).join(", ");
       const lines = [
-        `📊 <b>${esc(apps.get(String(entry.idapp)) || entry.idapp)} — status</b> (last 24h)`,
+        `📊 <b>${esc(apps.get(String(entry.idapp)) || entry.idapp)}</b> · <code>${esc(entry.environment || ENV)}</code> — status (last 24h)`,
         `• Endpoints with activity: <b>${activeEndpoints.size}</b>`,
         `• Requests: <b>${total}</b>` +
           (classes["2xx"] ? ` · 2xx: ${classes["2xx"]}` : "") +
@@ -1591,7 +1964,8 @@ $BOT.command("unsubscribe", async (ctx) => {
 $BOT.on("message:text", async (ctx) => {
   if (!isPrivateChat(ctx.chat)) {
     if (isGroupChat(ctx.chat)) {
-      await handleGroupPick(ctx);
+      const appConsumed = await handleAppPick(ctx);
+      if (!appConsumed) await handleEnvPick(ctx);
       await handleUnlinkPick(ctx);
     }
     return;

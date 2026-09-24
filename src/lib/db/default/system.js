@@ -10563,7 +10563,7 @@ export const system_app = {
         "enabled": true,
         "name": "apps_catalog",
         "title": "List Application Catalog (Lightweight)",
-        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns a lightweight list of applications: names, idapp, enabled status and description — without nested endpoints or AppVars. Use this to discover idapp values or check which apps exist. This is the recommended first step to discover applications. To list the endpoints of one application continue with 'app_endpoints_catalog'; escalate to 'apps_list' or 'get_app_list_filters' only when you need the raw application columns or nested data.",
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns a lightweight list of applications: names, idapp, enabled status, description and the 'environments' array (environments with enabled endpoints, e.g. ['dev','prd']) — without nested endpoints or AppVars. Use this to discover idapp values, check which apps exist, or learn the environments an app can be linked to (e.g. when linking a Telegram group with /linkapp). This is the recommended first step to discover applications. To list the endpoints of one application continue with 'app_endpoints_catalog'; escalate to 'apps_list' or 'get_app_list_filters' only when you need the raw application columns or nested data.",
         "operation_mode": "read",
         "requires_explicit_confirmation": false,
         "side_effects": "No persistent write side effects expected.",

@@ -588,6 +588,16 @@ export const getAllApps = async (attributes = null) => {
   }
 };
 
+// Orden canónico de entornos para el catálogo (el resto va después, alfabético).
+const ENV_CATALOG_ORDER = ["dev", "qa", "prd"];
+
+const sortCatalogEnvironments = (envs) =>
+  [...envs].sort((a, b) => {
+    const ia = ENV_CATALOG_ORDER.indexOf(a);
+    const ib = ENV_CATALOG_ORDER.indexOf(b);
+    return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib) || String(a).localeCompare(String(b));
+  });
+
 export const getAppsCatalog = async (filters = {}) => {
   const { app, enabled, limit, offset } = filters;
 
@@ -605,7 +615,7 @@ export const getAppsCatalog = async (filters = {}) => {
     const parsedLimit = Number(limit);
     const parsedOffset = Number(offset);
 
-    return await Application.findAll({
+    const apps = await Application.findAll({
       where,
       attributes: [
         "idapp",
@@ -618,6 +628,30 @@ export const getAppsCatalog = async (filters = {}) => {
       order: [["app", "ASC"]],
       ...(Number.isFinite(parsedLimit) && parsedLimit > 0 ? { limit: parsedLimit } : {}),
       ...(Number.isFinite(parsedOffset) && parsedOffset >= 0 ? { offset: parsedOffset } : {}),
+    });
+
+    // Entornos con endpoints habilitados por app (una sola consulta agregada).
+    const endpointEnvs = await Endpoint.findAll({
+      attributes: ["idapp", "environment"],
+      where: { enabled: true },
+      raw: true,
+    });
+    const envByApp = new Map();
+    for (const row of endpointEnvs || []) {
+      if (!row?.environment) continue;
+      const id = String(row.idapp);
+      if (!envByApp.has(id)) envByApp.set(id, new Set());
+      envByApp.get(id).add(String(row.environment));
+    }
+
+    return (apps || []).map((appRow) => {
+      const plain = appRow.toJSON ? appRow.toJSON() : appRow;
+      return {
+        ...plain,
+        environments: sortCatalogEnvironments(
+          envByApp.get(String(plain.idapp)) || new Set()
+        ),
+      };
     });
   } catch (error) {
     console.error("Error retrieving apps catalog:", error);

@@ -373,11 +373,13 @@ export async function fnAppGroupLinkWrite(params) {
         initial.code = 404;
         return initial;
       }
+      // Cadena vacía/undefined => la capa DB decide (conserva el entorno previo o usa ENV).
+      const envRaw = typeof body.environment === "string" ? body.environment.trim() : body.environment;
       await writeAppGroupLink({
         idapp: idappRaw,
         chat_id: chatId,
         linked_by: body.linked_by,
-        environment: body.environment || ENV,
+        environment: envRaw || undefined,
         notify_changes: body.notify_changes,
       });
       initial.data = { ok: true, action, chat_id: chatId, idapp: idappRaw };
