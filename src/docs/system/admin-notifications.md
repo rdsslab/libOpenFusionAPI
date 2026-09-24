@@ -1,7 +1,10 @@
-# Admin notifications (Telegram)
+# Admin alerts (system app - server parametrization)
 
-OpenFusionAPI can push proactive operational alerts to a Telegram group: intrusion
-attempts, server errors, 4xx saturation, bot incidents and a periodic health digest.
+The **system** application can push proactive operational alerts to a Telegram group:
+intrusion attempts, server errors, 4xx saturation, bot incidents and a periodic health
+digest. This is server-side parametrization of the `system` app, **not** a reusable
+Telegram bot pattern — it is documented here (see `system/README.md`), separate from the
+messaging bot skills.
 
 ## Architecture
 
@@ -36,9 +39,41 @@ subscription (`/subscribe`, `/unsubscribe`).
 | `$_VAR_ADMIN_GROUP_CHAT_ID` | `""` | Chat id of the admin group; empty = notifications are skipped |
 | `$_VAR_ADMIN_ALERT_CURSOR` | `""` | JSON `{"scanned_up_to":"<ISO>"}` written by the events scan (dedup) |
 | `$_VAR_ALERT_4XX_THRESHOLD` | `20` | Number of 4xx responses in a window that triggers the "elevated client errors" alert |
+| `$_VAR_TELEGRAM_ERROR_NOTIFY_CODES` | `""` | CSV of status codes matched by the events scan (e.g. `5xx,4xx`, or explicit `500,502,429`). Empty = `5xx`. |
+| `$_VAR_TELEGRAM_ERROR_NOTIFY_SYSTEM_ADMINS` | `true` | Boolean. `true` or empty (default) **fans out** the report to every system admin with `ctrl.as_admin` and `custom_data.telegram_chat_id`, in addition to the group. Only `false`/`0`/`off` disables it (group only). |
 
 `/subscribe` (run inside the target group by an administrator) writes the negative
 group chat id into `$_VAR_ADMIN_GROUP_CHAT_ID` automatically.
+
+## Fan-out to system admins
+
+When `$_VAR_TELEGRAM_ERROR_NOTIFY_SYSTEM_ADMINS` resolves to `true` (or is empty/unset),
+every report is sent to each recipient in the fan-out list:
+
+- the admin group (`$_VAR_ADMIN_GROUP_CHAT_ID`), when set, plus
+- every system user with `ctrl.as_admin === true` that has `custom_data.telegram_chat_id`
+  set, resolved through `fnGetUsersList` and deduplicated.
+
+The group is always part of the list when `$_VAR_ADMIN_GROUP_CHAT_ID` is not empty.
+Only the explicit values `false`, `0` or `off` disable the individual-admins fan-out
+(group only); any other value (empty string, `true`, `1`, `on`) keeps it enabled.
+`.telegram_chat_id` detection uses `user.ctrl.as_admin`; users without that flag are
+never notified individually even if they have a chat id.
+
+The fan-out is best-effort: a failure to load the user list (e.g. the `system` app
+tree being temporarily unavailable) logs `[admin alerts] fan-out admins list failed`
+and still delivers to the group. Delivery to each recipient is logged as
+`sendReportFanOut` per chat id.
+
+## Troubleshooting
+
+| Symptom | Cause / fix |
+|---|---|
+| No report but errors exist | `$_VAR_ADMIN_GROUP_CHAT_ID` empty and `$_VAR_TELEGRAM_ERROR_NOTIFY_SYSTEM_ADMINS` set to `false`/`0`/`off` with no individual admins configured → no recipients (`NO_RECIPIENTS`). Set the group or enable the fan-out. |
+| `NO_TOKEN` | `$_VAR_TELEGRAM_TOKEN` empty or still `PLACEHOLDER...`; replace with a real bot token. |
+| `NO_CHAT_ID` | A recipient exists but its chat id is empty; check `$_VAR_ADMIN_GROUP_CHAT_ID` / `custom_data.telegram_chat_id`. |
+| Only the group receives it | Individual admins skipped; confirm their users have `ctrl.as_admin === true` and `custom_data.telegram_chat_id`. |
+| Too many/few status codes reported | Adjust `$_VAR_TELEGRAM_ERROR_NOTIFY_CODES` (CSV) e.g. `5xx,4xx`, `500,502,429`; empty defaults to `5xx`. |
 
 ## Modes of `POST /system/admin/alerts`
 
