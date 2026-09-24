@@ -26,9 +26,12 @@ import {
   upsertAppVar,
   ensureAppVarOnce,
 } from "../../../../../db/appvars.js";
+import { Bot } from "../../../../../db/models.js";
 import { fnGetSystemHealthStats } from "../logs/index.js";
 import { sendTelegramMessage } from "../user/sendTelegramMessage.js";
 import { fnGetUsersList } from "../user/index.js";
+import { version } from "../../../../version.js";
+import { getExposedEnvironmentsList } from "../../../../envExposure.js";
 
 const SYSTEM_APP_ID = "cfcd2084-95d5-65ef-66e7-dff9f98764da";
 const ENV = "prd";
@@ -454,6 +457,178 @@ export async function fnAdminAutoAlerts(params) {
     }
   } catch (error) {
     console.error("[fnAdminAutoAlerts]", error);
+    initial.data = { error: error.message };
+    initial.code = 500;
+  }
+  return initial;
+}
+
+/** Formatea segundos como duración legible (p.ej. "1d 2h 3m 4s"). */
+function fmtUptime(seconds) {
+  const s = Math.max(0, Math.floor(Number(seconds) || 0));
+  const d = Math.floor(s / 86400);
+  const h = Math.floor((s % 86400) / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  const parts = [];
+  if (d) parts.push(`${d}d`);
+  if (h || d) parts.push(`${h}h`);
+  if (m || h) parts.push(`${m}m`);
+  parts.push(`${sec}s`);
+  return parts.join(" ");
+}
+
+/**
+ * Compone el mensaje con los datos generales del servidor en el arranque.
+ * Reutiliza fnGetSystemHealthStats (apps, endpoints, logs, CPU/RAM) y añade
+ * versión, PID, uptime y los entornos expuestos en esta instancia.
+ */
+async function runStartupMessage({ started_at, window_hours = 1 } = {}) {
+  const lastHours = Math.max(1, Number(window_hours) || 1);
+  const statsR = await fnGetSystemHealthStats({
+    request: { query: { last_hours: lastHours } },
+  });
+  if (statsR.code !== 200) {
+    return { alerted: false, reason: "STATS_FAILED", error: statsR.data?.error, counts: {} };
+  }
+  const s = statsR.data || {};
+  const logs = s.logs || {};
+  const byStatus = Object.entries(logs.by_status_code || {})
+    .sort((a, b) => b[1] - a[1])
+    .map(([code, count]) => `${code}:${count}`)
+    .join(" · ");
+
+  const startMs = started_at ? Date.parse(started_at) : NaN;
+  const uptimeSecs = Number.isFinite(startMs)
+    ? Math.max(0, Math.floor((Date.now() - startMs) / 1000))
+    : Math.floor(process.uptime());
+
+  const envs = getExposedEnvironmentsList();
+
+  let enabledBots = 0;
+  try {
+    enabledBots = Number(await Bot.count({ where: { enabled: true } })) || 0;
+  } catch (error) {
+    console.error("[fnAdminStartupNotify] bots count:", error?.message || error);
+  }
+
+  const title = "<b>🚀 OpenFusionAPI — server started</b>";
+  const lines = [
+    `🕐 <b>${esc(s.timestamp || "")}</b> UTC`,
+    `🆔 PID <code>${process.pid}</code> · Version <b>${esc(version)}</b>`,
+    `⏱ Uptime: ${fmtUptime(uptimeSecs)}`,
+    `🌐 Environments: ${esc(envs.join(", ") || "(none)")}`,
+    `🤖 Bots enabled: <b>${enabledBots}</b>`,
+    `📦 Apps: <b>${s.apps?.total ?? "?"}</b>`,
+    `🔌 Endpoints: <b>${s.endpoints?.total ?? "?"}</b> (${s.endpoints?.enabled ?? "?"} enabled, ${s.endpoints?.mcp_enabled ?? "?"} MCP)`,
+    `📊 Logs (last ${lastHours}h): <b>${logs.total_in_window ?? "?"}</b> total · <b>${logs.errors_in_window ?? "?"}</b> errors`,
+    byStatus ? `   ${esc(byStatus)}` : "",
+    s.system?.cpu_usage != null
+      ? `🧠 CPU: ${s.system.cpu_usage}% · RAM: ${s.system.memory_used_gb ?? "?"}/${s.system.memory_total_gb ?? "?"} GB`
+      : "",
+  ].filter(Boolean).join("\n");
+
+  return {
+    alerted: true,
+    counts: { window_hours: lastHours, uptime_seconds: uptimeSecs, bots_enabled: enabledBots },
+    message: [title, lines].join("\n\n"),
+  };
+}
+
+/**
+ * Notificación de arranque del servidor a los administradores por Telegram.
+ * Handler FUNCTION del endpoint interno `POST /system/admin/startup` de la app
+ * system. El servidor lo invoca una vez al completar el arranque (tras el
+ * listen) siempre que haya un bot de Telegram configurado
+ * ($_VAR_TELEGRAM_TOKEN sin placeholder). Envía a los administradores (grupo
+ * $_VAR_ADMIN_GROUP_CHAT_ID más admins individuales según la AppVar
+ * $_VAR_TELEGRAM_ERROR_NOTIFY_SYSTEM_ADMINS) un resumen con los datos
+ * generales del servidor: versión, uptime, apps, endpoints, logs y CPU/RAM.
+ *
+ * Config vía AppVars (env prd):
+ *  - $_VAR_TELEGRAM_TOKEN      token del bot (placeholder = sin configurar)
+ *  - $_VAR_ADMIN_GROUP_CHAT_ID chat_id del grupo de administración
+ *  - $_VAR_SERVER_STARTUP_NOTIFY  "on" (default) | "off": habilita/deshabilita
+ *                                 el envío de esta notificación
+ */
+export async function fnAdminStartupNotify(params) {
+  const request = params?.request || {};
+  const body = request.body || {};
+  const query = request.query || {};
+  const serverData = params?.server_data || {};
+  const respondInline =
+    body.respond_inline === true ||
+    body.respond_inline === "true" ||
+    query.respond_inline === "true" ||
+    query.respond_inline === true;
+
+  const initial = { code: 200, data: undefined };
+  try {
+    const [token, chatId, startupNotifySetting] = await Promise.all([
+      getAppVarValue("$_VAR_TELEGRAM_TOKEN"),
+      getAppVarValue("$_VAR_ADMIN_GROUP_CHAT_ID"),
+      getAppVarValue("$_VAR_SERVER_STARTUP_NOTIFY"),
+    ]);
+
+    const notifyEnabled = !["off", "false", "0"].includes(
+      String(startupNotifySetting ?? "").trim().toLowerCase(),
+    );
+    if (!notifyEnabled) {
+      initial.data = { status: "disabled", reason: "NOTIFY_OFF", counts: {} };
+      if (respondInline) {
+        initial.data.report_text =
+          "Startup notification is disabled ($_VAR_SERVER_STARTUP_NOTIFY).";
+        initial.data.html = false;
+      }
+      return initial;
+    }
+
+    const report = await runStartupMessage({
+      started_at: serverData.started_at,
+      window_hours: Number(query.window_hours) || Number(body.window_hours) || 1,
+    });
+    if (!report.alerted) {
+      initial.data = {
+        status: "quiet",
+        reason: report.reason || "NO_DATA",
+        counts: report.counts || {},
+      };
+      return initial;
+    }
+
+    if (respondInline) {
+      initial.data = {
+        status: "inline",
+        counts: report.counts || {},
+        report_text: report.message,
+        html: true,
+      };
+      return initial;
+    }
+
+    if (!token || token.includes("PLACEHOLDER")) {
+      initial.data = {
+        status: "skipped",
+        reason: "NO_TOKEN",
+        counts: report.counts || {},
+      };
+      return initial;
+    }
+
+    const adminsFanOut = await getAdminsFanOutList({ chatId });
+    const delivery = await sendReportFanOut(report, token, adminsFanOut);
+
+    initial.data = {
+      status: delivery.sent ? "sent" : "skipped",
+      reason: delivery.reason || null,
+      counts: report.counts || {},
+    };
+    if (!delivery.sent && report.message) {
+      initial.data.report_text = report.message;
+      initial.data.html = true;
+    }
+  } catch (error) {
+    console.error("[fnAdminStartupNotify]", error);
     initial.data = { error: error.message };
     initial.code = 500;
   }

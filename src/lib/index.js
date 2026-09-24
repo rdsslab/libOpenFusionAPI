@@ -356,6 +356,10 @@ export default class ServerAPI extends EventEmitter {
     setServerListening(true);
 
     this._runOnReady();
+
+    // Notificación de arranque: si hay un bot de Telegram configurado, avisa a los
+    // administradores con los datos generales del servidor (fire-and-forget).
+    this._notifyServerStarted();
   }
 
   _emitEndpointEvent(event_name, data) {
@@ -384,6 +388,36 @@ export default class ServerAPI extends EventEmitter {
     });
 
     readyOrchestrator.start();
+  }
+
+  /**
+   * Notificación de arranque del servidor a los administradores por Telegram.
+   * Dispara `fnAdminStartupNotify` (endpoint interno `POST /system/admin/startup`)
+   * una sola vez por proceso, con un pequeño retraso para dar margen a que el resto
+   * del arranque (tasks, websocket interno) se estabilice. Fire-and-forget: cualquier
+   * error se registra en consola sin romper el boot.
+   */
+  _notifyServerStarted() {
+    const fnStartup = fnSystem?.fn_system_prd?.fnAdminStartupNotify;
+    if (typeof fnStartup !== "function") {
+      console.warn("[startup-notify] fnAdminStartupNotify not registered; skipped.");
+      return;
+    }
+    const startedAt = new Date(this.SERVER_DATE_START).toISOString();
+    setTimeout(async () => {
+      try {
+        const res = await fnStartup({
+          request: { body: {} },
+          server_data: { started_at: startedAt },
+        });
+        const d = res?.data || {};
+        console.log(
+          `[startup-notify] status=${d.status}${d.reason ? ` reason=${d.reason}` : ""}${d.counts ? ` counts=${JSON.stringify(d.counts)}` : ""}`,
+        );
+      } catch (error) {
+        console.error("[startup-notify] error:", error?.message || error);
+      }
+    }, 5000);
   }
 
 

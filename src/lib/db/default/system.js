@@ -154,6 +154,16 @@ export const system_app = {
       "environment": "prd",
       "createdAt": "2026-09-20T00:00:00.000Z",
       "updatedAt": "2026-09-20T00:00:00.000Z"
+    },
+    {
+      "value": "on",
+      "idvar": "6d5c4b3a-2f1e-4a0b-9c8d-7e6f5a4b3c2d",
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "name": "$_VAR_SERVER_STARTUP_NOTIFY",
+      "type": "string",
+      "environment": "prd",
+      "createdAt": "2026-09-24T00:00:00.000Z",
+      "updatedAt": "2026-09-24T00:00:00.000Z"
     }
   ],
   "bots": [
@@ -13440,6 +13450,35 @@ export const system_app = {
       "price_kb_response": 1,
       "keywords": "appgroup,link,unlink,telegram,groups,notify_changes",
       "code": "fnAppGroupLinkWrite",
+      "cache_time": 0,
+      "createdAt": "2026-09-24T00:00:00.000Z",
+      "updatedAt": "2026-09-24T00:00:00.000Z"
+    },
+    {
+      "ctrl": {},
+      "cors": {},
+      "mcp": {},
+      "json_schema": {},
+      "custom_data": {},
+      "headers_test": {},
+      "data_test": {},
+      "idendpoint": "0a1b2c3d-4e5f-4a6b-8c7d-9e8f7a6b5c4d",
+      "rowkey": 1013,
+      "enabled": true,
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "environment": "prd",
+      "timeout": 60,
+      "resource": "/system/admin/startup",
+      "method": "POST",
+      "handler": "FUNCTION",
+      "access": 2,
+      "title": "System Admin Server Startup Notification",
+      "description": "Sends a Telegram message to the administrators (admin group $_VAR_ADMIN_GROUP_CHAT_ID plus system admins with telegram_chat_id) with the general server data (version, uptime, apps, endpoints, logs, CPU/RAM, exposed environments) after the server starts. The server fire-and-forget invokes it once at boot when a Telegram bot is configured ($_VAR_TELEGRAM_TOKEN without placeholder); it is also callable on demand. Disabled with $_VAR_SERVER_STARTUP_NOTIFY = off. Supports respond_inline=true for on-demand previews.",
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "keywords": "admin,startup,boot,telegram,notification,server,health,digest",
+      "code": "fnAdminStartupNotify",
       "cache_time": 0,
       "createdAt": "2026-09-24T00:00:00.000Z",
       "updatedAt": "2026-09-24T00:00:00.000Z"
