@@ -1497,6 +1497,108 @@ export const demo_app = {
     },
     {
       "ctrl": {
+        "admin": true,
+        "users": [],
+        "log": {
+          "status_info": 1,
+          "status_success": 1,
+          "status_redirect": 1,
+          "status_client_error": 2,
+          "status_server_error": 3
+        }
+      },
+      "cors": {},
+      "mcp": {
+        "enabled": false,
+        "name": "",
+        "title": "",
+        "description": ""
+      },
+      "json_schema": {
+        "in": {
+          "enabled": false,
+          "schema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": true
+          }
+        },
+        "out": {
+          "enabled": false,
+          "schema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": true
+          }
+        }
+      },
+      "custom_data": {},
+      "headers_test": {},
+      "data_test": {
+        "query": [
+          {
+            "enabled": true,
+            "key": "",
+            "value": "",
+            "internal_hash_row": "b9427bedda283d6b3c25ad634983b8bfbfc32d5a3006a5a9d6c541a332f1d983"
+          }
+        ],
+        "body": {
+          "selection": 0,
+          "js": {
+            "code": ""
+          },
+          "xml": {
+            "code": ""
+          },
+          "text": {},
+          "json": {
+            "code": {}
+          },
+          "form": {}
+        },
+        "headers": [
+          {
+            "enabled": false,
+            "key": "",
+            "value": "",
+            "internal_hash_row": "c5c647b00670bea65a11ab75bf3c77407cc89d1e12a5a013b5fa8146d30f9368"
+          }
+        ],
+        "auth": {
+          "selection": 0,
+          "basic": {},
+          "bearer": {}
+        },
+        "last_response": {
+          "data": "",
+          "sizeKBResponse": -1,
+          "MimeType": ""
+        }
+      },
+      "idendpoint": "6767ad1d-6cef-4fca-ae55-47534c00cc66",
+      "rowkey": 992,
+      "enabled": true,
+      "idapp": "c4ca4238-a0b9-2382-0dcc-509a6f75849b",
+      "environment": "dev",
+      "timeout": 30,
+      "resource": "/mcp/server",
+      "method": "POST",
+      "handler": "MCP",
+      "access": 0,
+      "title": "",
+      "description": "",
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "keywords": "",
+      "code": "",
+      "cache_time": 0,
+      "createdAt": "2025-11-29T15:32:57.392Z",
+      "updatedAt": "2025-11-29T15:32:57.392Z"
+    },
+    {
+      "ctrl": {
         "users": [],
         "log": {}
       },
@@ -3242,7 +3344,7 @@ export const demo_app = {
       "price_kb_request": 0,
       "price_kb_response": 0,
       "keywords": "numero,texto,espanol,conversion",
-      "code": "function H(o,k){return o&&Object.prototype.hasOwnProperty.call(o,k)}\nfunction G(){\n var s=[]\n if(typeof $_GET_!=='undefined')s.push($_GET_)\n if(typeof $_POST_!=='undefined')s.push($_POST_)\n if(typeof $_BODY_!=='undefined')s.push($_BODY_)\n if(typeof $_PARAMS_!=='undefined')s.push($_PARAMS_)\n if(typeof request!=='undefined')s.push(request)\n if(typeof $_QUERY_!=='undefined')s.push($_QUERY_)\n var k=['numero','number','valor']\n for(var i=0;i<s.length;i++)for(var j=0;j<k.length;j++){\n  if(H(s[i],k[j])){\n   var v=s[i][k[j]]\n   if(v!==undefined&&v!==null&&!(typeof v==='string'&&v.trim()===''))return v\n  }\n }\n}\nfunction A(t){\n return t.replace(/veintiuno$/,'veintiun')\n  .replace(/ y uno$/,' y un')\n  .replace(/uno$/,'un')\n}\nfunction C(n){\n var e={0:'cero',1:'uno',2:'dos',3:'tres',4:'cuatro',5:'cinco',6:'seis',7:'siete',8:'ocho',9:'nueve',10:'diez',11:'once',12:'doce',13:'trece',14:'catorce',15:'quince',16:'dieciseis',17:'diecisiete',18:'dieciocho',19:'diecinueve',20:'veinte',21:'veintiuno',22:'veintidos',23:'veintitres',24:'veinticuatro',25:'veinticinco',26:'veintiseis',27:'veintisiete',28:'veintiocho',29:'veintinueve'}\n var d={30:'treinta',40:'cuarenta',50:'cincuenta',60:'sesenta',70:'setenta',80:'ochenta',90:'noventa'}\n var m={100:'cien',200:'doscientos',300:'trescientos',400:'cuatrocientos',500:'quinientos',600:'seiscientos',700:'setecientos',800:'ochocientos',900:'novecientos'}\n if(e[n]!==undefined)return e[n]\n if(n<100){var x=Math.floor(n/10)*10,u=n%10;return d[x]+(u?' y '+e[u]:'')}\n if(n===100)return 'cien'\n var y=Math.floor(n/100)*100,r=n%100\n return (y===100?'ciento':m[y])+(r?' '+C(r):'')\n}\nfunction T(n){\n if(n===0)return 'cero'\n var z=n<0\n n=Math.abs(n)\n var M=Math.floor(n/1000000)\n var K=Math.floor((n%1000000)/1000)\n var R=n%1000\n var p=[]\n if(M)p.push(M===1?'un millon':A(C(M))+' millones')\n if(K)p.push(K===1?'mil':A(C(K))+' mil')\n if(R)p.push(C(R))\n return (z?'menos ':'')+p.join(' ')\n}\ntry{\n var raw=G()\n if(raw===undefined){\n  $_RETURN_DATA_={ok:false,error:'Falta un valor numerico en numero, number o valor.'}\n }else{\n  var n=typeof raw==='number'?raw:Number(String(raw).trim())\n  if(!Number.isFinite(n))$_RETURN_DATA_={ok:false,error:'El valor recibido no es un numero finito valido.'}\n  else if(!Number.isInteger(n))$_RETURN_DATA_={ok:false,error:'Solo se admiten numeros enteros.'}\n  else if(Math.abs(n)>999999999)$_RETURN_DATA_={ok:false,error:'El numero debe estar entre -999999999 y 999999999.'}\n  else $_RETURN_DATA_={ok:true,input:n,texto:T(n)}\n }\n}catch(e){\n $_RETURN_DATA_={ok:false,error:e&&e.message?e.message:'Error inesperado.'}\n}",
+      "code": "function H(o,k){return o&&Object.prototype.hasOwnProperty.call(o,k)}\nfunction G(){\n var s=[]\n if(typeof request!=='undefined'){\n  s.push(request.query)\n  s.push(request.params)\n  s.push(request.body)\n  s.push(request)\n }\n var k=['numero','number','valor']\n for(var i=0;i<s.length;i++)for(var j=0;j<k.length;j++){\n  if(H(s[i],k[j])){\n   var v=s[i][k[j]]\n   if(v!==undefined&&v!==null&&!(typeof v==='string'&&v.trim()===''))return v\n  }\n }\n}\nfunction A(t){\n return t.replace(/veintiuno$/,'veintiun')\n  .replace(/ y uno$/,' y un')\n  .replace(/uno$/,'un')\n}\nfunction C(n){\n var e={0:'cero',1:'uno',2:'dos',3:'tres',4:'cuatro',5:'cinco',6:'seis',7:'siete',8:'ocho',9:'nueve',10:'diez',11:'once',12:'doce',13:'trece',14:'catorce',15:'quince',16:'dieciseis',17:'diecisiete',18:'dieciocho',19:'diecinueve',20:'veinte',21:'veintiuno',22:'veintidos',23:'veintitres',24:'veinticuatro',25:'veinticinco',26:'veintiseis',27:'veintisiete',28:'veintiocho',29:'veintinueve'}\n var d={30:'treinta',40:'cuarenta',50:'cincuenta',60:'sesenta',70:'setenta',80:'ochenta',90:'noventa'}\n var m={100:'cien',200:'doscientos',300:'trescientos',400:'cuatrocientos',500:'quinientos',600:'seiscientos',700:'setecientos',800:'ochocientos',900:'novecientos'}\n if(e[n]!==undefined)return e[n]\n if(n<100){var x=Math.floor(n/10)*10,u=n%10;return d[x]+(u?' y '+e[u]:'')}\n if(n===100)return 'cien'\n var y=Math.floor(n/100)*100,r=n%100\n return (y===100?'ciento':m[y])+(r?' '+C(r):'')\n}\nfunction T(n){\n if(n===0)return 'cero'\n var z=n<0\n n=Math.abs(n)\n var M=Math.floor(n/1000000)\n var K=Math.floor((n%1000000)/1000)\n var R=n%1000\n var p=[]\n if(M)p.push(M===1?'un millon':A(C(M))+' millones')\n if(K)p.push(K===1?'mil':A(C(K))+' mil')\n if(R)p.push(C(R))\n return (z?'menos ':'')+p.join(' ')\n}\ntry{\n var raw=G()\n if(raw===undefined){\n  $_RETURN_DATA_={ok:false,error:'Falta un valor numerico en numero, number o valor.'}\n }else{\n  var n=typeof raw==='number'?raw:Number(String(raw).trim())\n  if(!Number.isFinite(n))$_RETURN_DATA_={ok:false,error:'El valor recibido no es un numero finito valido.'}\n  else if(!Number.isInteger(n))$_RETURN_DATA_={ok:false,error:'Solo se admiten numeros enteros.'}\n  else if(Math.abs(n)>999999999)$_RETURN_DATA_={ok:false,error:'El numero debe estar entre -999999999 y 999999999.'}\n  else $_RETURN_DATA_={ok:true,input:n,texto:T(n)}\n }\n}catch(e){\n $_RETURN_DATA_={ok:false,error:e&&e.message?e.message:'Error inesperado.'}\n}",
       "cache_time": 0,
       "createdAt": "2026-04-10T01:48:36.724Z",
       "updatedAt": "2026-04-10T01:48:36.724Z"
@@ -3862,6 +3964,72 @@ export const demo_app = {
       "enabled": true,
       "idapp": "c4ca4238-a0b9-2382-0dcc-509a6f75849b",
       "environment": "dev",
+      "timeout": 30,
+      "resource": "/ofapi/javascript/example03",
+      "method": "GET",
+      "handler": "JS",
+      "access": 0,
+      "title": "",
+      "description": "In this example the javascript code creates an array and returns it to the user.",
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "keywords": "",
+      "code": "$_RETURN_DATA_ = [];\n\nwhile ($_RETURN_DATA_.length < 30) {\n  const objeto = { value1: Math.floor(Math.random() * 1000), value2: Math.floor(Math.random() * 1000) };\n  $_RETURN_DATA_.push(objeto);\n}\n",
+      "cache_time": 0,
+      "createdAt": "2025-11-21T22:04:52.792Z",
+      "updatedAt": "2025-11-22T00:11:42.275Z"
+    },
+    {
+      "ctrl": {
+        "admin": true,
+        "users": [],
+        "log": {}
+      },
+      "cors": {},
+      "mcp": {},
+      "json_schema": {
+        "in": {
+          "enabled": false,
+          "schema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": true
+          }
+        },
+        "out": {
+          "enabled": false,
+          "schema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": true
+          }
+        }
+      },
+      "custom_data": {},
+      "headers_test": {},
+      "data_test": {
+        "query": [
+          {
+            "enabled": false,
+            "key": "",
+            "value": "",
+            "internal_hash_row": "c5c647b00670bea65a11ab75bf3c77407cc89d1e12a5a013b5fa8146d30f9368"
+          }
+        ],
+        "body": {
+          "selection": 0
+        },
+        "headers": {},
+        "auth": {
+          "selection": 0
+        }
+      },
+      "idendpoint": "66f3a5c8-38fc-4bb9-b10d-a2750307ae6d",
+      "rowkey": 991,
+      "enabled": true,
+      "idapp": "c4ca4238-a0b9-2382-0dcc-509a6f75849b",
+      "environment": "prd",
       "timeout": 30,
       "resource": "/ofapi/javascript/example03",
       "method": "GET",

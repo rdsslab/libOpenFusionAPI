@@ -1217,7 +1217,7 @@ $BOT.command("tasks", async (ctx) => {
       lines.push(`${badge} <code>${esc(String(t.idtask).slice(0, 8))}</code> <b>${esc(t.resource || "?")}</b> (${schedule})${next}`);
       if (t.note) lines.push(`   <i>${esc(String(t.note).slice(0, 80))}</i>`);
     }
-    lines.push("", "Run one with /taskrun <idtask> (copy the full id below first).", "");
+    lines.push("", "Run one with /taskrun &lt;idtask&gt; (copy the full id below first).", "");
     for (const t of rows.slice(0, 15)) {
       lines.push(`<code>${esc(t.idtask)}</code>`);
     }
