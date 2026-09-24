@@ -43,7 +43,9 @@ OpenFusion API eliminates most of this overhead by providing:
 ## 🧱 Key Features
 
 - **Handler-based architecture** for different data sources and integration patterns.
-- **Simple UI** to configure endpoints, access rules, variables, and deployment.
+- **API-first + MCP workflow**: apps, endpoints, access rules, variables and deployment are
+  configured through the HTTP API and the MCP tooling (this repository ships a static
+  landing page at `/`; it does **not** include an admin console).
 - **Integrated caching** to improve performance.
 - **JSON Schema validation** for structured, predictable data exchange.
 - **MCP (Model Control Protocol)** integration for AI-driven tools.
@@ -55,7 +57,7 @@ OpenFusion API eliminates most of this overhead by providing:
 
 OpenFusionAPI is intentionally useful to both human builders and autonomous AI systems.
 
-- A human can use the UI to create applications, define variables, configure handlers, and publish endpoints quickly.
+- A human can use the HTTP API and/or the MCP tooling to create applications, define variables, configure handlers, and publish endpoints quickly (the bundled `www/` is a static landing page, not an admin console).
 - An AI agent can do the same through MCP-aware workflows, endpoint metadata, and structured contracts.
 - In many cases, the endpoint does not require handwritten code because the handler, schema, and configuration are enough to make the service operational.
 - When code is required, it is usually limited to the business-specific part, while the platform keeps environment setup, validation, access rules, and deployment structure consistent.
@@ -102,12 +104,87 @@ Important operational note:
 - Teams using AI tools (MCP)
 - Organizations that want AI agents to create and maintain deployable endpoints
 
-## 🏁 Quick Start
+## 🏁 Quick Start (first run)
 
-1. Log into the platform.
-2. Create or select an application.
-3. Configure your endpoints using the available handlers.
-4. Deploy with a single click.
+> The `www/` folder ships **only a static landing page**: there is no admin console in
+> this repository, so applications, endpoints, variables, bots and tasks are created and
+> managed through the **HTTP API** (`/api/...`) and the **MCP tooling** — by humans with
+> `curl`, by scripts, or by AI agents. Guides that show screenshots of an admin UI
+> (e.g. `src/docs/App`, `src/docs/endpoint`) describe the conceptual flow of an external
+> console; use the API/MCP recipes below (and the handler docs) to actually perform it.
+
+### 1. Requirements
+
+- **Node.js ≥ 20** (tested on 24.x) and **npm ≥ 11** (the lockfile and the `allowScripts`
+  field require it).
+- On Linux, a C/C++ toolchain and Python 3 may be required to build native dependencies
+  (`canvas`, `sqlite3`, `oracledb`, `@sap/hana-client`); follow the error messages from
+  `npm install`.
+
+### 2. Install and configure
+
+```bash
+npm install
+cp env.example .env
+```
+
+Edit `.env` **before the first start**:
+
+- **`JWT_KEY`** — mandatory and must be a **random secret**. The value in `.env.example`
+  is a public placeholder for local tests only; never deploy with it. Generate one with:
+  ```bash
+  openssl rand -hex 32
+  ```
+- **`BUILD_DB=true`** — **required on the first boot**: it creates the tables and seeds
+  the default apps, users, api clients, methods and interval tasks. If you boot on an
+  *empty* database without it, the server starts but **every `/api/*` responds 500**
+  (`SQLITE_ERROR: no such table`). Once the database exists you can leave it off.
+- `DATABASE_URL` (optional) — the default is a local sqlite file in the OS temp dir
+  (`/tmp/ofapi.sqlite`) that **disappears on reboot**; set a real database for anything
+  you want to keep.
+
+### 3. Start
+
+```bash
+npm start
+```
+
+Open `http://localhost:3000`. The root serves the landing page; the API lives under
+`/api/{app}/{resource}/{environment}` and the MCP server under `/api/system/mcp/server/{env}`.
+
+### 4. First login (default credentials)
+
+The database is seeded with these users (each requires a password change at first login):
+
+| User | Password | Role |
+|---|---|---|
+| `superopenfusionapi` | `Sup3r@0penFusion!` | System admin |
+| `admin` | `Adm1n@0penFusion!` | System admin |
+| `demo` | `D3m0@0penFusion!` | Read-only (dev) |
+| `client_api` | `Cl13nt@0penFusion!` | API client |
+
+**Change these passwords immediately** — see [Auth & users (login / recovery / admin reset)](./src/docs/auth/USER_RECOVERY.md).
+
+Login uses **Basic Auth** (`-u user:password`, not a JSON body) and returns a JWT bearer token:
+
+```bash
+curl -X POST http://localhost:3000/api/system/system/login/prd \
+  -u "superopenfusionapi:Sup3r@0penFusion!"
+```
+
+Sanity check with a public endpoint:
+
+```bash
+curl http://localhost:3000/api/system/server/version/prd
+# → {"version":"13.5.7","ddbb":"sqlite"}
+```
+
+### 5. Create your first app and endpoint
+
+Follow [Creating Applications](./src/docs/App/README.md) and
+[Creating Endpoints](./src/docs/endpoint/README.md) for the full flow. AI agents should
+connect to the MCP server (`/api/system/mcp/server/prd`) and start with `apps_list`
+followed by the targeted write tools (`upsert_app`, `upsert_endpoint`, …).
 
 ## ⚙️ Environment Variables
 
@@ -116,16 +193,16 @@ Copy [.env.example](.env.example) to `.env` and adjust the values for your setup
 | Variable | Description | Default | Required |
 |---|---|---|---|
 | `PORT` | HTTP server listen port | `3000` | No |
-| `HOST` | Bind host for the server | `localhost` | No |
+| `HOST` | Bind host for the server (`0.0.0.0` to expose beyond localhost) | `localhost` | No |
 | `NODE_ENV` | Standard Node environment flag | — | No |
-| `JWT_KEY` | Secret key used to sign/verify JWTs | **none — required in all environments** | **Yes** — if unset the server boots in *degraded* mode: logs the error, the root `/` shows which variables are missing and every `/api/*` responds `503` |
+| `JWT_KEY` | Secret key used to sign/verify JWTs. **Use a random secret** (`openssl rand -hex 32`) — the placeholder in `.env.example` is public and must never be deployed | **none — required in all environments** | **Yes** — if unset the server boots in *degraded* mode: logs the error, the root `/` shows which variables are missing and every `/api/*` responds `503` |
 | `PATH_APP_FUNCTIONS` | Filesystem path where custom app function files live | — | Yes, for function loading |
 | `MAX_FILE_SIZE_UPLOAD` | Max multipart upload size, in MB | `100` | No |
-| `DATABASE_URL` | Primary Sequelize database connection string | falls back to `DATABASE_URI_API`, then a local sqlite file | No |
+| `DATABASE_URL` | Primary Sequelize database connection string | falls back to `DATABASE_URI_API`, then a local sqlite file in the OS temp dir (`/tmp/ofapi.sqlite`, lost on reboot) | No |
 | `DATABASE_URI_API` | Secondary/alternate database connection string | same fallback chain | No |
 | `USE_HEROKU_POSTGRESQL` | Enables Heroku-style Postgres SSL options | disabled | No |
 | `TABLE_NAME_PREFIX_API` | Prefix applied to all database table names | none | No |
-| `BUILD_DB` | Rebuild/seed the database on boot | disabled | No |
+| `BUILD_DB` | Create/alter the tables and seed defaults on boot. **Set `true` on the first boot** of an empty database: without it the server starts but every `/api/*` responds 500 (`no such table`) | disabled | **Yes, on first boot** |
 | `OFAPI_SQL_POOL_VALIDATE_IDLE_MS` | Idle-time threshold (ms) before validating a pooled SQL connection | `30000` | No |
 | `OFAPI_SQL_POOL_FORCE_VALIDATE_ALWAYS` | Force SQL pool connection validation on every use | disabled | No |
 | `OFAPI_APPVARS_LIVE_READ` | Enable live (non-cached) reads of App Vars in the SQL handler | disabled | No |

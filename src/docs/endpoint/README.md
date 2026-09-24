@@ -3,6 +3,14 @@
 This manual focuses exclusively on the **creation of endpoints** in `OpenFusionAPI`.  
 Each step below corresponds to an image to help guide you visually through the configuration process.
 
+> **⚠️ About the screenshots:** the images below correspond to an **external admin
+> console that is NOT bundled in this repository** — the repo only ships a static
+> landing page (`www/index.html`). Endpoints are created and managed through the
+> **HTTP API** (URL scheme `/api/{app}{resource}/{environment}`) and the **MCP tools**
+> (`upsert_endpoint`, `upsert_sql_endpoint_handler`, …). Use this guide for the *concept
+> and order* of the steps; for the actual calls see the handler docs and the MCP tool
+> schemas.
+
 Recommended prerequisite workflow:
 
 1. Create the application first.

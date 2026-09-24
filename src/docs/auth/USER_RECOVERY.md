@@ -26,22 +26,31 @@ flows:
 
 ## 2. Endpoint surface
 
-All routes below belong to the `system` app in `prd`.
+All routes below belong to the `system` app. The real URL always follows the scheme
+`/api/{app}{resource}/{environment}` — add the `/api/` prefix and the environment
+suffix (`/prd`, `/qa`, `/dev`). Examples: `/system/login` → `/api/system/system/login/prd`
+(the `system` is repeated because the resource itself starts with `/system/`);
+`/user/create` → `/api/system/user/create/prd`.
 
-| Route | Method | Access | MCP tool | Purpose |
-|---|---|---|---|---|
-| `/system/login` | POST | 0 (public) | — | Authenticate and obtain a bearer token. |
-| `/users/list` | GET | 2 (Bearer) | `list_users` | List system users (iduser, username, name, email, ctrl). |
-| `/user/create` | POST | 2 (Bearer) | `user_create` | Create an internal user. |
-| `/user/update` | POST | 2 (Bearer) | `user_update` | Update a user by `iduser` (never `iduser`/`username`). |
-| `/user/delete` | POST | 2 (Bearer) | `user_delete` | Permanently delete a user. |
-| `/user/changepassword` | POST | 2 (Bearer) | `user_change_password` | **Self-service** change with validation of the old password. Any authenticated user. |
-| `/user/resetpassword` | POST | 2 (Bearer) | `user_reset_password` | **Admin** reset without the current password; sets `change_password=true`. |
-| `/user/recovery/options` | GET | 0 (public) | — | Which recovery channels (email/telegram) are globally enabled. |
-| `/user/forgotpassword` | POST | 0 (public) | — | Request a 6-digit OTP for password recovery. |
-| `/user/resetpassword/confirm` | POST | 0 (public) | — | Redeem the OTP and set a new password. |
-| `/user/linktelegram` | POST | 2 (Bearer) | — | Link the Telegram chat to the authenticated user. |
-| `/user/recoverycleanup` | POST | 2 (Bearer) | — | Delete consumed/expired recovery requests (maintenance). |
+> **`/system/login` and `/apiclient/login` authenticate by HTTP Basic Auth**
+> (`Authorization: Basic …`, i.e. `curl -u user:password`) and return the JWT in the
+> response (and a `OFAPI_TOKEN` cookie). All the other endpoints require the returned
+> bearer token (`Authorization: Bearer <token>`).
+
+| Resource | Method | Access | Real URL (env `prd`) | MCP tool | Purpose |
+|---|---|---|---|---|---|
+| `/system/login` | POST | 0 (public) | `/api/system/system/login/prd` | — | Authenticate and obtain a bearer token. |
+| `/users/list` | GET | 2 (Bearer) | `/api/system/users/list/prd` | `list_users` | List system users (iduser, username, name, email, ctrl). |
+| `/user/create` | POST | 2 (Bearer) | `/api/system/user/create/prd` | `user_create` | Create an internal user. |
+| `/user/update` | POST | 2 (Bearer) | `/api/system/user/update/prd` | `user_update` | Update a user by `iduser` (never `iduser`/`username`). |
+| `/user/delete` | POST | 2 (Bearer) | `/api/system/user/delete/prd` | `user_delete` | Permanently delete a user. |
+| `/user/changepassword` | POST | 2 (Bearer) | `/api/system/user/changepassword/prd` | `user_change_password` | **Self-service** change with validation of the old password. Any authenticated user. |
+| `/user/resetpassword` | POST | 2 (Bearer) | `/api/system/user/resetpassword/prd` | `user_reset_password` | **Admin** reset without the current password; sets `change_password=true`. |
+| `/user/recovery/options` | GET | 0 (public) | `/api/system/user/recovery/options/prd` | — | Which recovery channels (email/telegram) are globally enabled. |
+| `/user/forgotpassword` | POST | 0 (public) | `/api/system/user/forgotpassword/prd` | — | Request a 6-digit OTP for password recovery. |
+| `/user/resetpassword/confirm` | POST | 0 (public) | `/api/system/user/resetpassword/confirm/prd` | — | Redeem the OTP and set a new password. |
+| `/user/linktelegram` | POST | 2 (Bearer) | `/api/system/user/linktelegram/prd` | — | Link the Telegram chat to the authenticated user. |
+| `/user/recoverycleanup` | POST | 2 (Bearer) | `/api/system/user/recoverycleanup/prd` | — | Delete consumed/expired recovery requests (maintenance). |
 
 > The recovery endpoints are intentionally **not** exposed as MCP tools: the flow is
 > user-facing and anti-enumeration by design.
