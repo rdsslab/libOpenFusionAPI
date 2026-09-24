@@ -1,7 +1,7 @@
 /**
  * Alertas proactivas de administración para Telegram.
  * Handler FUNCTION del endpoint interno `POST /system/admin/alerts` de la app
- * system. Se ejecuta por interval tasks (eventos cada ~5 min, digest cada 24 h)
+ * system. Se ejecuta por interval tasks (eventos cada 60 s, digest cada 24 h)
  * y consulta de `ofapi_log` + `ofapi_bot_log` directamente en el proceso.
  *
  * Modos:

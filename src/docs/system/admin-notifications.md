@@ -14,7 +14,7 @@ ofapi_bot (Admin Notifications Bot)  ── on-demand replies + menu
         ▼
 
 Interval tasks (timer/worker) ──► POST /api/system/admin/alerts/auto
-  idtask 3 "Admin Alerts - events scan"  (interval 300 s)
+  idtask 3 "Admin Alerts - events scan"  (interval 60 s)
   idtask 4 "Admin Alerts - system digest" (interval 86400 s)
         │   app system token (getSystemToken), params.data = { mode }
         ▼
@@ -80,7 +80,7 @@ and still delivers to the group. Delivery to each recipient is logged as
 
 Body `{ "mode": "events" | "digest", "respond_inline": false, "window_hours": 24 }`.
 
-- **events** (interval every 5 min) — scans the window since the cursor for:
+- **events** (interval every 60 s) — scans the window since the cursor for:
   - intrusion attempts: `ofapi_log` rows with `log_level 3`, `status 401/429` and
     `message.type` in `possible_attack` | `posible_ataque`;
   - 5xx server errors, grouped by `method url`;

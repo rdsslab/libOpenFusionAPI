@@ -201,7 +201,7 @@ export const system_app = {
       "idtask": 3,
       "idendpoint": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
       "schedule_mode": "interval",
-      "interval": 300,
+      "interval": 60,
       "note": "Admin Alerts - events scan",
       "enabled": true,
       "params": {
