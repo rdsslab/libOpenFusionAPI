@@ -15,7 +15,7 @@ ofapi_bot (Admin Notifications Bot)  ── on-demand replies + menu
 
 Interval tasks (timer/worker) ──► POST /api/system/admin/alerts/auto
   idtask 3 "Admin Alerts - events scan"  (interval 300 s)
-  idtask 4 "Admin Alerts - system digest" (interval 3600 s)
+  idtask 4 "Admin Alerts - system digest" (interval 86400 s)
         │   app system token (getSystemToken), params.data = { mode }
         ▼
 fnAdminAutoAlerts  (src/lib/server/functions/system/prd/alerts/index.js)
@@ -89,7 +89,7 @@ Body `{ "mode": "events" | "digest", "respond_inline": false, "window_hours": 24
     `bot_platform_outage_suspected`.
   Stays silent when nothing happened; advances the cursor in every run, so a window
   is never reported twice.
-- **digest** (interval every hour) — reuses `fnGetSystemHealthStats`, formats apps,
+- **digest** (interval every 24 h) — reuses `fnGetSystemHealthStats`, formats apps,
   endpoints and log metrics over the last `window_hours`.
 
 `respond_inline: true` returns the composed message in `report_text` instead of

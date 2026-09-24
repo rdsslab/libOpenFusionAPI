@@ -220,7 +220,7 @@ export const system_app = {
       "idtask": 4,
       "idendpoint": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
       "schedule_mode": "interval",
-      "interval": 3600,
+      "interval": 86400,
       "note": "Admin Alerts - system digest",
       "enabled": true,
       "params": {
