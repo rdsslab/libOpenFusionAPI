@@ -8,15 +8,13 @@
  * tráfico: toda mutación de `/api/system/*` (GUI, MCP, bot) queda registrada por
  * `recordAudit()` (auditService.js) con `idapp` + `environment` + `status`.
  *
- * Para cada grupo vinculado (chat_id -> idapp) recopila los cambios de
- * configuración (entity_type app/endpoint/interval_task/bot, status=true)
- * ocurridos desde el cursor de `$_VAR_GROUP_APP_CHANGES_CURSOR` y publica un
- * mensaje de Telegram agregado por grupo. Un grupo sin cambios nuevos queda en
- * silencio (estado "quiet").
+ * Los vínculos viven por-aplicación en `$_VAR_TELEGRAM_GROUPS` (ver
+ * `../appgroups/groupLinks.js`): un chat puede estar vinculado a varias apps y el
+ * mensaje de un chat agrega los cambios de todas ellas (respetando el flag
+ * `notify_changes` de cada vínculo). El cursor global sigue en la app system:
  *
  * Config vía AppVars (env prd):
  *  - $_VAR_TELEGRAM_TOKEN              token del bot (placeholder = sin configurar)
- *  - $_VAR_GROUP_APP_MAP               { chat_id: { idapp, environment, linked_by, linked_at, notify_changes? } }
  *  - $_VAR_GROUP_APP_CHANGES_CURSOR    { "last_ts": "ISO", "last_id": n } cursor global
  *  - $_VAR_GROUP_APP_CHANGES_ENABLED   "on" | "off" (default: on)
  */
@@ -24,11 +22,11 @@ import { getAppVarsByIdApp, upsertAppVar, ensureAppVarOnce } from "../../../../.
 import { getAuditLogs } from "../../../../../db/audit.js";
 import { Application } from "../../../../../db/models.js";
 import { sendTelegramMessage } from "../user/sendTelegramMessage.js";
+import { readGroupLinksByChat } from "../appgroups/groupLinks.js";
 
 const SYSTEM_APP_ID = "cfcd2084-95d5-65ef-66e7-dff9f98764da";
 const ENV = "prd";
 
-const MAP_VAR = "$_VAR_GROUP_APP_MAP";
 const CURSOR_VAR = "$_VAR_GROUP_APP_CHANGES_CURSOR";
 const ENABLED_VAR = "$_VAR_GROUP_APP_CHANGES_ENABLED";
 const DEFAULT_WINDOW_MINUTES = 15;
@@ -235,89 +233,103 @@ export async function fnAppGroupChanges(params) {
       return initial;
     }
 
-    const map = parseJsonVar(await getAppVarValue(MAP_VAR), {});
-    const cursor = parseJsonVar(await getAppVarValue(CURSOR_VAR), {});
-    const now = Date.now();
-
-    let entries = Object.entries(map);
+    // Vínculos por-aplicación agregados: chat -> [{ idapp, notify_changes, ... }].
+    let byChat = await readGroupLinksByChat();
     if (chatIdFilter) {
-      entries = entries.filter(([chatId]) => chatId === chatIdFilter);
-      if (!entries.length) {
+      const filtered = new Map();
+      if (byChat.has(chatIdFilter)) filtered.set(chatIdFilter, byChat.get(chatIdFilter));
+      byChat = filtered;
+      if (!byChat.size) {
         initial.data = { mode: "changes", status: "quiet", reason: "CHAT_NOT_LINKED" };
         return initial;
       }
     }
+
+    const cursor = parseJsonVar(await getAppVarValue(CURSOR_VAR), {});
+    const now = Date.now();
 
     const lastTsRaw = cursor?.last_ts ? Date.parse(cursor.last_ts) : NaN;
     const lastId = Number(cursor?.last_id) || 0;
     const from = Number.isFinite(lastTsRaw) ? lastTsRaw : now - DEFAULT_WINDOW_MINUTES * 60 * 1000;
     const to = now;
 
-    const counts = { linked: entries.length, sent: 0, quiet: 0, skipped: 0 };
+    const counts = { linked: byChat.size, sent: 0, quiet: 0, skipped: 0 };
     const byGroup = [];
     let maxTs = Number.isFinite(lastTsRaw) ? lastTsRaw : 0;
     let maxId = lastId;
 
-    for (const [chatId, entry] of entries) {
-      const idapp = entry?.idapp;
-      if (!idapp) {
-        counts.skipped += 1;
-        continue;
-      }
-      const environment = String(entry?.environment || ENV).toLowerCase();
+    for (const [chatId, links] of byChat) {
+      const appsInChat = [];
+      const reports = [];
+      let notifyBlockedAll = true;
 
-      let events;
-      try {
-        const raw = await collectChanges({ idapp, from, to });
-        events = raw.filter((e) => {
-          const ts = new Date(e.timestamp).getTime();
-          const ok = ts > from || (ts === from && Number(e.id) > lastId);
-          if (!ok) return false;
-          return e.environment == null || String(e.environment).toLowerCase() === environment;
-        });
-      } catch (error) {
-        console.error(`[fnAppGroupChanges] collect ${chatId} -> ${idapp}:`, error.message);
-        counts.skipped += 1;
-        continue;
-      }
-
-      // Avanzar el cursor global con el último evento observado (aunque no se envíe).
-      for (const e of events) {
-        const ts = new Date(e.timestamp).getTime();
-        if (ts > maxTs || (ts === maxTs && Number(e.id) > maxId)) {
-          maxTs = ts;
-          maxId = Number(e.id);
+      for (const link of links) {
+        const idapp = link?.idapp;
+        if (!idapp) {
+          counts.skipped += 1;
+          continue;
         }
+        appsInChat.push(idapp);
+        const environment = String(link.environment || ENV).toLowerCase();
+
+        let events;
+        try {
+          const raw = await collectChanges({ idapp, from, to });
+          events = raw.filter((e) => {
+            const ts = new Date(e.timestamp).getTime();
+            const ok = ts > from || (ts === from && Number(e.id) > lastId);
+            if (!ok) return false;
+            return e.environment == null || String(e.environment).toLowerCase() === environment;
+          });
+        } catch (error) {
+          console.error(`[fnAppGroupChanges] collect ${chatId} -> ${idapp}:`, error.message);
+          counts.skipped += 1;
+          continue;
+        }
+
+        // Avanzar el cursor global con el último evento observado (aunque no se envíe).
+        for (const e of events) {
+          const ts = new Date(e.timestamp).getTime();
+          if (ts > maxTs || (ts === maxTs && Number(e.id) > maxId)) {
+            maxTs = ts;
+            maxId = Number(e.id);
+          }
+        }
+
+        if (link.notify_changes === false) {
+          counts.quiet += 1;
+          continue;
+        }
+        notifyBlockedAll = false;
+
+        const appName = await getAppName(idapp);
+        const report = buildReport({ appName, events, from, to });
+        if (report) reports.push(report);
       }
 
-      if (entry.notify_changes === false) {
-        counts.quiet += 1;
-        byGroup.push({ chat_id: chatId, status: "quiet", reason: "NOTIFY_DISABLED" });
+      if (!reports.length) {
+        if (notifyBlockedAll && appsInChat.length) {
+          byGroup.push({ chat_id: chatId, status: "quiet", reason: "NOTIFY_DISABLED", apps: appsInChat });
+        } else {
+          counts.quiet += 1;
+          byGroup.push({ chat_id: chatId, status: "quiet", apps: appsInChat });
+        }
         continue;
       }
 
-      const appName = await getAppName(idapp);
-      const report = buildReport({ appName, events, from, to });
-
-      if (!report) {
-        counts.quiet += 1;
-        byGroup.push({ chat_id: chatId, status: "quiet" });
-        continue;
-      }
-
+      const combined = reports.join("\n\n");
       let delivery = { sent: false, reason: "inline" };
       if (!respondInline) {
-        delivery = await sendReport({ token, chatId, text: report });
+        delivery = await sendReport({ token, chatId, text: combined });
         if (delivery.sent) counts.sent += 1;
         else counts.skipped += 1;
       }
       byGroup.push({
         chat_id: chatId,
-        idapp,
-        environment,
+        idapp: appsInChat[0],
+        apps: appsInChat,
         status: respondInline ? "inline" : delivery.sent ? "sent" : "skipped",
-        events: events.length,
-        ...(respondInline ? { report_html: report, html: true } : {}),
+        ...(respondInline ? { report_html: combined, html: true } : {}),
       });
     }
 
@@ -332,7 +344,7 @@ export async function fnAppGroupChanges(params) {
         mode: "changes",
         status: inline?.report_html ? "inline" : "quiet",
         chat_id: inline?.chat_id,
-        counts: { sent: 0, quiet: inline?.report_html ? 0 : 1, skipped: 0, linked: entries.length },
+        counts: { sent: 0, quiet: inline?.report_html ? 0 : 1, skipped: 0, linked: byChat.size },
         ...(inline?.report_html ? { report_html: inline.report_html, html: true } : {}),
       };
       return initial;

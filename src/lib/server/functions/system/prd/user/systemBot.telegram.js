@@ -37,24 +37,30 @@
 //    /subscribe   - (admin) suscribe el grupo a las alertas de administración
 //    /unsubscribe - (admin) cancela la suscripción
 //
-//  Grupo vinculado a una aplicación (ver $VAR_GROUP_APP_MAP):
+//  Grupo vinculado a una o varias aplicaciones ($_VAR_TELEGRAM_GROUPS por app):
 //    /linkapp [nombre|idapp]  - (usuario validado + admin) vincula el grupo a una app (busca por nombre o elige de la lista)
-//    /unlinkapp        - (usuario validado + admin) desvincula el grupo
-//    /appinfo          - Muestra la app vinculada a este grupo
-//    /status           - Estatus general de la app vinculada
-//    /apistats         - Uso de endpoints de la app vinculada (últimos 7 días)
-//    /traceslow        - Peticiones más lentas de la app vinculada (últimas 24h)
-//    /logs [error|warn|info] - Logs recientes de la app vinculada (default: error/5xx)
-//    /changes [on|off] - Notificaciones de cambios de configuración (peek; toggle (admin))
-//    /activity         - Novedades recientes de la app vinculada (bajo demanda)
-//    /errors           - Errores 5xx recientes de la app vinculada
-//    /tasks            - Tareas de intervalo de la app vinculada
+//    /unlinkapp [app]  - (usuario validado + admin) desvincula el grupo de una app (el picker si hay varias)
+//    /appinfo          - Muestra las apps vinculadas a este grupo
+//    /status           - Estatus general de las apps vinculadas
+//    /apistats         - Uso de endpoints de las apps vinculadas (últimos 7 días)
+//    /traceslow        - Peticiones más lentas de las apps vinculadas (últimas 24h)
+//    /logs [error|warn|info] - Logs recientes de las apps vinculadas (default: error/5xx)
+//    /changes [on|off] [app] - Notificaciones de cambios de configuración (peek; toggle (admin))
+//    /activity         - Novedades recientes de las apps vinculadas (bajo demanda)
+//    /errors           - Errores 5xx recientes de las apps vinculadas
+//    /tasks            - Tareas de intervalo de las apps vinculadas
 //    /taskrun <idtask> - (admin) ejecuta ahora una tarea de intervalo
 //    /health           - Salud general del sistema
 //
+// Vínculos: cada aplicación guarda su propia $_VAR_TELEGRAM_GROUPS =
+// { chat_id: { environment, linked_by, linked_at, notify_changes? } } y el bot
+// consulta/escribe vía los endpoints internos /system/appgroup/links (lectura
+// agregada chat -> apps) y /system/appgroup/link (escritura). Un mismo grupo
+// puede estar vinculado a varias apps; los cursores de deduplicación siguen en
+// la app system ($_VAR_GROUP_APP_CURSORS, $_VAR_GROUP_APP_CHANGES_CURSOR).
+//
 // Config via AppVars (env prd) de la app system:
 //   - $_VAR_TELEGRAM_TOKEN        token del bot (placeholder = sin configurar)
-//   - $_VAR_GROUP_APP_MAP         { chat_id: { idapp, environment, linked_by, linked_at, notify_changes? } }
 //   - $_VAR_GROUP_APP_CURSORS     { chat_id: "ISO" } cursor por grupo (escritura del scan)
 //   - $_VAR_ADMIN_GROUP_CHAT_ID   grupo de administración para alertas admin
 //   - $_VAR_ADMIN_ALERTS_MODE     "on" | "paused" (control de /alerts sobre fnAdminAutoAlerts)
@@ -66,8 +72,6 @@
 
 const SYSTEM_APP_ID = "cfcd2084-95d5-65ef-66e7-dff9f98764da";
 const ENV = "prd";
-const MAP_VAR = "$_VAR_GROUP_APP_MAP";
-const CURSORS_VAR = "$_VAR_GROUP_APP_CURSORS";
 const ADMIN_GROUP_VAR = "$_VAR_ADMIN_GROUP_CHAT_ID";
 
 // ── Estados de conversación (sin sesiones persistentes) ──────────────────────
@@ -85,6 +89,7 @@ const STATE = {
   CHANGE_NEWPASSWORD: "change:newpassword",
   CHANGE_CONFIRM: "change:confirm",
   LINKAPP_PICK: "linkapp:pick",
+  UNLINKAPP_PICK: "unlinkapp:pick",
 };
 
 const setState = (chatId, s) => {
@@ -238,9 +243,56 @@ const parseJsonVar = (value, fallback) => {
   }
 };
 
-const readGroupMap = async () => parseJsonVar(await getVarValue(MAP_VAR), {});
-const writeGroupMap = async (map) => writeVarValue(MAP_VAR, JSON.stringify(map));
-const readCursors = async () => parseJsonVar(await getVarValue(CURSORS_VAR), {});
+// ── Vínculos grupo↔apps (per-app vía endpoints internos) ─────────────────────
+// Lectura agregada: { links: [{chat_id, idapp, environment, linked_by, linked_at, notify_changes?}],
+//                     by_chat: { chat_id: [link, ...] } }
+const readGroupLinksData = async () => {
+  try {
+    const res = await api("/appgroup/links", "post", { token: scanToken(), data: {} });
+    const { ok, body } = await parseBody(res);
+    if (!ok) return { links: [], by_chat: {} };
+    const d = body?.data ?? body ?? {};
+    return {
+      links: Array.isArray(d.links) ? d.links : [],
+      by_chat: (d.by_chat && typeof d.by_chat === "object") ? d.by_chat : {},
+    };
+  } catch (error) {
+    ofapi.log({ message: `readGroupLinksData: ${error?.message}` });
+    return { links: [], by_chat: {} };
+  }
+};
+
+const readChatLinks = async (chatId) => {
+  const data = await readGroupLinksData();
+  return (data.by_chat[String(chatId)] || []).map((l) => ({ ...l, idapp: String(l.idapp) }));
+};
+
+const writeAppGroupLink = async (idapp, chatId, linkedBy) => {
+  const res = await api("/appgroup/link", "post", {
+    token: scanToken(),
+    data: { action: "link", chat_id: String(chatId), idapp: String(idapp), linked_by: linkedBy, environment: ENV },
+  });
+  const r = await parseBody(res);
+  return !!r.ok;
+};
+
+const unlinkAppFromGroup = async (idapp, chatId) => {
+  const res = await api("/appgroup/link", "post", {
+    token: scanToken(),
+    data: { action: "unlink", chat_id: String(chatId), idapp: String(idapp) },
+  });
+  const r = await parseBody(res);
+  return !!r.ok;
+};
+
+const setGroupNotify = async (idapp, chatId, flag) => {
+  const res = await api("/appgroup/link", "post", {
+    token: scanToken(),
+    data: { action: "set_notify", chat_id: String(chatId), idapp: String(idapp), notify_changes: !!flag },
+  });
+  const r = await parseBody(res);
+  return !!r.ok;
+};
 
 // ── Catálogo de apps para resolver idapp → nombre ────────────────────────────
 const getAppsIndex = async () => {
@@ -428,11 +480,16 @@ $BOT.command("uptime", async (ctx) => {
       lines.push(`• Server time: <code>${esc(new Date().toISOString().replace("T", " ").slice(0, 19))} UTC</code>`);
     }
     if (isGroupChat(ctx.chat)) {
-      const entry = await getLinkedEntry(ctx.chat);
-      if (entry?.linked_at) {
-        const days = Math.max(0, Math.floor((Date.now() - Date.parse(entry.linked_at)) / 86400000));
-        const hours = Math.max(0, Math.floor(((Date.now() - Date.parse(entry.linked_at)) % 86400000) / 3600000));
-        lines.push(`• This group linked: <b>${days}d ${hours}h</b> ago`);
+      const entries = await getLinkedEntries(ctx.chat);
+      if (entries.length) {
+        const entry = entries.reduce((a, b) =>
+          Date.parse(b.linked_at || 0) > Date.parse(a.linked_at || 0) ? b : a
+        );
+        if (entry?.linked_at) {
+          const days = Math.max(0, Math.floor((Date.now() - Date.parse(entry.linked_at)) / 86400000));
+          const hours = Math.max(0, Math.floor(((Date.now() - Date.parse(entry.linked_at)) % 86400000) / 3600000));
+          lines.push(`• This group linked: <b>${days}d ${hours}h</b> ago (${entries.length} app${entries.length === 1 ? "" : "s"})`);
+        }
       }
     }
     if (lines.length === 1) lines.push("No uptime data available.");
@@ -656,16 +713,7 @@ const searchApps = (entries, query) => {
   );
 };
 
-const performLink = async (chatId, idapp, linkedBy) => {
-  const map = await readGroupMap();
-  map[String(chatId)] = {
-    idapp: String(idapp),
-    environment: ENV,
-    linked_by: linkedBy,
-    linked_at: new Date().toISOString(),
-  };
-  return writeGroupMap(map);
-};
+const performLink = async (chatId, idapp, linkedBy) => writeAppGroupLink(idapp, chatId, linkedBy);
 
 const sendPicker = async (ctx, entries, linkedBy, fromId) => {
   setState(ctx.chat.id, { step: STATE.LINKAPP_PICK, entries, linkedBy, fromId });
@@ -742,6 +790,68 @@ const handleGroupPick = async (ctx) => {
       { parse_mode: "HTML" });
   } catch (error) {
     ofapi.log({ message: `linkapp pick: ${error?.message}` });
+    setState(ctx.chat.id, null);
+    await ctx.reply("An unexpected error occurred. Try again.");
+  }
+};
+
+const sendUnlinkPicker = async (ctx, links, apps) => {
+  setState(ctx.chat.id, {
+    step: STATE.UNLINKAPP_PICK,
+    entries: links.map((l) => ({ idapp: l.idapp })),
+    fromId: ctx.from.id,
+  });
+  const lines = links.map(
+    (l, i) => `  ${i + 1}. <b>${esc(apps.get(String(l.idapp)) || l.idapp)}</b> (<code>${esc(String(l.idapp).slice(0, 8))}</code>)`
+  );
+  const text = [
+    "🔗 <b>This group is linked to several applications. Pick which one to unlink:</b>",
+    "",
+    ...lines,
+    "",
+    "Press a button, or reply with the number of the application.",
+    "Send /cancel to abort.",
+  ].join("\n");
+  await ctx.reply(text, {
+    parse_mode: "HTML",
+    reply_markup: {
+      inline_keyboard: links.map((l) => [
+        {
+          text: String(apps.get(String(l.idapp)) || l.idapp).slice(0, 100),
+          callback_data: `unlinkapp:${l.idapp}`,
+        },
+      ]),
+    },
+  });
+};
+
+const handleUnlinkPick = async (ctx) => {
+  const s = getState(ctx.chat.id);
+  if (!s || s.step !== STATE.UNLINKAPP_PICK) return;
+  if (s.fromId && s.fromId !== ctx.from.id) return;
+  const entries = Array.isArray(s.entries) ? s.entries : [];
+  const text = String(ctx.message.text || "").trim();
+  if (text.startsWith("/")) return;
+  try {
+    if (!(await isGroupAdmin(ctx.chat, ctx.from.id))) {
+      setState(ctx.chat.id, null);
+      await ctx.reply("Only group administrators can unlink this group.");
+      return;
+    }
+    const idx = parseInt(text, 10) - 1;
+    if (!/^\d+$/.test(text) || idx < 0 || idx >= entries.length) {
+      setState(ctx.chat.id, null);
+      await ctx.reply("Send /unlinkapp again with a valid number.");
+      return;
+    }
+    setState(ctx.chat.id, null);
+    const target = entries[idx];
+    const ok = await unlinkAppFromGroup(target.idapp, String(ctx.chat.id));
+    await ctx.reply(ok
+      ? "✅ This group is no longer linked to that application."
+      : "Could not unlink the group. Try again.");
+  } catch (error) {
+    ofapi.log({ message: `unlinkapp pick: ${error?.message}` });
     setState(ctx.chat.id, null);
     await ctx.reply("An unexpected error occurred. Try again.");
   }
@@ -835,6 +945,42 @@ $BOT.on("callback_query:data", async (ctx) => {
   }
 });
 
+$BOT.on("callback_query:data", async (ctx) => {
+  const data = String(ctx.callbackQuery?.data || "");
+  if (!data.startsWith("unlinkapp:")) return;
+  const idapp = data.slice("unlinkapp:".length);
+  const chat = ctx.chat;
+  if (!chat || !isGroupChat(chat)) return;
+  try {
+    if (!(await isGroupAdmin(chat, ctx.from.id))) {
+      await ctx.answerCallbackQuery({ text: "Only group administrators can unlink this group." });
+      return;
+    }
+    const links = await readChatLinks(chat.id);
+    const target = links.find((l) => l.idapp === String(idapp));
+    if (!target) {
+      await ctx.answerCallbackQuery({ text: "That application is not linked to this group." });
+      return;
+    }
+    const apps = await getAppsIndex();
+    const name = apps.get(String(idapp)) || idapp;
+    const ok = await unlinkAppFromGroup(String(idapp), String(chat.id));
+    setState(chat.id, null);
+    await ctx.answerCallbackQuery();
+    if (ok) {
+      await ctx.editMessageText(
+        `This group is no longer linked to <b>${esc(name)}</b>.`,
+        { parse_mode: "HTML" }
+      );
+    } else {
+      await ctx.editMessageText("Could not unlink the group. Try again.");
+    }
+  } catch (error) {
+    ofapi.log({ message: `unlinkapp callback: ${error?.message}` });
+    await ctx.answerCallbackQuery({ text: "An unexpected error occurred." });
+  }
+});
+
 $BOT.command("unlinkapp", async (ctx) => {
   const chat = ctx.chat;
   if (!isGroupChat(chat)) {
@@ -850,17 +996,33 @@ $BOT.command("unlinkapp", async (ctx) => {
     await ctx.reply("You are not a validated OpenFusionAPI user.");
     return;
   }
+  const query = String((ctx.message?.text || "").split(/\s+/)[1] || "").trim().toLowerCase();
   try {
-    const map = await readGroupMap();
-    if (!map[String(chat.id)]) {
+    const links = await readChatLinks(chat.id);
+    if (!links.length) {
       await ctx.reply("This group is not linked to any application.");
       return;
     }
-    delete map[String(chat.id)];
-    const ok = await writeGroupMap(map);
+    const apps = await getAppsIndex();
+    let target = null;
+    if (query) {
+      const matches = searchApps([...apps.entries()], query);
+      if (matches.length === 1) {
+        const id = String(matches[0][0]);
+        target = links.find((l) => l.idapp === id) || null;
+      }
+    }
+    if (!target && links.length === 1) target = links[0];
+    if (!target) {
+      await sendUnlinkPicker(ctx, links, apps);
+      return;
+    }
+    const ok = await unlinkAppFromGroup(target.idapp, String(chat.id));
+    const name = apps.get(String(target.idapp)) || target.idapp;
     await ctx.reply(ok
-      ? "This group is no longer linked to an application."
-      : "Could not unlink the group. Try again.");
+      ? `This group is no longer linked to <b>${esc(name)}</b>.`
+      : "Could not unlink the group. Try again.",
+      { parse_mode: "HTML" });
   } catch (error) {
     ofapi.log({ message: `unlinkapp: ${error?.message}` });
     await ctx.reply("An unexpected error occurred. Try again.");
@@ -873,32 +1035,30 @@ $BOT.command("appinfo", async (ctx) => {
     await ctx.reply("This command only works in a group.");
     return;
   }
-  const map = await readGroupMap();
-  const entry = map[String(chat.id)];
-  if (!entry) {
+  const entries = await getLinkedEntries(chat);
+  if (!entries.length) {
     await ctx.reply("This group is not linked to any application. An administrator can run /linkapp to pick one.");
     return;
   }
   const apps = await getAppsIndex();
-  const name = apps.get(String(entry.idapp)) || entry.idapp;
-  await ctx.reply(
-    [
-      `<b>🔗 Linked application</b>`,
-      `• <b>App:</b> ${esc(name)}`,
-      `• <b>idapp:</b> <code>${esc(entry.idapp)}</code>`,
-      `• <b>Environment:</b> ${esc(entry.environment || ENV)}`,
-      `• <b>Linked by:</b> ${esc(entry.linked_by || "?")}`,
-      `• <b>Linked at:</b> ${esc(String(entry.linked_at || "?").replace("T", " ").slice(0, 19))} UTC`,
-    ].join("\n"),
-    { parse_mode: "HTML" }
-  );
+  const lines = [
+    entries.length === 1
+      ? `<b>🔗 Linked application</b>`
+      : `<b>🔗 Linked applications (${entries.length})</b>`,
+  ];
+  for (const entry of entries) {
+    const name = apps.get(String(entry.idapp)) || entry.idapp;
+    lines.push(
+      `• <b>${esc(name)}</b> — <code>${esc(entry.idapp)}</code>`,
+      `  Environment: ${esc(entry.environment || ENV)} · Linked by: ${esc(entry.linked_by || "?")} · ${esc(String(entry.linked_at || "?").replace("T", " ").slice(0, 19))} UTC` +
+        (entry.notify_changes === false ? "\n  🔕 change notifications disabled" : "")
+    );
+  }
+  await ctx.reply(lines.join("\n"), { parse_mode: "HTML" });
 });
 
-// ── Estatus bajo demanda de la app vinculada ─────────────────────────────────
-const getLinkedEntry = async (chat) => {
-  const map = await readGroupMap();
-  return map[String(chat.id)] || null;
-};
+// ── Estatus bajo demanda de las apps vinculadas ──────────────────────────────
+const getLinkedEntries = async (chat) => readChatLinks(chat?.id);
 
 const queryAppSummary = async (idapp, lastDays = 1) => {
   const res = await api("/log/app/summary", "get", {
@@ -917,45 +1077,49 @@ $BOT.command("status", async (ctx) => {
     await ctx.reply("This command only works in a linked group.");
     return;
   }
-  const entry = await getLinkedEntry(chat);
-  if (!entry) {
+  const entries = await getLinkedEntries(chat);
+  if (!entries.length) {
     await ctx.reply("This group is not linked to an application. Run /linkapp <idapp>.");
     return;
   }
   const apps = await getAppsIndex();
-  try {
-    const { ok, rows } = await queryAppSummary(entry.idapp, 1);
-    if (!ok) {
-      await ctx.reply("Could not read the application activity. Try again later.");
-      return;
+  const parts = [];
+  for (const entry of entries) {
+    try {
+      const { ok, rows } = await queryAppSummary(entry.idapp, 1);
+      if (!ok) {
+        parts.push(`⚠️ <b>${esc(apps.get(String(entry.idapp)) || entry.idapp)}</b>: could not read the activity.`);
+        continue;
+      }
+      const classes = { "2xx": 0, "3xx": 0, "4xx": 0, "5xx": 0 };
+      const activeEndpoints = new Set();
+      let total = 0;
+      for (const row of rows) {
+        const code = Number(row.status_code) || 0;
+        const cls = `${Math.floor(code / 100)}xx`;
+        if (classes[cls] !== undefined) classes[cls] += Number(row.recordCount) || 0;
+        if (row.idendpoint) activeEndpoints.add(row.idendpoint);
+        total += Number(row.recordCount) || 0;
+      }
+      const failures = ["4xx", "5xx"].filter((c) => classes[c] > 0)
+        .map((c) => `${c}: ${classes[c]}`).join(", ");
+      const lines = [
+        `📊 <b>${esc(apps.get(String(entry.idapp)) || entry.idapp)} — status</b> (last 24h)`,
+        `• Endpoints with activity: <b>${activeEndpoints.size}</b>`,
+        `• Requests: <b>${total}</b>` +
+          (classes["2xx"] ? ` · 2xx: ${classes["2xx"]}` : "") +
+          (classes["3xx"] ? ` · 3xx: ${classes["3xx"]}` : "") +
+          (classes["4xx"] ? ` · 4xx: ${classes["4xx"]}` : "") +
+          (classes["5xx"] ? ` · 5xx: ${classes["5xx"]}` : ""),
+        failures ? `⚠️ ${esc(failures)}` : "",
+      ].filter(Boolean);
+      parts.push(lines.join("\n"));
+    } catch (error) {
+      ofapi.log({ message: `status: ${error?.message}` });
+      parts.push(`⚠️ <b>${esc(apps.get(String(entry.idapp)) || entry.idapp)}</b>: could not query the status.`);
     }
-    const classes = { "2xx": 0, "3xx": 0, "4xx": 0, "5xx": 0 };
-    const activeEndpoints = new Set();
-    let total = 0;
-    for (const row of rows) {
-      const code = Number(row.status_code) || 0;
-      const cls = `${Math.floor(code / 100)}xx`;
-      if (classes[cls] !== undefined) classes[cls] += Number(row.recordCount) || 0;
-      if (row.idendpoint) activeEndpoints.add(row.idendpoint);
-      total += Number(row.recordCount) || 0;
-    }
-    const failures = ["4xx", "5xx"].filter((c) => classes[c] > 0)
-      .map((c) => `${c}: ${classes[c]}`).join(", ");
-    const lines = [
-      `📊 <b>${esc(apps.get(String(entry.idapp)) || entry.idapp)} — status</b> (last 24h)`,
-      `• Endpoints with activity: <b>${activeEndpoints.size}</b>`,
-      `• Requests: <b>${total}</b>` +
-        (classes["2xx"] ? ` · 2xx: ${classes["2xx"]}` : "") +
-        (classes["3xx"] ? ` · 3xx: ${classes["3xx"]}` : "") +
-        (classes["4xx"] ? ` · 4xx: ${classes["4xx"]}` : "") +
-        (classes["5xx"] ? ` · 5xx: ${classes["5xx"]}` : ""),
-      failures ? `⚠️ ${esc(failures)}` : "",
-    ].filter(Boolean);
-    await ctx.reply(lines.join("\n"), { parse_mode: "HTML" });
-  } catch (error) {
-    ofapi.log({ message: `status: ${error?.message}` });
-    await ctx.reply("Could not query the application status.");
   }
+  await ctx.reply(parts.join("\n\n"), { parse_mode: "HTML" });
 });
 
 $BOT.command("errors", async (ctx) => {
@@ -964,35 +1128,41 @@ $BOT.command("errors", async (ctx) => {
     await ctx.reply("This command only works in a linked group.");
     return;
   }
-  const entry = await getLinkedEntry(chat);
-  if (!entry) {
+  const entries = await getLinkedEntries(chat);
+  if (!entries.length) {
     await ctx.reply("This group is not linked to an application. Run /linkapp <idapp>.");
     return;
   }
-  try {
-    const res = await api("/system/log", "get", {
-      token: scanToken(),
-      data: { idapp: entry.idapp, environment: ENV, status_code: "5xx", last_hours: 6, limit: 10 },
-    });
-    const { ok, status, body } = await parseBody(res);
-    if (!ok) {
-      await ctx.reply(`Could not read logs (HTTP ${status}).`);
-      return;
+  const apps = await getAppsIndex();
+  const parts = [];
+  for (const entry of entries) {
+    try {
+      const res = await api("/system/log", "get", {
+        token: scanToken(),
+        data: { idapp: entry.idapp, environment: entry.environment || ENV, status_code: "5xx", last_hours: 6, limit: 10 },
+      });
+      const { ok, status, body } = await parseBody(res);
+      if (!ok) {
+        parts.push(`⚠️ <b>${esc(apps.get(String(entry.idapp)) || entry.idapp)}</b>: could not read logs (HTTP ${status}).`);
+        continue;
+      }
+      const rows = Array.isArray(body) ? body : body?.data;
+      const name = apps.get(String(entry.idapp)) || entry.idapp;
+      if (!rows || !rows.length) {
+        parts.push(`✅ <b>${esc(name)}</b>: no 5xx errors in the last 6h. 👍`);
+        continue;
+      }
+      const lines = rows.map((r) => {
+        const time = (r.timestamp || "").replace("T", " ").slice(0, 19);
+        return `• <code>${esc(time)}</code> ${esc(r.method || "?")} <code>${esc(r.url || "?")}</code> → ${r.status_code ?? "?"} (${r.response_time ?? 0}ms)`;
+      });
+      parts.push([`🔥 <b>${esc(name)} — server errors (5xx, last 6h)</b>`, ...lines].join("\n"));
+    } catch (error) {
+      ofapi.log({ message: `errors: ${error?.message}` });
+      parts.push(`⚠️ <b>${esc(apps.get(String(entry.idapp)) || entry.idapp)}</b>: could not read the error logs.`);
     }
-    const rows = Array.isArray(body) ? body : body?.data;
-    if (!rows || !rows.length) {
-      await ctx.reply("No 5xx server errors for this application in the last 6 hours. 👍");
-      return;
-    }
-    const lines = rows.map((r) => {
-      const time = (r.timestamp || "").replace("T", " ").slice(0, 19);
-      return `• <code>${esc(time)}</code> ${esc(r.method || "?")} <code>${esc(r.url || "?")}</code> → ${r.status_code ?? "?"} (${r.response_time ?? 0}ms)`;
-    });
-    await ctx.reply([`<b>🔥 Server errors (5xx, last 6h)</b>`, ...lines].join("\n"), { parse_mode: "HTML" });
-  } catch (error) {
-    ofapi.log({ message: `errors: ${error?.message}` });
-    await ctx.reply("Could not read the error logs.");
   }
+  await ctx.reply(parts.join("\n\n"), { parse_mode: "HTML" });
 });
 
 $BOT.command("activity", async (ctx) => {
@@ -1001,8 +1171,8 @@ $BOT.command("activity", async (ctx) => {
     await ctx.reply("This command only works in a linked group.");
     return;
   }
-  const entry = await getLinkedEntry(chat);
-  if (!entry) {
+  const entries = await getLinkedEntries(chat);
+  if (!entries.length) {
     await ctx.reply("This group is not linked to an application. Run /linkapp <idapp>.");
     return;
   }
@@ -1019,7 +1189,7 @@ $BOT.command("activity", async (ctx) => {
     const d = body?.data ?? body;
     const quiet = !d || (!d.report_html && d.status === "quiet");
     if (quiet) {
-      await ctx.reply("No new activity for this application since the last scan. 👍");
+      await ctx.reply("No new activity for these applications since the last scan. 👍");
       return;
     }
     await ctx.reply(d.report_html || "No new activity detected.", { parse_mode: "HTML" });
@@ -1029,18 +1199,18 @@ $BOT.command("activity", async (ctx) => {
   }
 });
 
-// ── Comandos de la app vinculada: apistats / traceslow / logs / tasks ────────
-const linkedEntry = async (ctx) => {
+// ── Comandos de las apps vinculadas: apistats / traceslow / logs / tasks ─────
+const linkedEntries = async (ctx) => {
   if (!isGroupChat(ctx.chat)) {
     await ctx.reply("This command only works in a linked group.");
-    return null;
+    return [];
   }
-  const entry = await getLinkedEntry(ctx.chat);
-  if (!entry) {
-    await ctx.reply("This group is not linked to an application. An administrator can run /linkapp to pick one.");
-    return null;
+  const entries = await getLinkedEntries(ctx.chat);
+  if (!entries.length) {
+    await ctx.reply("This group is not linked to any application. An administrator can run /linkapp to pick one.");
+    return [];
   }
-  return entry;
+  return entries;
 };
 
 const fmtTime = (value) => String(value || "").replace("T", " ").slice(0, 19);
@@ -1053,8 +1223,8 @@ $BOT.command("myapps", async (ctx) => {
       return;
     }
     const who = user.username || String(ctx.from.id);
-    const map = await readGroupMap();
-    const mine = Object.entries(map).filter(([, entry]) => String(entry.linked_by || "") === String(who));
+    const data = await readGroupLinksData();
+    const mine = data.links.filter((l) => String(l.linked_by || "") === String(who));
     if (!mine.length) {
       await ctx.reply(
         "You haven't linked any group to an application yet. Go to a group you administer and run /linkapp there."
@@ -1063,9 +1233,9 @@ $BOT.command("myapps", async (ctx) => {
     }
     const apps = await getAppsIndex();
     const lines = ["🔗 <b>Groups you linked</b>"];
-    for (const [chatId, entry] of mine.slice(0, 20)) {
-      const name = apps.get(String(entry.idapp)) || entry.idapp;
-      lines.push(`• <b>${esc(name)}</b> — chat <code>${esc(chatId)}</code>${entry.linked_at ? ` · ${esc(fmtTime(entry.linked_at))}` : ""}`);
+    for (const link of mine.slice(0, 20)) {
+      const name = apps.get(String(link.idapp)) || link.idapp;
+      lines.push(`• <b>${esc(name)}</b> — chat <code>${esc(link.chat_id)}</code>${link.linked_at ? ` · ${esc(fmtTime(link.linked_at))}` : ""}`);
     }
     await ctx.reply(lines.join("\n"), { parse_mode: "HTML" });
   } catch (error) {
@@ -1075,162 +1245,178 @@ $BOT.command("myapps", async (ctx) => {
 });
 
 $BOT.command("apistats", async (ctx) => {
-  const entry = await linkedEntry(ctx);
-  if (!entry) return;
+  const entries = await linkedEntries(ctx);
+  if (!entries.length) return;
   const apps = await getAppsIndex();
-  const name = apps.get(String(entry.idapp)) || entry.idapp;
-  try {
-    const res = await api("/system/log/app/endpoints/usage", "get", {
-      token: scanToken(),
-      data: { idapp: entry.idapp, environment: entry.environment || ENV, last_days: 7, top: 5 },
-    });
-    const { ok, status, body } = await parseBody(res);
-    if (!ok) {
-      await ctx.reply(`Could not read the usage stats (HTTP ${status}).`);
-      return;
-    }
-    const d = body?.data ?? body;
-    const lines = [
-      `📈 <b>${esc(name)} — endpoint usage</b> (${(d.window?.last_days ?? 7)}d)`,
-      `• Requests: <b>${d.totals?.total_requests_in_window ?? 0}</b> · endpoints: <b>${d.totals?.total_endpoints ?? 0}</b>`,
-    ];
-    const most = (d.most_used || []).slice(0, 5);
-    if (most.length) {
-      lines.push("", "<b>Most used</b>");
-      for (const e of most) {
-        lines.push(`  <code>${esc(e.method || "?")}</code> ${esc(e.resource || "?")} → <b>${e.requestCount ?? 0}</b>`);
+  const parts = [];
+  for (const entry of entries) {
+    const name = apps.get(String(entry.idapp)) || entry.idapp;
+    try {
+      const res = await api("/system/log/app/endpoints/usage", "get", {
+        token: scanToken(),
+        data: { idapp: entry.idapp, environment: entry.environment || ENV, last_days: 7, top: 5 },
+      });
+      const { ok, status, body } = await parseBody(res);
+      if (!ok) {
+        parts.push(`⚠️ <b>${esc(name)}</b>: could not read the usage stats (HTTP ${status}).`);
+        continue;
       }
+      const d = body?.data ?? body;
+      const lines = [
+        `📈 <b>${esc(name)} — endpoint usage</b> (${(d.window?.last_days ?? 7)}d)`,
+        `• Requests: <b>${d.totals?.total_requests_in_window ?? 0}</b> · endpoints: <b>${d.totals?.total_endpoints ?? 0}</b>`,
+      ];
+      const most = (d.most_used || []).slice(0, 5);
+      if (most.length) {
+        lines.push("", "<b>Most used</b>");
+        for (const e of most) {
+          lines.push(`  <code>${esc(e.method || "?")}</code> ${esc(e.resource || "?")} → <b>${e.requestCount ?? 0}</b>`);
+        }
+      }
+      parts.push(lines.join("\n"));
+    } catch (error) {
+      ofapi.log({ message: `apistats: ${error?.message}` });
+      parts.push(`⚠️ <b>${esc(name)}</b>: could not read the usage stats.`);
     }
-    await ctx.reply(lines.join("\n"), { parse_mode: "HTML" });
-  } catch (error) {
-    ofapi.log({ message: `apistats: ${error?.message}` });
-    await ctx.reply("Could not read the usage stats.");
   }
+  await ctx.reply(parts.join("\n\n"), { parse_mode: "HTML" });
 });
 
 $BOT.command("traceslow", async (ctx) => {
-  const entry = await linkedEntry(ctx);
-  if (!entry) return;
+  const entries = await linkedEntries(ctx);
+  if (!entries.length) return;
   const apps = await getAppsIndex();
-  const name = apps.get(String(entry.idapp)) || entry.idapp;
-  try {
-    const res = await api("/system/log", "get", {
-      token: scanToken(),
-      data: {
-        idapp: entry.idapp,
-        environment: entry.environment || ENV,
-        last_hours: 24,
-        order: "response_time",
-        orderDirection: "DESC",
-        limit: 10,
-      },
-    });
-    const { ok, status, body } = await parseBody(res);
-    if (!ok) {
-      await ctx.reply(`Could not read the logs (HTTP ${status}).`);
-      return;
+  const parts = [];
+  for (const entry of entries) {
+    const name = apps.get(String(entry.idapp)) || entry.idapp;
+    try {
+      const res = await api("/system/log", "get", {
+        token: scanToken(),
+        data: {
+          idapp: entry.idapp,
+          environment: entry.environment || ENV,
+          last_hours: 24,
+          order: "response_time",
+          orderDirection: "DESC",
+          limit: 10,
+        },
+      });
+      const { ok, status, body } = await parseBody(res);
+      if (!ok) {
+        parts.push(`⚠️ <b>${esc(name)}</b>: could not read the logs (HTTP ${status}).`);
+        continue;
+      }
+      const rows = Array.isArray(body) ? body : body?.data;
+      if (!rows || !rows.length) {
+        parts.push(`✅ <b>${esc(name)}</b>: no requests in the last 24h. 👍`);
+        continue;
+      }
+      const lines = [`🐢 <b>${esc(name)} — slowest requests (last 24h)</b>`];
+      for (const r of rows.slice(0, 10)) {
+        lines.push(`• <code>${esc(fmtTime(r.timestamp))}</code> ${esc(r.method || "?")} <code>${esc(r.url || "?")}</code> → <b>${r.response_time ?? 0}ms</b>`);
+      }
+      parts.push(lines.join("\n"));
+    } catch (error) {
+      ofapi.log({ message: `traceslow: ${error?.message}` });
+      parts.push(`⚠️ <b>${esc(name)}</b>: could not read the slow request trace.`);
     }
-    const rows = Array.isArray(body) ? body : body?.data;
-    if (!rows || !rows.length) {
-      await ctx.reply(`No requests for <b>${esc(name)}</b> in the last 24h. 👍`);
-      return;
-    }
-    const lines = [`🐢 <b>${esc(name)} — slowest requests (last 24h)</b>`];
-    for (const r of rows.slice(0, 10)) {
-      lines.push(`• <code>${esc(fmtTime(r.timestamp))}</code> ${esc(r.method || "?")} <code>${esc(r.url || "?")}</code> → <b>${r.response_time ?? 0}ms</b>`);
-    }
-    await ctx.reply(lines.join("\n"), { parse_mode: "HTML" });
-  } catch (error) {
-    ofapi.log({ message: `traceslow: ${error?.message}` });
-    await ctx.reply("Could not read the slow request trace.");
   }
+  await ctx.reply(parts.join("\n\n"), { parse_mode: "HTML" });
 });
 
 $BOT.command("logs", async (ctx) => {
-  const entry = await linkedEntry(ctx);
-  if (!entry) return;
+  const entries = await linkedEntries(ctx);
+  if (!entries.length) return;
   const arg = String((ctx.message?.text || "").split(/\s+/)[1] || "").trim().toLowerCase();
   const statusMap = { error: "5xx", warn: "4xx", warning: "4xx", info: "2xx" };
   const statusCode = statusMap[arg] || "5xx";
   const apps = await getAppsIndex();
-  const name = apps.get(String(entry.idapp)) || entry.idapp;
-  try {
-    const res = await api("/system/log", "get", {
-      token: scanToken(),
-      data: {
-        idapp: entry.idapp,
-        environment: entry.environment || ENV,
-        status_code: statusCode,
-        last_hours: 24,
-        limit: 10,
-      },
-    });
-    const { ok, status, body } = await parseBody(res);
-    if (!ok) {
-      await ctx.reply(`Could not read the logs (HTTP ${status}).`);
-      return;
+  const parts = [];
+  for (const entry of entries) {
+    const name = apps.get(String(entry.idapp)) || entry.idapp;
+    try {
+      const res = await api("/system/log", "get", {
+        token: scanToken(),
+        data: {
+          idapp: entry.idapp,
+          environment: entry.environment || ENV,
+          status_code: statusCode,
+          last_hours: 24,
+          limit: 10,
+        },
+      });
+      const { ok, status, body } = await parseBody(res);
+      if (!ok) {
+        parts.push(`⚠️ <b>${esc(name)}</b>: could not read the logs (HTTP ${status}).`);
+        continue;
+      }
+      const rows = Array.isArray(body) ? body : body?.data;
+      const label = arg || "error";
+      if (!rows || !rows.length) {
+        parts.push(`✅ <b>${esc(name)}</b>: no <b>${esc(label)}</b> logs in the last 24h. 👍`);
+        continue;
+      }
+      const lines = [`📜 <b>${esc(name)} — ${esc(label)} logs (last 24h)</b>`];
+      for (const r of rows.slice(0, 10)) {
+        lines.push(`• <code>${esc(fmtTime(r.timestamp))}</code> ${esc(r.method || "?")} <code>${esc(r.url || "?")}</code> → HTTP <b>${r.status_code ?? r.status ?? "?"}</b> (${r.response_time ?? 0}ms)`);
+      }
+      parts.push(lines.join("\n"));
+    } catch (error) {
+      ofapi.log({ message: `logs: ${error?.message}` });
+      parts.push(`⚠️ <b>${esc(name)}</b>: could not read the logs.`);
     }
-    const rows = Array.isArray(body) ? body : body?.data;
-    const label = arg || "error";
-    if (!rows || !rows.length) {
-      await ctx.reply(`No <b>${esc(label)}</b> logs for <b>${esc(name)}</b> in the last 24h. 👍`, { parse_mode: "HTML" });
-      return;
-    }
-    const lines = [`📜 <b>${esc(name)} — ${esc(label)} logs (last 24h)</b>`];
-    for (const r of rows.slice(0, 10)) {
-      lines.push(`• <code>${esc(fmtTime(r.timestamp))}</code> ${esc(r.method || "?")} <code>${esc(r.url || "?")}</code> → HTTP <b>${r.status_code ?? r.status ?? "?"}</b> (${r.response_time ?? 0}ms)`);
-    }
-    await ctx.reply(lines.join("\n"), { parse_mode: "HTML" });
-  } catch (error) {
-    ofapi.log({ message: `logs: ${error?.message}` });
-    await ctx.reply("Could not read the logs.");
   }
+  await ctx.reply(parts.join("\n\n"), { parse_mode: "HTML" });
 });
 
 $BOT.command("tasks", async (ctx) => {
-  const entry = await linkedEntry(ctx);
-  if (!entry) return;
+  const entries = await linkedEntries(ctx);
+  if (!entries.length) return;
   const apps = await getAppsIndex();
-  const name = apps.get(String(entry.idapp)) || entry.idapp;
-  try {
-    const res = await api("/interval_tasks/byidapp", "get", {
-      token: scanToken(),
-      data: { idapp: entry.idapp },
-    });
-    const { ok, status, body } = await parseBody(res);
-    if (!ok) {
-      await ctx.reply(`Could not read the interval tasks (HTTP ${status}).`);
-      return;
+  const parts = [];
+  for (const entry of entries) {
+    const name = apps.get(String(entry.idapp)) || entry.idapp;
+    try {
+      const res = await api("/interval_tasks/byidapp", "get", {
+        token: scanToken(),
+        data: { idapp: entry.idapp },
+      });
+      const { ok, status, body } = await parseBody(res);
+      if (!ok) {
+        parts.push(`⚠️ <b>${esc(name)}</b>: could not read the interval tasks (HTTP ${status}).`);
+        continue;
+      }
+      const rows = Array.isArray(body) ? body : body?.data;
+      if (!rows || !rows.length) {
+        parts.push(`✅ <b>${esc(name)}</b>: no interval tasks.`);
+        continue;
+      }
+      const lines = [`🗓 <b>${esc(name)} — interval tasks</b>`];
+      for (const t of rows.slice(0, 15)) {
+        const badge = t.task_enabled === false ? "🔴" : "🟢";
+        const schedule = t.schedule_mode === "cron"
+          ? `\`${esc(t.cron || "?")}\``
+          : `${t.interval ? `${t.interval}s` : ""}`;
+        const next = t.next_run ? ` · next ${esc(fmtTime(t.next_run))}` : "";
+        lines.push(`${badge} <code>${esc(String(t.idtask).slice(0, 8))}</code> <b>${esc(t.resource || "?")}</b> (${schedule})${next}`);
+        if (t.note) lines.push(`   <i>${esc(String(t.note).slice(0, 80))}</i>`);
+      }
+      lines.push("", "Run one with /taskrun &lt;idtask&gt; (copy the full id below first).", "");
+      for (const t of rows.slice(0, 15)) {
+        lines.push(`<code>${esc(t.idtask)}</code>`);
+      }
+      parts.push(lines.join("\n"));
+    } catch (error) {
+      ofapi.log({ message: `tasks: ${error?.message}` });
+      parts.push(`⚠️ <b>${esc(name)}</b>: could not read the interval tasks.`);
     }
-    const rows = Array.isArray(body) ? body : body?.data;
-    if (!rows || !rows.length) {
-      await ctx.reply(`No interval tasks for <b>${esc(name)}</b>.`, { parse_mode: "HTML" });
-      return;
-    }
-    const lines = [`🗓 <b>${esc(name)} — interval tasks</b>`];
-    for (const t of rows.slice(0, 15)) {
-      const badge = t.task_enabled === false ? "🔴" : "🟢";
-      const schedule = t.schedule_mode === "cron"
-        ? `\`${esc(t.cron || "?")}\``
-        : `${t.interval ? `${t.interval}s` : ""}`;
-      const next = t.next_run ? ` · next ${esc(fmtTime(t.next_run))}` : "";
-      lines.push(`${badge} <code>${esc(String(t.idtask).slice(0, 8))}</code> <b>${esc(t.resource || "?")}</b> (${schedule})${next}`);
-      if (t.note) lines.push(`   <i>${esc(String(t.note).slice(0, 80))}</i>`);
-    }
-    lines.push("", "Run one with /taskrun &lt;idtask&gt; (copy the full id below first).", "");
-    for (const t of rows.slice(0, 15)) {
-      lines.push(`<code>${esc(t.idtask)}</code>`);
-    }
-    await ctx.reply(lines.join("\n"), { parse_mode: "HTML" });
-  } catch (error) {
-    ofapi.log({ message: `tasks: ${error?.message}` });
-    await ctx.reply("Could not read the interval tasks.");
   }
+  await ctx.reply(parts.join("\n\n"), { parse_mode: "HTML" });
 });
 
 $BOT.command("taskrun", async (ctx) => {
-  const entry = await linkedEntry(ctx);
-  if (!entry) return;
+  const entries = await linkedEntries(ctx);
+  if (!entries.length) return;
   if (!(await isGroupAdmin(ctx.chat, ctx.from.id))) {
     await ctx.reply("Only group administrators can trigger interval tasks.");
     return;
@@ -1242,33 +1428,37 @@ $BOT.command("taskrun", async (ctx) => {
   }
   const idtask = String((ctx.message?.text || "").split(/\s+/)[1] || "").trim();
   if (!idtask) {
-    await ctx.reply("Usage: /taskrun <idtask>\nSend /tasks to list the available tasks of the linked app.");
+    await ctx.reply("Usage: /taskrun <idtask>\nSend /tasks to list the available tasks of the linked apps.");
     return;
   }
-  try {
-    const res = await api("/interval_tasks/run_now", "post", {
-      token: scanToken(),
-      data: { idtask },
-    });
-    const { ok, status, body } = await parseBody(res);
-    if (!ok) {
-      await ctx.reply(`Could not trigger the task (HTTP ${status}).`);
-      return;
+  const parts = [];
+  for (const entry of entries) {
+    try {
+      const res = await api("/interval_tasks/run_now", "post", {
+        token: scanToken(),
+        data: { idtask },
+      });
+      const { ok, status, body } = await parseBody(res);
+      if (!ok) {
+        parts.push(`⚠️ <code>${esc(idtask)}</code>: could not trigger (HTTP ${status}).`);
+        continue;
+      }
+      const d = body?.data ?? body;
+      const msg = d?.message
+        ? `✅ Task <code>${esc(idtask)}</code> triggered — ${esc(d.message)}`
+        : `✅ Task <code>${esc(idtask)}</code> triggered — it will run on the next scheduler cycle.`;
+      parts.push(msg);
+    } catch (error) {
+      ofapi.log({ message: `taskrun: ${error?.message}` });
+      parts.push(`⚠️ <code>${esc(idtask)}</code>: could not trigger the task.`);
     }
-    const d = body?.data ?? body;
-    const msg = d?.message
-      ? `✅ Task <code>${esc(idtask)}</code> triggered — ${esc(d.message)}`
-      : `✅ Task <code>${esc(idtask)}</code> triggered — it will run on the next scheduler cycle.`;
-    await ctx.reply(msg, { parse_mode: "HTML" });
-  } catch (error) {
-    ofapi.log({ message: `taskrun: ${error?.message}` });
-    await ctx.reply("Could not trigger the task.");
   }
+  await ctx.reply(parts.join("\n"), { parse_mode: "HTML" });
 });
 
 $BOT.command("changes", async (ctx) => {
-  const entry = await linkedEntry(ctx);
-  if (!entry) return;
+  const entries = await linkedEntries(ctx);
+  if (!entries.length) return;
   const arg = String((ctx.message?.text || "").split(/\s+/)[1] || "").trim().toLowerCase();
   if (arg === "on" || arg === "off") {
     if (!(await isGroupAdmin(ctx.chat, ctx.from.id))) {
@@ -1280,18 +1470,41 @@ $BOT.command("changes", async (ctx) => {
       await ctx.reply("You are not a validated OpenFusionAPI user. First run /link in a private chat with me to link your account.");
       return;
     }
+    const flag = arg === "on";
+    const appArg = String((ctx.message?.text || "").split(/\s+/)[2] || "").trim().toLowerCase();
     try {
-      const map = await readGroupMap();
-      const current = map[String(ctx.chat.id)];
-      if (!current) {
-        await ctx.reply("This group is not linked to any application.");
-        return;
+      let targets = entries;
+      if (appArg) {
+        const apps = await getAppsIndex();
+        const matches = searchApps([...apps.entries()], appArg);
+        if (!matches.length) {
+          await ctx.reply(`No application matches "<b>${esc(appArg)}</b>". Use /appinfo to list the linked apps.`, { parse_mode: "HTML" });
+          return;
+        }
+        if (matches.length > 1) {
+          await ctx.reply("More than one application matches. Use the full idapp of the application.");
+          return;
+        }
+        const id = String(matches[0][0]);
+        targets = entries.filter((e) => e.idapp === id);
+        if (!targets.length) {
+          await ctx.reply("This group is not linked to that application.");
+          return;
+        }
       }
-      current.notify_changes = arg === "on";
-      const ok = await writeGroupMap(map);
-      await ctx.reply(ok
-        ? `Configuration change notifications are now <b>${arg === "on" ? "enabled" : "disabled"}</b> for this group.`
-        : "Could not update the notification flag.");
+      let changed = 0;
+      let failed = 0;
+      for (const t of targets) {
+        const ok = await setGroupNotify(t.idapp, String(ctx.chat.id), flag);
+        ok ? (changed += 1) : (failed += 1);
+      }
+      const label = targets.length === 1
+        ? "this application"
+        : `${changed} application${changed === 1 ? "" : "s"}`;
+      await ctx.reply(failed
+        ? `Configuration change notifications: ${changed} updated, ${failed} failed.`
+        : `Configuration change notifications are now <b>${flag ? "enabled" : "disabled"}</b> for ${label}.`,
+        { parse_mode: "HTML" });
     } catch (error) {
       ofapi.log({ message: `changes toggle: ${error?.message}` });
       await ctx.reply("An unexpected error occurred. Try again.");
@@ -1377,7 +1590,10 @@ $BOT.command("unsubscribe", async (ctx) => {
 // ── Flujo de texto (solo chat privado) ───────────────────────────────────────
 $BOT.on("message:text", async (ctx) => {
   if (!isPrivateChat(ctx.chat)) {
-    if (isGroupChat(ctx.chat)) await handleGroupPick(ctx);
+    if (isGroupChat(ctx.chat)) {
+      await handleGroupPick(ctx);
+      await handleUnlinkPick(ctx);
+    }
     return;
   }
   const s = getState(ctx.chat.id);
