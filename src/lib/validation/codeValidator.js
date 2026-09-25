@@ -3,6 +3,7 @@ import { ALL_RULES } from "./rules/index.js";
 import { matchMemberCallUppercaseVerb } from "./matchers/matchMemberCallUppercaseVerb.js";
 import { matchRenamedIdentifierCall } from "./matchers/matchRenamedIdentifierCall.js";
 import { matchPositionalToObjectCall } from "./matchers/matchPositionalToObjectCall.js";
+import { collectCallbackChainHaltFindings } from "./matchers/matchCallbackChainHalt.js";
 import { createFunctionVM } from "../server/createFunctionVM.js";
 
 const MATCHERS = {
@@ -194,6 +195,11 @@ export async function validateEndpointCode({
       }
     }
   });
+
+  // grammY: los handlers que comparten "callback_query:data" forman una sola
+  // cadena de middleware; un `return;` de guard sin next() la corta en silencio
+  // y deja inejecutables los handlers registrados después.
+  findings.push(...collectCallbackChainHaltFindings(ast));
 
   const autofixed = textFixes.length > 0;
   const fixed_code = autofixed ? applyTextFixes(code, textFixes) : code;
