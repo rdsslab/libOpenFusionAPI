@@ -112,6 +112,33 @@ try {
 
 ---
 
+## Middleware & callback chains (grammY)
+
+All handlers registered for the **same update type** form a single middleware chain. grammY runs them in registration order; a handler that does a bare `return;` **without calling `next()` halts the chain silently** — every handler registered after it is skipped, no error is raised, no log is written, and Telegram only shows the button "spinning" and then nothing. This is indistinguishable from "the update never arrived", so it is one of the most misleading grammY failures to debug.
+
+### Choosing a registration style
+
+| Style | When to use |
+|---|---|
+| `$BOT.callbackQuery("literal"` / `/regex/`, fn) — **pattern filters** | **Default for anything split by `callback_data`.** Non-matching data is skipped automatically, the chain never halts, and each handler stays small and declarative. |
+| `$BOT.command("name", fn)` | Commands. Already safe: every command has its own filter, non-matching ones are skipped automatically. |
+| `$BOT.on("callback_query:data", async (ctx, next) => ...)` | Only for a single handler that must see **every** callback (e.g. audit). It must then call `await next()` unconditionally at the end. Prefer `$BOT.use(...)` or `$BOT.filter(...)` instead: identical semantics with no way to forget `next()`. |
+| `$BOT.on("message:...", fn)` typed filters | Safe: they are pattern filters too, non-matching updates are skipped automatically. |
+
+**Rules for `callback_query:data`:**
+
+1. Never split one update type with guard-and-return handlers (`if (!data.startsWith("x:")) return;`). If a handler returns without `next()`, every handler registered after it is dead code: the button spins and nothing happens — with zero logs.
+2. If you must use `on(...)`, accept the `next` parameter and propagate it: `if (!data.startsWith("x:")) { await next(); return; }`.
+3. `command()` and `on("message:...")` are **not** affected: each handler has its own filter, so grammY skips non-matching handlers by itself. The hazard exists only when several handlers share one update type.
+
+**Diagnosis:** the symptom "button spins, nothing happens, zero logs and zero errors" points first at a halted callback chain.
+
+**Positive-control rule (debugging):** register your diagnostic probe as the FIRST handler, or with `$BOT.use(...)` — never at the end of the same chain you suspect is halted. A probe placed after a halting handler stays blind with exactly the same failure, and you will wrongly conclude that the update never arrived.
+
+The platform's own system bot (`src/lib/server/functions/system/prd/user/systemBot.telegram.js`) is the **reference implementation**: every callback uses `$BOT.callbackQuery(pattern, ...)` with zero guard-and-return handlers. When in doubt, mirror it.
+
+---
+
 ## Templates
 
 ### (a) Minimal
@@ -157,28 +184,25 @@ $BOT.command("start", async (ctx) => {
   await ctx.reply("¿Qué deseas hacer?", { reply_markup: keyboard });
 });
 
-$BOT.on("callback_query:data", async (ctx) => {
-  const action = ctx.callbackQuery.data;
+// Pattern filters: grammY matches the data and skips the other handler
+// automatically, so the middleware chain can never be halted by a guard.
+$BOT.callbackQuery("cancel", async (ctx) => {
+  await ctx.answerCallbackQuery({ text: "Cancelled" });
+  await ctx.editMessageText("Operation cancelled");
+});
 
-  if (action === "cancel") {
-    await ctx.answerCallbackQuery({ text: "Cancelado" });
-    await ctx.editMessageText("Operación cancelada");
-    return;
-  }
-
-  if (action === "status") {
-    await ctx.answerCallbackQuery();
-    try {
-      // Same-instance call: replace the environment suffix with `auto`.
-      const uF = uFetchAutoEnv.auto("/api/system/api/apps-list/auto", true);
-      const response = await uF.get();
-      const data = await response.json();
-      const total = Array.isArray(data) ? data.length : 0;
-      await ctx.editMessageText(`Aplicaciones detectadas: ${total}`);
-    } catch (error) {
-      ofapi.log({ message: `status command failed: ${error?.message}` });
-      await ctx.editMessageText("No se pudo consultar el estado.");
-    }
+$BOT.callbackQuery("status", async (ctx) => {
+  await ctx.answerCallbackQuery();
+  try {
+    // Same-instance call: replace the environment suffix with `auto`.
+    const uF = uFetchAutoEnv.auto("/api/system/api/apps-list/auto", true);
+    const response = await uF.get();
+    const data = await response.json();
+    const total = Array.isArray(data) ? data.length : 0;
+    await ctx.editMessageText(`Detected applications: ${total}`);
+  } catch (error) {
+    ofapi.log({ message: `status command failed: ${error?.message}` });
+    await ctx.editMessageText("Could not get the status.");
   }
 });
 ```
