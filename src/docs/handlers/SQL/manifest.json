@@ -11,5 +11,13 @@
   "configuration": {
     "code": "SQL query text using bind or replacement placeholders.",
     "custom_data": "Connection settings and optional query metadata."
+  },
+  "connection_config": {
+    "database": "Database name. Required.",
+    "username": "Database user.",
+    "password": "Database password.",
+    "parse_bigint": "PostgreSQL only, boolean, default false. pg returns int8/bigint as a string to avoid losing precision. Set true to receive a number for the values that fit in Number.MAX_SAFE_INTEGER; anything larger still arrives as a string, and numeric/decimal types are never converted.",
+    "connection_override_allow": "Optional array of dotted paths the request body is allowed to change via the runtime `connection` override, e.g. [\"database\", \"options.host\"]. Omitted by default, which means every key is overridable, including options.host, options.port, options.dialect and options.storage. Can only narrow, never widen: a body that declares its own value for this key is ignored. Every use of the override is logged to the server console with the paths that changed, never their values; it is not written to ofapi_log, which logs HTTP requests and feeds the traffic charts.",
+    "options": "Sequelize options: dialect, host, port, ssl, dialectOptions, pool."
   }
 }

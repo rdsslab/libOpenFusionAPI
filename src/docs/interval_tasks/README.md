@@ -49,4 +49,9 @@ logic lives in the endpoint, which stays callable by hand exactly as before.
 - **Telemetry is not configuration.** `INTERVAL_TASK_RUNTIME_ATTRIBUTES` is ignored on upsert and
   dropped on backup restore, mirroring `BOT_RUNTIME_ATTRIBUTES` for bots.
 - **Failures are self-limiting.** Exponential backoff up to one hour, then auto-disable at
-  `max_failed_attempts`, so a broken task cannot hammer a downstream service indefinitely.
+  `max_failed_attempts`, so a broken task cannot hammer a downstream service indefinitely. Both
+  halves of that policy are per-task and overridable: `max_backoff_seconds` replaces the one-hour
+  ceiling, `backoff_enabled: false` keeps the normal interval on failure (a monitoring task should
+  not drift to every 32 minutes precisely when the system it watches is down), and
+  `max_failed_attempts: 0` means never auto-disable — the task keeps running and keeps logging
+  however many failures accumulate.

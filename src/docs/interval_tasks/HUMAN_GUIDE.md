@@ -74,6 +74,18 @@ The `success` field is optional because not every endpoint returns it.
 Failures use exponential backoff. When the maximum is reached, correct the underlying endpoint or
 credential problem before using **Reset attempts**.
 
+A task that must keep reporting while the system is down should not be slowed down by its own
+failures: set **Max failed attempts** to `0` to stop the auto-disable, or turn the backoff off so the
+task keeps its normal interval instead of doubling it after each failure. **Max backoff seconds**
+caps the doubling when you do want it, per task.
+
+Two timeouts are involved and they belong to different things. The endpoint has its own **Timeout**,
+which it applies to itself. The task has an **Execution time limit**, which the scheduler applies to
+the call. If the endpoint's timeout is the shorter of the two, the endpoint always gives up first and
+the run is recorded as a 504 from the endpoint rather than as a task timeout — the task's limit then
+never gets to be the safety net it looks like. Keep the task's execution time limit above the
+endpoint's timeout.
+
 ## Cron examples
 
 | Requirement | Expression |

@@ -53,10 +53,22 @@ En los schemas y herramientas MCP, el campo `log_level` acepta estos valores (0-
 -   `custom_data` is not injected into the JS sandbox. It belongs to handler-specific configuration flows such as SQL, BOT, SOAP, TEXT, or FETCH, while the JS VM uses `code`, `app_vars`, request context, and the built-in helpers listed here.
 -   `$_RETURN_DATA_` — Assign any JSON-serializable value here to send it as the response body.
 -   `$_CUSTOM_HEADERS_` — Optional `Map<string, string>` with custom response headers (e.g., for file downloads).
+-   `$_RETURN_STATUS_` — Optional integer between **200 and 399** to answer with a status other than 200. Assign it before the code ends; leaving it unset keeps 200.
 -   `uFetchAutoEnv` — Built-in helper for calling other endpoints within the same OpenFusionAPI instance.
 -   `request_xlsx_body_to_json(request)` — Built-in async helper that parses a multipart/form-data XLSX upload into a JSON array.
 -   `askIAWithMCP(options)` — Built-in async helper for AI chats with optional MCP tool usage.
 -   `listMcpTools(options)` — Built-in async helper that lists the tools exposed by one or more MCP servers.
+
+`$_RETURN_STATUS_` in detail:
+-   The response body still goes in `$_RETURN_DATA_`; only the status changes.
+-   Assign a **number**, not a string: `$_RETURN_STATUS_ = 201` is accepted, `$_RETURN_STATUS_ = "201"` is not and falls back to 200 with a warning in the log. A string that a `Number()` would happily convert would hide the mistake instead of surfacing it.
+-   **4xx and 5xx are not allowed here.** Errors must be raised with `$_EXCEPTION_`, which is the path that builds the standard error payload with its `trace_id`. Allowing them here would create two different ways to produce an error — one with the normal body and one without — and the client could not tell which it was facing.
+-   An out-of-range or non-integer value degrades to **200**, not to 500, and logs a warning. The endpoint did its job and returned valid data; only the number was mistyped, and the client should not pay for that.
+-   **204 and 304 send no body**, because the protocol does not allow one. Whatever is in `$_RETURN_DATA_` is discarded.
+-   The status survives response caching: an endpoint that answered 203 answers 203 from cache too, instead of degrading to 200 on the second request.
+-   A 3xx without a `Location` header logs a warning. It is still sent — the destination may be built into the body — but a client cannot follow a redirect that does not say where to.
+-   Typical uses: `201` when something was created and `200` when the request was a duplicate, `202` when work was enqueued, `204` on delete, `302` to redirect.
+-   Available in the JS and MONGODB handlers, which share the same sandbox. Bots have no HTTP response, so it does not apply there.
 
 **App Vars Access Recommendation**:
 -   Prefer `$_APP_VARS_['$_VAR_NAME']` in documentation, agents, and reusable snippets because it is explicit and avoids ambiguity.

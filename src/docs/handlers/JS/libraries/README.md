@@ -8,6 +8,7 @@ Below is the index of available libraries and functions inside the JS handler VM
 | [\$_ENV_](./$_ENV_.md) | `$_ENV_` | Current runtime environment (dev, qa, prd). | This variable is injected automatically based on the server environment and can be used for environment-specific logic in handlers. |
 | [\$_EXCEPTION_](./$_EXCEPTION_.md) | `$_EXCEPTION_(options)` | Interrupts the program flow and throws an exception with a specific message and status code. | If the caller can fix the error (invalid field, business rule), say so in `message` and put the offending values in `data.public`. |
 | [\$_RETURN_DATA_](./$_RETURN_DATA_.md) | `$_RETURN_DATA_` | Primary output slot for JS handlers. | Prefer assigning to $_RETURN_DATA_ over calling reply.send() directly unless you need low-level Fastify control. |
+| [\$_RETURN_STATUS_](./$_RETURN_STATUS_.md) | `$_RETURN_STATUS_` | Optional success status for JS and MONGODB handlers. | Use it whenever 200 would be a lie about what happened: 201 when something was created, 200 when it was a duplicate, 202 when work was only enqueued, 204 on delete. |
 | [AbortController](./AbortController.md) | `AbortController()` | A controller object that allows you to abort one or more Web APIs (like fetch requests). | - |
 | [Array](./Array.md) | `Array()` | Global Array constructor. | - |
 | [ArrayBuffer](./ArrayBuffer.md) | `ArrayBuffer()` | Global ArrayBuffer constructor. | - |

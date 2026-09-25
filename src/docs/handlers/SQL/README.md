@@ -169,6 +169,28 @@ You can override or provide connection details at runtime by sending a `connecti
 }
 ```
 
+This works on `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS` and `HEAD`. On `GET` the body is not inspected, so the override is not reachable there.
+
+**Restricting it per endpoint.** The override is unrestricted by default, and that is deliberate: it predates the option below and disabling it would break the multi-tenant setups that rely on it. The merge is deep, though, so an unrestricted endpoint also lets the caller change `options.host`, `options.port`, `options.dialect` and `options.storage` — meaning that on a **public endpoint** (`access: 0`) anyone can point the query at a different server, or at a different file on disk when the dialect is SQLite.
+
+To narrow it, add `connection_override_allow` to the connection config with the dotted paths the body is allowed to change:
+
+```json
+{
+  "connection_override_allow": ["database", "options.host", "options.port"]
+}
+```
+
+Here the caller chooses the database and the replica, and `options.dialect` and `options.storage` stay pinned to what you configured. Listing a parent opens everything under it (`"options"` allows the whole block).
+
+Three things worth knowing:
+
+- **It can only narrow.** A request body that declares its own `connection_override_allow` is ignored; the effective list is always at most what the endpoint allows.
+- **Every use is logged to the server console** with the endpoint, environment and *which paths changed* — never their values, since a value may be a password or an internal path. It is not written to `ofapi_log`, because that table logs HTTP requests and feeds the traffic charts; a row that is not a request would distort them. If you want a queryable history, it needs its own table, the way bot events have `ofapi_bot_log`.
+- **Entries that are not valid config paths are ignored with a warning**, so a typo cannot silently lock the endpoint. To deny the override entirely, declare a key you have no intention of allowing, e.g. `["__nada__"]`.
+
+The SQL HANA handler has a built-in ceiling of credentials only (`uid`, `pwd`, `user`, `password`) and the bulk-insert handler uses `config` instead of `connection`; both accept the same option, and for HANA the effective list is the intersection of its ceiling and yours.
+
 </details>
 
 ---

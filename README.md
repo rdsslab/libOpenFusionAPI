@@ -80,6 +80,7 @@ For AI workflows, the speed gain is even more pronounced:
 
 ## 🧭 Documentation
 
+- [Changelog (breaking changes between versions)](./CHANGELOG.md)
 - [Creating Applications](./src/docs/App/README.md)
 - [Creating Endpoints](./src/docs/endpoint/README.md)
 - [Handler Reference](./src/docs/handlers/README.md)
@@ -205,6 +206,7 @@ Copy [.env.example](.env.example) to `.env` and adjust the values for your setup
 | `BUILD_DB` | Create/alter the tables and seed defaults on boot. **Set `true` on the first boot** of an empty database: without it the server starts but every `/api/*` responds 500 (`no such table`) | disabled | **Yes, on first boot** |
 | `OFAPI_SQL_POOL_VALIDATE_IDLE_MS` | Idle-time threshold (ms) before validating a pooled SQL connection | `30000` | No |
 | `OFAPI_SQL_POOL_FORCE_VALIDATE_ALWAYS` | Force SQL pool connection validation on every use | disabled | No |
+| `OFAPI_SQL_POOL_MAX_CONNECTIONS` | Distinct SQL connection configs cached per process. When the limit is reached the least recently requested one is closed, which can abort an in-flight query. Raise it when the log shows "Pool at capacity" | `50` (hard cap `500`) | No |
 | `OFAPI_APPVARS_LIVE_READ` | Enable live (non-cached) reads of App Vars in the SQL handler | disabled | No |
 | `TIME_SYNC_ENABLED` | Enable external clock-drift correction for JWT `iat`/`exp`/`nbf`, for hosts whose system clock cannot be trusted | `false` | No |
 

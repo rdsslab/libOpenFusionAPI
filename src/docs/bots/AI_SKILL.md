@@ -90,6 +90,7 @@ Everything in the shared JavaScript skill applies, **except** these points, whic
 - `$_CUSTOM_HEADERS_` is meaningless.
 - `$_EXCEPTION_` works, but its `statusCode` is decorative — there is no HTTP status to set.
 - The `log_level` is fixed at `3` (full) for bot logs; it is not a request parameter.
+- **Top-level `await` is NOT available.** Bot code is evaluated with a synchronous `runInContext` pass, not wrapped in an `async` function, so a top-level `await` is a syntax error. Put every asynchronous call inside an `async` function, handler, or callback — the JS endpoint handler allows top-level `await` because *its* runtime wraps the code in `async`; this one does not. Do not assume the two contexts behave alike.
 - Your script has a **10 000 ms budget for the initial evaluation only**. Registering handlers must finish inside it. The bot itself then runs indefinitely, and the handlers you registered are not subject to that budget.
 
 ---

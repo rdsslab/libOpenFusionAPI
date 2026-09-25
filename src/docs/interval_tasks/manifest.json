@@ -23,6 +23,18 @@
       "strategy": "sleep until the nearest next_run; API writes wake the worker immediately"
     },
     "max_backoff_seconds": 3600,
+    "max_backoff_seconds_per_task": {
+      "column": "max_backoff_seconds",
+      "minimum": 1,
+      "hard_maximum": 2592000,
+      "default": null,
+      "description": "Ceiling of the exponential backoff for this task. Null uses the global max_backoff_seconds."
+    },
+    "backoff_enabled": {
+      "column": "backoff_enabled",
+      "default": true,
+      "description": "When false, the task keeps its normal interval on failure instead of doubling it. Intended for monitoring tasks."
+    },
     "default_interval_seconds": 300,
     "default_exec_time_limit_seconds": 30,
     "default_max_failed_attempts": 10,

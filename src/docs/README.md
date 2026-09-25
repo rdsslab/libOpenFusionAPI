@@ -2,6 +2,7 @@
 
 ## Documentation Notes
 
+- Breaking changes between versions: see [CHANGELOG.md](../../CHANGELOG.md). Read it before upgrading; each entry states what it returned before, what it returns now, and what a consumer has to do.
 - Security validation certificate (OWASP Top 10 + hardening packet): see [security/SECURITY_CERTIFICATE.md](security/SECURITY_CERTIFICATE.md).
 - Handler docs index: see [handlers/README.md](handlers/README.md).
 - External dependency doc template (hybrid local + upstream model): see [templates/EXTERNAL_DEPENDENCY_DOC_TEMPLATE.md](templates/EXTERNAL_DEPENDENCY_DOC_TEMPLATE.md).

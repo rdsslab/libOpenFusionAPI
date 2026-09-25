@@ -12,7 +12,16 @@
   Aquí va SOLO lo válido para cualquier código JavaScript ejecutado en el sandbox
   `node:vm`, sin importar quién lo invoca. Todo lo que dependa del contexto de
   invocación (contrato de respuesta HTTP, request/reply, ciclo de vida del bot,
-  forma del payload de creación) va en el archivo que hace el include.
+  evaluación síncrona o asíncrona del código, forma del payload de creación) va en
+  el archivo que hace el include.
+
+  Concreto: el antiguo punto 5 ("Synchronous Evaluation") de este núcleo afirmaba
+  que el `await` de nivel superior no está disponible. Eso era FALSO en 2 de los 3
+  contextos que lo incluían, y lo era porque el enunciado es en sí dependiente del
+  contexto: el runtime evalúa el código de un endpoint envolviéndolo en una función
+  `async` (createFunctionVM.js), mientras que el de un bot lo evalúa con
+  `script.runInContext()` de forma síncrona. La regla correcta está hoy, para cada
+  caso, en el archivo que consume este núcleo. No la reintroduzcas aquí.
 
   Usa encabezados de nivel 2 (##) para que anide bajo el título del anfitrión.
 -->
@@ -70,9 +79,6 @@ The following rules apply to **every** JavaScript block executed by OpenFusionAP
    - If you do not pass a `library` parameter, it returns the summary table of all available libraries and their recommended use cases.
    - If you pass the `library` parameter (e.g. `handler=JS`, `library=createPDFFromHTML`), it returns the full detailed documentation, signatures, and examples for that specific library. Do not propose third-party packages that are not installed.
    - An LDAP v3 / Active Directory client is available as the `ldap` variable (alias `ldapts`, package `ldapts`). Use it for directory queries or credential validation: `new ldap.Client({ url })` → `bind()` → `search()`/writes → `unbind()` in a `finally` block. Pull URL, bind DN/password and base DN from Application Variables (`$_APP_VARS_['$_VAR_...']`), prefer `ldaps://`, escape any user-supplied filter value with `ldap.Filter.escape(value)` or the tagged template ``ldap.escapeFilter`(uid=${value})`` (escapeFilter only works as a template tag), and always cap searches with `sizeLimit`. Never return the password or full bind DN to the caller.
-
-5. **Synchronous Evaluation**:
-   - The script is evaluated with `vm.Script` in a synchronous pass. **Top-level `await` is not available.** Put asynchronous work inside `async` functions, handlers, or callbacks.
 
 ---
 
