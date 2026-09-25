@@ -10,7 +10,7 @@
   },
   "configuration": {
     "code": "JSON configuration containing at least a WSDL URL and optionally functionName, auth, and SOAP client options. The WSDL URL must return XML metadata, not an HTML runtime/status page.",
-    "custom_data": "Unused by the current SOAP handler implementation.",
+    "custom_data": "Alternative source of the SOAP configuration, used when `custom_data.wsdl` is set: the whole object is then read as the configuration, for callers that enter the parameters manually. When `custom_data.wsdl` is absent the handler reads the configuration from `code` instead, so the two are alternatives, not a merge.",
     "agentGuidance": "Agents should validate that the WSDL URL returns XML, use describe() to discover the callable operation name, and avoid assuming the SOAP body root element matches functionName."
   }
 }

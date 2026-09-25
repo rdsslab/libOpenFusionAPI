@@ -33,9 +33,9 @@ endpoint workflow rather than the scheduler.
 | Tool | Mode | Use it to |
 |---|---|---|
 | `list_interval_tasks` | read | See every task of an application, with its configuration and its live telemetry. |
-| `get_interval_task_runs` | read | Read the execution history of one task: duration, HTTP status, error, response. |
+| `get_interval_task_runs` | read | Execution history of one task: duration, HTTP status, and — only with `include_response: true` — the `error` and `response` fields. Without that flag you get telemetry only, so a failed run looks empty of any error; set it when debugging. |
 | `upsert_interval_task` | write | Create a task or change an existing one. |
-| `run_interval_task_now` | write | Set an **enabled** task due and wake the scheduler immediately. Answers 409 `TASK_DISABLED` if the task is off. |
+| `run_interval_task_now` | write | Set an **enabled** task due and wake the scheduler immediately. It answers 400 when the task does not exist or when it is already running with `allow_concurrent: false`, and 409 `TASK_DISABLED` when the task is off. |
 | `reset_interval_task_attempts` | write | Clear the failure counter and re-enable a task the backoff disabled. |
 | `delete_interval_task` | write | Remove the schedule permanently. The endpoint is not touched. |
 
@@ -120,13 +120,20 @@ Preferred shape:
 { "data": { "id": 42 }, "headers": { "x-source": "scheduler" } }
 ```
 
-- `data` travels as **query string** on `GET`, `HEAD` and `DELETE`, and as a **JSON body** on
+- `data` travels as **query string** on `GET` and `DELETE`, and as a **JSON body** on
   `POST`, `PUT` and `PATCH`.
 - `headers` adds request headers.
+- **The task method must be one of `GET`, `POST`, `PUT`, `PATCH`, `DELETE` or `QUERY`.** The HTTP
+  client the worker uses has no `head` or `options` verb, so a task pointing at a `HEAD` or
+  `OPTIONS` endpoint does not perform the request: the run is recorded as an error whose message is
+  `uF[task.method.toLowerCase()] is not a function`, and after the usual consecutive failures the
+  task is disabled. `endpoint_upsert` does allow a `HEAD` or `OPTIONS` endpoint to exist, so this
+  is only a problem when a task targets one — do not create such a task, and check the endpoint's
+  `method` before pointing a task at it.
 
-Legacy fallback: an object **without** a `data` key is sent whole as `data`. That makes
-`{"headers": {...}}` alone a trap — the headers object would be sent as the payload and no header
-would be added. Always include `data` when you also send `headers`.
+Legacy fallback: an object with **neither** a `data` nor a `headers` key is sent whole as `data`,
+which is the shape kept for tasks already configured that way. `{"headers": {...}}` on its own is
+fine: the headers are applied and no payload is sent.
 
 ---
 
@@ -175,7 +182,10 @@ would be added. Always include `data` when you also send `headers`.
     down. It does not prevent the auto-disable — combine it with `max_failed_attempts: 0` for that.
   - `max_backoff_seconds` caps the doubling per task (max 2592000 = 30 days). Omit for the global
     one-hour ceiling.
-- Responses longer than 4096 characters are stored as `{truncated: true, size, preview}`.
+- In the run history (`get_interval_task_runs`), responses longer than 4096 characters are stored as
+  `{truncated: true, size, preview}` and `error` is capped at 2000 characters. This does **not** apply
+  to `last_response` on the task itself (`list_interval_tasks`): there the value is stored whole, so
+  a task whose endpoint returns a large body can hand back an equally large `last_response`.
 
 ---
 

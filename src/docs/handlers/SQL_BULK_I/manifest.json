@@ -9,7 +9,7 @@
     "examples": []
   },
   "configuration": {
-    "code": "Handler-specific JSON configuration for bulk insertion behavior.",
-    "custom_data": "Database connection settings and bulk insert options."
+    "code": "Target database table name, as a plain string (e.g. \"users\"). Not a JSON object.",
+    "custom_data": "Database connection settings, stored directly as the object (not nested under a `config` key) or as an AppVar reference string like \"$_VAR_MAIN_DB\". `query_type` and `connection_override_allow` are also read from here. The request body must be an object with a `data` key holding the rows; the response is {\"inserted\": <count>}."
   }
 }

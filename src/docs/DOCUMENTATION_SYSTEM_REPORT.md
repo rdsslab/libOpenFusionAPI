@@ -6,18 +6,27 @@ This report outlines the architecture and execution flow of the documentation sy
 
 ## 📂 1. Directory Structure & Source of Truth
 
-The documentation for all endpoint handlers is centralized under the `docs/` folder at the project root.
+The documentation for all endpoint handlers is centralized under `src/docs/` in the repository.
 
 ```
-docs/
+src/docs/
 ├── README.md                              # High-level entry point and documentation overview
 ├── DOCUMENTATION_SYSTEM_REPORT.md         # This architectural overview report for agents
+├── JS_HANDLER_API.md                      # Generated reference of the JS sandbox API
 ├── templates/
 │   └── EXTERNAL_DEPENDENCY_DOC_TEMPLATE.md# Formatting guide for documenting external libraries
 ├── dependencies/
 │   └── uFetch.md                          # Concrete guide for the @rdsslab/uFetch package
 ├── skills/
 │   └── JS_CORE.md                         # Shared JavaScript sandbox skill, embedded via includes
+├── App/                                   # Application creation guide (HTTP API + MCP)
+├── auth/                                  # Human-only: authentication internals
+├── endpoint/                              # Human-only: endpoint creation guide
+├── flows/                                 # Human-only: internal process Mermaid diagrams
+├── interval_tasks/                        # AI_SKILL.md served by the get_interval_task_skill MCP tool
+├── logging/                               # Logging and ofapi_log behaviour
+├── security/                              # Human-only: security notes
+├── system/                                # Human-only: admin notifications, runtime notes
 ├── bots/                                  # Messaging bots namespace (ofapi_bot table, NOT endpoints)
 │   ├── README.md                          # Architecture, providers, REST/MCP surface
 │   ├── manifest.json                      # Namespace contract + provider registry
@@ -151,15 +160,29 @@ Messaging bots are **not** in this table: they are not endpoints and have no han
 
 ---
 
-## 📦 6. Handler-Specific Creation Wrappers
+## 📦 6. There Are No Handler-Specific Creation Tools
 
-Instead of using the generic `endpoint_upsert` tool directly, AI agents should use the specialized system wrapper endpoints seeded in `system.js`. This guarantees that the handler-specific inputs are properly validated and structured before saving:
+`endpoint_upsert` is the **only** tool that creates or updates endpoints, and it covers every
+handler through its `handler` field. `handler` is what decides the meaning of `code` and
+`custom_data`:
 
-1.  **`upsert_js_endpoint_handler`** (Handler: `JS`, edits `js_code`)
-2.  **`upsert_sql_endpoint_handler`** (Handler: `SQL`, database credentials inside `custom_data` or referenced by AppVar)
-3.  **`upsert_fetch_endpoint_handler`** (Handler: `FETCH`, target URL in code)
-4.  **`upsert_text_endpoint_handler`** (Handler: `TEXT`, static code, mimetype in `custom_data`)
-5.  **`upsert_mongodb_endpoint_handler`** (Handler: `MONGODB`)
-6.  **`upsert_hana_endpoint_handler`** (Handler: `HANA`)
-7.  **`upsert_soap_endpoint_handler`** (Handler: `SOAP`)
-8.  **`upsert_sql_bulk_i_endpoint_handler`** (Handler: `SQL_BULK_I`)
+| `handler` | `code` holds | `custom_data` holds |
+|---|---|---|
+| `JS` | JavaScript source | — |
+| `FUNCTION` | internal function name | — |
+| `SQL` | the statement | connection config, plus `query_type`, `parse_bigint`, `connection_override_allow` |
+| `SQL_BULK_I` | destination table name | connection config, plus `query_type`, `connection_override_allow` |
+| `HANA` | the statement | connection config, plus `connection_override_allow` |
+| `MONGODB` | the query script | connection config |
+| `FETCH` | the target URL | — |
+| `TEXT` | the text body | `mimeType`, optional `fileName` |
+| `SOAP` | the SOAP config | the SOAP config, when `custom_data.wsdl` is set |
+| `MCP` | MCP endpoint config | not read by the handler; an MCP endpoint is configured mainly through `json_schema` |
+| `NA` | same as `TEXT` (the runtime rewrites it) | same as `TEXT` |
+
+Eight wrapper endpoints named `upsert_<handler>_endpoint_handler` still exist in `system.js` as
+**HTTP** endpoints, and they are **`mcp.enabled: false`**: they are not published to the MCP server
+and an agent cannot list or call them. They were retired from MCP on 2026-08-08 because each only
+renamed a field or forced `handler`, which added a request and hid where the data lands in the
+endpoint model. Their HTTP form remains for existing clients; their `description` says so too.
+

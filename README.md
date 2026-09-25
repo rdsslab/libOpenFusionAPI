@@ -185,7 +185,7 @@ curl http://localhost:3000/api/system/server/version/prd
 Follow [Creating Applications](./src/docs/App/README.md) and
 [Creating Endpoints](./src/docs/endpoint/README.md) for the full flow. AI agents should
 connect to the MCP server (`/api/system/mcp/server/prd`) and start with `apps_list`
-followed by the targeted write tools (`upsert_app`, `upsert_endpoint`, …).
+followed by the targeted write tools (`app_create_update`, `endpoint_upsert`, …).
 
 ## ⚙️ Environment Variables
 

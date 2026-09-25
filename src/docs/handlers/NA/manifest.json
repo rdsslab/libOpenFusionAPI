@@ -9,7 +9,7 @@
     "examples": []
   },
   "configuration": {
-    "code": "Not applicable.",
-    "custom_data": "Not applicable."
+    "code": "The static text payload, exactly as in the TEXT handler. NA has no function of its own: the runtime rewrites the endpoint to handler TEXT and serves `code`. An empty `code` yields an empty response.",
+    "custom_data": "Optional, same shape as TEXT: `mimeType` and `fileName`."
   }
 }

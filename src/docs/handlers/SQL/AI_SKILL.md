@@ -45,11 +45,12 @@ You are an expert **Relational Database Administrator and Multi-Dialect SQL Deve
       - `database`: Database name.
       - `username`: Database user.
       - `password`: Database password.
-      - `options`:
+      - `options`: **required** — the handler only opens a connection when both `options` and `code` are present, and it does not return 400 when they are missing.
         - `host`: Host IP or server name.
         - `port`: Port number (e.g. `1433` for MSSQL, `5432` for Postgres, `3306` for MySQL).
         - `dialect`: `'mssql'`, `'postgres'`, `'mysql'`, `'mariadb'`, or `'sqlite'`.
         - `dialectOptions`: Optional dialect-specific settings (e.g. `{ "encrypt": true }` for MSSQL).
+    - **Silent fallback**: if `custom_data` is empty the handler falls back to the `$_VAR_SQLITE` Application Variable, for backwards compatibility. A misconfigured endpoint can therefore appear to work while reading a different database than the one you configured. Check `custom_data` first when an endpoint answers from data you do not recognise.
 
 7.  **Specify Query Type**:
     - **Configuration Options**: You can define `query_type` in the custom data connection configuration (e.g. `"query_type": "INSERT"`).
@@ -57,6 +58,7 @@ You are an expert **Relational Database Administrator and Multi-Dialect SQL Deve
 
 8.  **Restricting the Runtime Connection Override (`connection_override_allow`)**:
     - A caller can replace parts of the stored connection at request time by sending a `connection` key in the body. This is a supported multi-tenant feature: one endpoint, each client points it at its own database or replica. It is **on by default and unrestricted**, and that default is deliberate — the feature predates this option and turning it off would break those endpoints.
+    - **The key name is not the same in every SQL handler, and a wrong one is ignored in silence.** This handler (`SQL`) reads `connection`. `SQL_BULK_I` and `HANA` read `config`. Sending `connection` to a bulk or HANA endpoint leaves the stored connection untouched, so the endpoint quietly answers from the configured database instead of the requested one.
     - Because the override merges deeply into the connection, an unrestricted endpoint also lets the caller change `options.host`, `options.port`, `options.dialect` and `options.storage`. On a public endpoint (`access: 0`) that means anyone can redirect the endpoint's query to a different server or, with SQLite, to a different file on disk.
     - `connection_override_allow` in the connection config restricts which paths the body may change. **It can only narrow, never widen**: a body that declares its own `connection_override_allow` is ignored.
     - Paths are dotted, relative to the connection config: `"database"`, `"password"`, `"options.host"`, `"options.storage"`. Listing a parent opens everything under it, so `"options"` allows the whole block.
@@ -126,7 +128,7 @@ You are an expert **Relational Database Administrator and Multi-Dialect SQL Deve
 ## Minimal Working Examples
 
 ### Microsoft SQL Server (MSSQL) Example
-* **Query (`code` / `sql_query`)**:
+* **Query (`code`)**:
 ```sql
 SELECT TOP 100 iduser, username, email
 FROM dbo.users
@@ -142,7 +144,7 @@ WHERE is_active = 1 AND department = $dept
 ```
 
 ### PostgreSQL Case-Sensitive Example
-* **Query (`code` / `sql_query`)**:
+* **Query (`code`)**:
 ```sql
 SELECT "userId", "emailAddress"
 FROM "CorpSchema"."ActiveUsers"

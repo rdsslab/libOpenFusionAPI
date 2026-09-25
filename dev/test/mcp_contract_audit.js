@@ -100,6 +100,13 @@ const DOMAIN_IDENTIFIERS = new Set([
   "allow_concurrent",
   "max_failed_attempts",
   "history_limit",
+  // Claves de `custom_data` exclusive de la familia SQL. La descripción de
+  // 'endpoint_upsert' las cita al enumerar, por handler, las opciones que sólo
+  // existen en SQL / SQL_BULK_I / HANA. No son tools: son claves de configuración
+  // que los handlers leen, y se describen en el AI_SKILL.md de cada handler.
+  "query_type",
+  "parse_bigint",
+  "connection_override_allow",
   // Columnas del historial de ejecuciones (ofapi_intervaltask_run).
   "started_at",
   "finished_at",

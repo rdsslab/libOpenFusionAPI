@@ -47,6 +47,10 @@ You are an expert **Model Context Protocol (MCP) Backend Architect**. You specia
       - `list_api_endpoints_<app_name>`: Full markdown API documentation for every endpoint.
       - `get_handler_skill`: Returns the AI agent skill guide for a given endpoint `handler`
         type (parametrized; one tool covers all handler types).
+      - `validate_json_schema_for_mcp`: Validates that a JSON Schema is usable as an MCP input
+        schema. Run it before saving `json_schema` on an endpoint.
+      - `get_endpoint_tool_docs`: Returns the documentation of the tools this MCP endpoint
+        generates, so a generated tool's behaviour can be read without calling it.
 
 ## Common Payload Shape for Creation/Updates
 When creating an MCP endpoint (typically using the generic `endpoint_upsert` tool):

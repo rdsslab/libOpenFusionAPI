@@ -44,13 +44,13 @@ You are an expert **MongoDB Database Administrator and NoSQL Architect**. You wr
     - Because this handler executes custom JavaScript code inside a VM sandbox block, the shared JavaScript sandbox guidelines, performance rules, and constraints are appended at the end of this document ("Shared JavaScript Sandbox Skill") and are an indispensable and required part of this skill.
 
 ## Common Payload Shape for Creation/Updates
-When using `upsert_mongodb_endpoint_handler` to create/update an endpoint:
+When using `endpoint_upsert` with `handler: "MONGODB"` to create/update an endpoint:
 - `idapp`: UUID of the application.
-- `environment`: `'dev'`, `'qa'`, or `'prd'`.
 - `resource`: HTTP resource path.
 - `method`: HTTP Verb.
-- `mongo_code`: JavaScript source query block (stored in endpoint `code`).
-- `mongo_config` / `custom_data`: Either the MongoDB connection config object (with `uri`) or a string reference like `"$_VAR_MONGO_DB"`. The reference goes in `custom_data`, never in `code` (`code` is the query block). Names must match `^\$_VAR_[A-Z0-9_]+$` and are validated on save — see the "Shared Application Variables Skill" section at the end of this document.
+- `handler`: `MONGODB`.
+- `code`: JavaScript source query block.
+- `custom_data`: Either the MongoDB connection config object (with `uri`) or a string reference like `"$_VAR_MONGO_DB"`. The reference goes in `custom_data`, never in `code` (`code` is the query block). Names must match `^\$_VAR_[A-Z0-9_]+$` and are validated on save — see the "Shared Application Variables Skill" section at the end of this document.
   - Note: `custom_data` is parsed as JSON, so a bare connection URI string (`mongodb://…`) is rejected. Wrap it in an object (`{ "uri": "mongodb://…" }`) or store that object in an AppVar.
 
 ## Minimal Working Example / Template

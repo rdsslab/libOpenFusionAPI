@@ -53,14 +53,15 @@ These rules apply **only** when the JavaScript runs as an HTTP endpoint. They do
 ---
 
 ## Common Payload Shape for Creation/Updates
-When creating or modifying a JS endpoint using `upsert_js_endpoint_handler`, your input payload should contain:
+When creating or modifying a JS endpoint using `endpoint_upsert` with `handler: "JS"`, your input payload should contain:
 - `idapp`: UUID of the application.
-- `environment`: `'dev'`, `'qa'`, or `'prd'`.
 - `resource`: HTTP path (e.g., `/scripts/my-logic`).
 - `method`: HTTP Verb (e.g., `POST`).
+- `handler`: `JS`.
 - `access`: Access level code (0-4).
-- `js_code`: The JS script contents.
+- `code`: The JS script contents.
 - `timeout`: Max execution time in seconds.
+- `environment`: `'dev'`, `'qa'`, or `'prd'` (defaults to `dev` if omitted).
 
 ---
 

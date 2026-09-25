@@ -19,7 +19,7 @@ You are an expert **Enterprise SOAP-to-REST Integration Engineer**. You speciali
     - `options` (Optional): Additional options for the `soap` Node.js library. This handler internally uses the npm package `soap` (specifically, `soap.createClient()`). Therefore, the `options` property accepts any native client configurations supported by the `soap` package (such as `request`, `forceSoap12Headers`, `valueKey`, `disableCache`, etc.). Refer to the official `soap` library documentation to configure advanced options correctly.
 2.  **Input Parameters Mapping**:
     - The SOAP handler automatically reads the incoming HTTP request payload (POST body keys, or GET query fields) and maps them as arguments to the SOAP request body.
-    - Precedence (highest first): endpoint config (`custom_data`/`code`) > request body > request query. Config values always win over body values; `functionName` in the body is ignored if it also appears in config.
+    - Precedence (highest first): endpoint config (`custom_data`/`code`) > request body > request query. The three are combined with a **deep merge**, not a replacement: the config wins on each key it defines, and the body and query still contribute every key the config does not mention. So a config of `{a: 1}` with a body of `{a: 2, b: 3}` sends `{a: 1, b: 3}` — the endpoint does not ignore unknown body fields, so do not rely on the config to filter what a caller may pass.
     - On GET, only query fields are mapped into `RequestArgs`, so `functionName` must be provided in the endpoint config.
     - Double check the expected uppercase/lowercase names of fields in the WSDL.
 3.  **Response Conversion**:
@@ -44,12 +44,12 @@ You are an expert **Enterprise SOAP-to-REST Integration Engineer**. You speciali
 
 
 ## Common Payload Shape for Creation/Updates
-When using `upsert_soap_endpoint_handler` to create/update an endpoint:
+When using `endpoint_upsert` with `handler: "SOAP"` to create/update an endpoint:
 - `idapp`: UUID of the application.
-- `environment`: `'dev'`, `'qa'`, or `'prd'`.
 - `resource`: HTTP resource path.
 - `method`: HTTP Verb (usually `POST` or `GET`).
-- `custom_data`: Object containing `wsdl`, `functionName`, and optional `endpoint`, `options`. See "Core Instructions & Constraints" above for full details.
+- `handler`: `SOAP`.
+- `custom_data`: Object containing `wsdl`, `functionName`, and optional `endpoint`, `options`. When `custom_data.wsdl` is present the handler uses `custom_data` as the configuration and ignores `code`; otherwise the configuration is read from `code`. See "Core Instructions & Constraints" above for full details.
 
 **Application Variables in SOAP**: unlike the SQL-family handlers, the AppVar reference goes in **`code`**, not in `custom_data`. The handler only reads `code` when `custom_data.wsdl` is absent: if `custom_data` already carries a `wsdl`, it is used inline and `code` is ignored entirely. The AppVar value must be a JSON configuration object (it is parsed as JSON), not a bare WSDL URL string. Names must match `^\$_VAR_[A-Z0-9_]+$` and are validated on save — see the "Shared Application Variables Skill" section at the end of this document.
 

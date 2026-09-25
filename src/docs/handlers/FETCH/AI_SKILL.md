@@ -15,16 +15,17 @@ You are an expert **API Integration & HTTP Proxy Specialist**. You excel in rout
 2.  **Forwarding Rules**:
     - Incoming HTTP methods (GET, POST, PUT, DELETE, etc.) are matched and forwarded automatically.
     - Incoming body payloads and query parameters are forwarded to the target.
-    - Hop-by-hop headers (e.g. `content-length`, `host`, `connection`) are automatically stripped by the handler before forwarding to avoid upstream issues.
+    - The handler strips `host`, `origin`, `content-length`, `connection` and `x-forwarded-for` before forwarding, and preserves the outbound `ofapi-trace-id`.
+    - **Not every verb can be forwarded.** The outgoing client implements `GET`, `POST`, `PUT`, `PATCH`, `DELETE` and `QUERY`; any other verb — including `HEAD` and `OPTIONS`, which `endpoint_upsert` does allow you to set — is answered with `405 Method <VERB> not allowed/supported` on every call. Check the `method` you assign before saving a FETCH endpoint.
 3.  **Response Handling**: The handler detects the content-type returned by the upstream service and forwards it directly back to the client (including binaries like PDFs or images).
 
 ## Common Payload Shape for Creation/Updates
-When using `upsert_fetch_endpoint_handler` to create/update an endpoint:
+When using `endpoint_upsert` with `handler: "FETCH"` to create/update an endpoint:
 - `idapp`: UUID of the application.
-- `environment`: `'dev'`, `'qa'`, or `'prd'`.
 - `resource`: HTTP resource path exposed on OpenFusionAPI.
 - `method`: HTTP Verb.
-- `target_url`: The remote URL to forward requests to (stored in endpoint `code`).
+- `handler`: `FETCH`.
+- `code`: The remote URL to forward requests to.
 
 **Application Variables in FETCH**: the AppVar reference goes in **`code`** (the target URL), not in `custom_data`. Set `code` to `"$_VAR_MY_SERVICE_URL"` and store the URL as the variable's value — useful when the destination host differs per environment. Unlike the SQL-family handlers the resolved value is used as a plain string and is not parsed as JSON, so store a plain URL. Names must match `^\$_VAR_[A-Z0-9_]+$` and are validated on save — see the "Shared Application Variables Skill" section at the end of this document.
 

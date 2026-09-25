@@ -16,27 +16,22 @@ You are an expert **Static Content & Asset Delivery Specialist**. You configure 
     - Default is `text/plain` if left unconfigured.
 3.  **File Downloads (`custom_data.fileName`)**: If the endpoint should trigger a browser download instead of rendering inline, provide a `fileName` string in `custom_data`. This sets the `Content-Disposition` header.
     - *Example*: `"fileName": "export.csv"`
-4.  **Payload Size Constraint**: The static text payload cannot exceed **1 MB**. For larger files, stream them via custom JS or fetch handlers.
+4.  **Payload Size**: The handler does not enforce a size limit on the stored payload. The 1 MB ceiling elsewhere in this project applies to *incoming request bodies* (Fastify `bodyLimit`), not to the `code` a TEXT endpoint serves, so do not treat 1 MB as a guarantee of this handler. If a payload is large enough to be a problem, serve it from a JS or FETCH handler instead.
 
 ## Common Payload Shape for Creation/Updates
-When using `upsert_text_endpoint_handler` to create/update an endpoint:
+When using `endpoint_upsert` with `handler: "TEXT"` to create/update an endpoint:
 - `idapp`: UUID of the application.
-- `environment`: `'dev'`, `'qa'`, or `'prd'`.
 - `resource`: HTTP resource path.
 - `method`: HTTP Verb.
-- `text_content`: Static text string to return (stored in endpoint `code`).
+- `code`: The static payload to return, **as a string**. The handler returns 400 `No payload provided` if `code` is not a string, so a JSON object written here produces a 400 on every call — store the serialized text instead.
 - `custom_data`: Object with properties `mimeType` and optionally `fileName`.
 
 **Application Variables in TEXT**: the AppVar reference goes in **`custom_data`** (the presentation config). `code` holds the literal payload and is **never** AppVar-resolved, so a `$_VAR_…` string written inside the text content is served verbatim instead of being replaced. Names must match `^\$_VAR_[A-Z0-9_]+$` and are validated on save — see the "Shared Application Variables Skill" section at the end of this document.
 
 ## Minimal Working Example / Template
-* **Static Content (`code`)**:
+* **Static Content (`code`)** — a string, not a JSON object. To serve JSON, store it serialized:
 ```json
-{
-  "status": "healthy",
-  "version": "1.0.0",
-  "maintenance": false
-}
+"{\"status\":\"healthy\",\"version\":\"1.0.0\",\"maintenance\":false}"
 ```
 * **Custom Data (`custom_data`)**:
 ```json

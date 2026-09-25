@@ -196,6 +196,109 @@ la vía rápida, sin cambiar el resultado.
 
 ---
 
+## [13.11.1] - 2026-09-25
+
+Correcciones de documentación. **No cambia ningún comportamiento**: el código de esta versión es
+el mismo que en 13.11.0. El objetivo es que ninguna descripción diga una cosa y el código haga
+otra, porque un agente que lee la documentación y llama a la herramienta no tiene forma de saber
+cuál de las dos es la verdad.
+
+### Fixed
+
+#### Las skills mandaban crear endpoints por herramientas que ya no existen
+
+Siete `AI_SKILL.md` de handlers y el reporte de arquitectura de la documentación recomendaban usar
+`upsert_<handler>_endpoint_handler`. Esas ocho herramientas se retiraron del MCP el 2026-08-08 por
+redundantes con `endpoint_upsert`, y su propia descripción lo dice: *"Agents must call
+'endpoint_upsert' with handler=JS directly"*. Ningún agente podía llamarlas: no están en el
+catálogo MCP, así que la sección "Common Payload Shape for Creation/Updates" describía un payload
+que no había por dónde enviar. Las skills describen ahora `endpoint_upsert` con el `handler` que
+corresponda, y los nombres de campo que indicaban (`js_code`, `target_url`, `mongo_config`,
+`table_name`, `text_content`, `hana_code`, `soap_config`) son ahora los reales (`code` y
+`custom_data`).
+
+Los tres README que citaban `upsert_app`, `upsert_endpoint` y `upsert_appvar` usaban la convención
+de nombres anterior a la vigente: los reales son `app_create_update`, `endpoint_upsert` y
+`appvar_upsert`.
+
+#### `custom_data.config` no existe en HANA ni en SQL_BULK_I
+
+Las skills de ambos handlers indicaban anidar la conexión un nivel más de lo que se hace. El campo
+`custom_data` **es** el objeto de configuración; una clave `config` anidada se ignoraba y el
+endpoint no lograba conectarse. En SQL la misma skill ya decía `custom_data` plano, así que el
+documento se contradecía a sí mismo.
+
+#### La clave del override de conexión no es la misma en los tres handlers SQL
+
+`SQL` lee `connection`; `SQL_BULK_I` y `HANA` leen `config`. La skill de SQL afirmaba que la
+funcionalidad aplicaba a los tres usando `connection`, de modo que un endpoint bulk o HANA recibía
+la clave equivocada, la ignoraba **en silencio** y respondía desde la base configurada en lugar de
+la solicitada. Ahora cada skill indica su clave y advierte del silencio.
+
+#### El override no se limitaba a `database` y `password`
+
+La skill de SQL describía `connection_override_allow` como si restrictivo. Sin él —el
+comportamiento por defecto, pensado para endpoints multi-tenant— el cuerpo también puede cambiar
+`options.host`, `options.port`, `options.dialect` y `options.storage`, es decir, redirigir la
+consulta a otro servidor o a otro archivo SQLite. Documentado en los tres handlers SQL.
+
+#### Afirmaciones que el código contradecía
+
+- `{"headers": {...}}` sin `data` se describía como una trampa que descartaba los headers. El
+  worker los aplica correctamente; solo un objeto sin `data` **ni** `headers` se envía entero como
+  payload. Corregido en la skill y en la descripción de `params` de `upsert_interval_task`.
+- El manifest de SOAP decía que `custom_data` no se usaba, cuando `custom_data.wsdl` es una de
+  las dos fuentes de la configuración; la otra es `code`.
+- La prioridad `replacements` > `bind` > `params` en HANA no estaba documentada. Un `params` en el
+  cuerpo se lee como el conjunto de binds y **descarta el resto en silencio**.
+- La precedencia de SOAP se describía como reemplazo total; es un merge profundo, así que el
+  cuerpo sigue aportando las claves que la configuración no menciona.
+- `user_data` en FUNCTION se describía como body y query combinados; es el body si no está vacío
+  y el query solo cuando el body lo está.
+- El ejemplo de bulk insert enviaba el array en la raíz del body. El handler lee `body.data`, así
+  que ese ejemplo fallaba en runtime.
+- TEXT documentaba un campo `text_content` inexistente y un ejemplo de payload que no es un
+  string; el handler exige `code` como string y responde 400 en caso contrario.
+- Se declaraba un tope de 1 MB para el payload de TEXT que ningún código aplica.
+- Se ofrecía `TOP <n>` como forma válida de limitar filas en HANA; es sintaxis de T-SQL y HANA la
+  rechaza.
+- `get_interval_task_runs` aparecía como devolviendo `error` y `response`, que solo llegan con
+  `include_response: true`; sin él, una ejecución fallida sale sin rastro de su causa.
+- El truncado a 4096 caracteres se atribuía a `last_response`; solo aplica al historial de
+  ejecuciones, y `last_response` se guarda entero.
+- `resource` no incluye el prefijo `/api/{app}`, que añade el framework; el ejemplo de FUNCTION lo
+  traía incluido.
+- La lista de herramientas de descubrimiento del handler MCP omitía
+  `validate_json_schema_for_mcp` y `get_endpoint_tool_docs`.
+- El manifest de NA decía que `code` no aplicaba, cuando NA degrada a TEXT y `code` es el payload.
+
+#### La documentación de H5 y H10 estaba en herramientas que nadie puede leer
+
+Las descripciones de `connection_override_allow` y `parse_bigint` se habían añadido a
+`upsert_sql_endpoint_handler`, `upsert_sql_bulk_i_endpoint_handler` y
+`upsert_hana_endpoint_handler`, las tres con `mcp.enabled: false`. Ningún agente las ve. La
+documentación real está ahora en la descripción de `endpoint_upsert`, acotada por handler, y en los
+`AI_SKILL.md` de SQL, SQL_BULK_I y HANA, que es lo que sirve `get_handler_skill`.
+
+#### El reporte de arquitectura describía un árbol de directorios inexistente
+
+`DOCUMENTATION_SYSTEM_REPORT.md` situaba la documentación en `docs/` en la raíz del repositorio,
+cuando está en `src/docs/`, y omitía ocho directorios reales. Además invertía la recomendación de
+creación de endpoints: pedía usar las ocho herramientas retiradas en lugar de `endpoint_upsert`.
+
+### Changed
+
+#### La validación de docs distingue claves de configuración de nombres de herramienta
+
+`validateHandlerDocs.js` comprobaba forma: que un campo declarado exista y que el JSON sea válido.
+Daba por bueno un manifest que afirmaba que `custom_data` no se usaba cuando sí. Las reglas de
+`test:mcp-contract` tratan ahora las claves de configuración citadas entre backticks —como
+`connection_override_allow`— como identificadores de dominio y no como referencias cruzadas a
+herramientas, para que la regla de referencias cruzadas pueda seguir señalando nombres de
+herramienta que de verdad no existen.
+
+---
+
 ## Referencia
 
 - Versionado: `package.json`

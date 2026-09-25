@@ -14,7 +14,7 @@ You are an expert **System Function Orchestrator**. You map endpoints directly t
     - *Example*: `fnGetHandlerDocs` or `fnCreateApiClient`
 2.  **Input Parameters**:
     - The mapped function receives a structured parameter object containing `{ request, user_data, reply, server_data, signal }`.
-    - `user_data` gathers request inputs from both POST/PUT bodies and GET query string variables.
+    - `user_data` is the POST/PUT body when the body is non-empty, and the GET query string only when the body is empty. It is **not** a merge of both, so sending filters in the query and data in the body in the same call delivers only the body.
 3.  **Output Signature**:
     - Registered functions must return a structured response containing `{ code: number, data: any }`.
     - The HTTP server validates this schema and sets the status code to `code` and the body payload to `data`.
@@ -33,7 +33,7 @@ When creating a Function endpoint (typically using the generic `endpoint_upsert`
 - `code`: The string name of the system function.
 
 ## Minimal Working Example / Template
-- `resource`: `/api/system/version`
+- `resource`: `/server/version` — the `resource` field does **not** include the `/api/{app}` prefix; the framework builds the public URL as `/api/{app}{resource}/{environment}`, so this endpoint is served at `/api/system/server/version/prd`.
 - `method`: `GET`
 - `handler`: `FUNCTION`
 - `code`: `fnGetServerVersion`

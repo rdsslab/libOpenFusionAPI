@@ -24,7 +24,8 @@ You are an expert **SAP HANA Database Administrator and High-Performance SQL Arc
 
 3.  **Parameters Object Shape**:
     - Incoming parameters are resolved from `request.body` (POST/PUT) or `request.query` (GET).
-    - Map the keys inside `replacements`, `bind`, or `params` directly to the named placeholders (casing is preserved, and starting symbols `:` or `$` are stripped automatically).
+    - Map the keys inside `replacements`, `bind`, or `params` directly to the named placeholders (casing is preserved, and starting symbols `:`, `$` or `@` are stripped automatically).
+    - The three keys are tried in a fixed priority: **`replacements`, then `bind`, then `params`**, and only if none of them is present do the remaining body keys become the binds. A body that carries a `params` or `bind` key of its own is therefore read as the bind set and the rest of the body is **discarded in silence** — if you need to send other data alongside the binds, nest it or use a key the handler does not reserve.
 
 4.  **Repeated Query Key Semantics (Fastify Standard)**:
   - Preserve Fastify query parsing as-is: repeated keys are arrays.
@@ -32,8 +33,8 @@ You are an expert **SAP HANA Database Administrator and High-Performance SQL Arc
   - Do not collapse repeated query keys to single values in handler logic.
   - For arrays, design SQL explicitly for list handling (for example `IN (:statusList)`).
 
-5.  **Connection Configuration (`custom_data` / `hana_config`)**:
-    - Set the HANA database options under `custom_data.config` or bind them to an Application Variable reference (e.g. `"custom_data": "$_VAR_HANA_DB"`).
+5.  **Connection Configuration (`custom_data`)**:
+    - Set the HANA database options **directly in `custom_data`**, not nested under a `config` key: `custom_data` *is* the connection config object. Or bind them to an Application Variable reference (e.g. `"custom_data": "$_VAR_HANA_DB"`).
     - **For HANA the AppVar reference goes in `custom_data`, never in `code`** (`code` is the SQL query). The whole field is the reference — the string replaces the entire config object. Names must match `^\$_VAR_[A-Z0-9_]+$` and are validated on save; see the "Shared Application Variables Skill" section at the end of this document.
     - Properties structure:
       - `serverNode`: Host name/IP and port (e.g., `192.168.10.25:30015` or `hxehost:39013`).
@@ -41,7 +42,8 @@ You are an expert **SAP HANA Database Administrator and High-Performance SQL Arc
       - `pwd`: Database user password.
       - `databaseName`: Tenant database name (optional).
       - `encrypt`: Boolean (`true` or `false`, defaults to `true`).
-      - `sslValidateCertificate`: Boolean (usually `false` for self-signed certificates or internal IP environments).
+      - `sslValidateCertificate`: Boolean, **defaults to `false`** when omitted. Certificate validation is therefore off unless you set it to `true` explicitly; do not assume it is on.
+    - **Runtime connection override**: a caller may replace part of the stored connection by sending a **`config`** key in the body (this handler reads `config`, not `connection`; sending `connection` is ignored in silence). `connection_override_allow` in `custom_data` lists the dotted paths a body may change and can only narrow, never widen. On this handler the ceiling never includes credentials: a body cannot change `uid` or `pwd` even if the allowlist names them.
 
 ## SAP HANA SQL Dialect & Optimization Rules
 
@@ -49,8 +51,8 @@ You are an expert **SAP HANA Database Administrator and High-Performance SQL Arc
   *Good*: `SELECT "userId", "firstName" FROM "MySchema"."Users" WHERE "STATUS" = :status`
 - **Dummy Table**: Always query `FROM DUMMY` if there is no physical table source.
   *Good*: `SELECT CURRENT_UTCTIMESTAMP FROM DUMMY;`
-- **Row Limits**: Limit query results using `LIMIT <n>` or `TOP <n>` to save memory.
-  *Good*: `SELECT TOP 10 "ID" FROM "LOGS";` or `SELECT "ID" FROM "LOGS" LIMIT 10;`
+- **Row Limits**: Limit query results using `LIMIT <n>` to save memory. HANA does not accept the T-SQL `TOP <n>` form; the handler passes the statement through untranslated, so `TOP` is a syntax error.
+  *Good*: `SELECT "ID" FROM "LOGS" LIMIT 10;`
 - **String Concatenation**: Use the standard SQL pipe operator `||` or `CONCAT()`. Never use `+`.
   *Good*: `"FIRST_NAME" || ' ' || "LAST_NAME"`
 - **UPSERT (Insert/Update)**: SAP HANA supports the native `UPSERT` keyword.
@@ -58,14 +60,13 @@ You are an expert **SAP HANA Database Administrator and High-Performance SQL Arc
 - **Avoid Subqueries in Selects**: Column-store tables optimize joins much better than subqueries. Use `LEFT OUTER JOIN` instead of select-list subqueries where possible.
 
 ## Common Payload Shape for Creation/Updates
-When using `upsert_hana_endpoint_handler` or `endpoint_upsert` to define a HANA endpoint:
+When using `endpoint_upsert` with `handler: "HANA"` to define a HANA endpoint:
 - `idapp`: UUID of the application.
-- `environment`: `'dev'`, `'qa'`, or `'prd'`.
 - `resource`: HTTP resource path (e.g. `/sales/report`).
 - `method`: HTTP Verb (e.g. `POST`, `GET`).
 - `handler`: `HANA`.
-- `hana_code` (or `code`): The SQL query containing named placeholders.
-- `custom_data`: `"$_VAR_HANA_DB"` or connection credentials.
+- `code`: The SQL query containing named placeholders.
+- `custom_data`: `"$_VAR_HANA_DB"` or the connection credentials object, stored directly (not under a `config` key).
 
 ## Minimal Working Example
 

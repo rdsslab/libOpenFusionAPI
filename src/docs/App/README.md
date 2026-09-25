@@ -7,7 +7,7 @@ All images are embedded directly in this file using Base64 encoding, so there is
 > console that is NOT bundled in this repository** — the repo only ships a static
 > landing page (`www/index.html`). Applications and variables are managed through the
 > **HTTP API** (see the URL scheme `/api/{app}{resource}/{environment}`) and the **MCP
-> tools** (`upsert_app`, `upsert_appvar`, …). Use this guide for the *concept and order*
+> tools** (`app_create_update`, `appvar_upsert`, …). Use this guide for the *concept and order*
 > of the steps; for the actual calls see the handler docs and the MCP tool schemas.
 
 Recommended order:
