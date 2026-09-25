@@ -223,7 +223,12 @@ export class EndpointRequestFlowService {
               }
             }
           }
-          reply.code(200).send(data_cache.data);
+          // Se repite el código con el que se respondió la primera vez, no un 200
+          // fijo. Un endpoint que devuelve 203 lo devolvería también desde caché; de
+          // lo contrario la misma petición produciría 203 y 200 según por dónde
+          // pasara, que es la peor forma de caché. `?? 200` cubre las entradas
+          // guardadas antes de que existiera el campo.
+          reply.code(data_cache.statusCode ?? 200).send(data_cache.data);
         } else {
           reply.header("X-Cache", "MISS");
           await this.runHandler(request, reply, handlerEndpoint.params, server_data);

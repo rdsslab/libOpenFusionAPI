@@ -4,8 +4,10 @@ import {
   getAppVarContext,
   parseJsonConfig,
   replyException,
+  resolveSuccessStatus,
   sendHandlerError,
   sendHandlerResponse,
+  warnIfRedirectWithoutLocation,
   resolveAppVarPlaceholder,
 } from "./utils.js";
 
@@ -224,9 +226,20 @@ export const mongodbFunction = async (context) => {
 
     let fnresult = await method.jsFn(fnVars);
 
+    // MONGODB corre el mismo sandbox que el handler JS, así que `$_RETURN_STATUS_`
+    // llega igual. Ignorarlo en silencio obligaría a los dos handlers a documentar
+    // reglas distintas para la misma variable, que es peor que no tenerla.
+    const { statusCode, sendsBody } = resolveSuccessStatus(fnresult.statusCode, {
+      endpoint: method.resource || method.idendpoint,
+    });
+
+    warnIfRedirectWithoutLocation(statusCode, fnresult.headers, {
+      endpoint: method.resource || method.idendpoint,
+    });
+
     sendHandlerResponse(reply, {
-      statusCode: 200,
-      data: fnresult.data,
+      statusCode,
+      data: sendsBody ? fnresult.data : null,
       headers: fnresult.headers,
     });
 

@@ -1789,7 +1789,20 @@ export const IntervalTask = dbsequelize.define(
       allowNull: false,
       defaultValue: 10,
       comment:
-        "Fallos consecutivos antes de deshabilitar la tarea. El backoff espacia los reintentos hasta llegar aquí",
+        "Fallos consecutivos antes de deshabilitar la tarea. El backoff espacia los reintentos hasta llegar aquí. 0 = nunca deshabilitar automáticamente",
+    },
+    backoff_enabled: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: true,
+      comment:
+        "Si es false, la tarea conserva su intervalo aunque falle (el backoff exponencial no se aplica). Útil para tareas de monitoreo, que deben seguir corriendo justo cuando el sistema falla",
+    },
+    max_backoff_seconds: {
+      type: DataTypes.SMALLINT,
+      allowNull: true,
+      comment:
+        "Tope del backoff exponencial para esta tarea, en segundos. Si es null se usa el tope global de 1 h",
     },
     history_limit: {
       type: DataTypes.SMALLINT,

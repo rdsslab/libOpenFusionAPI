@@ -41,6 +41,11 @@ const SCHEDULE_FIELDS = [
   "window_end",
   "window_days",
   "datestart",
+  // Turning the backoff off is a request to go back to the normal cadence, so the
+  // `next_run` that the last failure pushed into the future is recomputed too.
+  // Without this, a task that had drifted to +30 min would keep waiting 30 min
+  // after the user had explicitly said "do not slow me down".
+  "backoff_enabled",
 ];
 
 /**
@@ -198,6 +203,8 @@ export const getIntervalTask = async (filter = {}) => {
         "window_end",
         "window_days",
         "max_failed_attempts",
+        "backoff_enabled",
+        "max_backoff_seconds",
         "history_limit",
       ],
       where: filter.tasks, // 🔹 Agregado el filtro aquí
@@ -270,6 +277,8 @@ export const getIntervalTask = async (filter = {}) => {
         window_end: item.window_end,
         window_days: item.window_days,
         max_failed_attempts: item.max_failed_attempts,
+        backoff_enabled: item.backoff_enabled,
+        max_backoff_seconds: item.max_backoff_seconds,
         history_limit: item.history_limit,
       };
 
@@ -339,10 +348,24 @@ export const getIntervalTaskProcess = async () => {
           ],
         },
         // El tope de fallos dejó de ser 3 fijo: cada tarea define el suyo.
-        Sequelize.where(
-          Sequelize.col("failed_attempts"),
-          Op.lt,
-          Sequelize.col("max_failed_attempts"),
+        //
+        // `max_failed_attempts = 0` significa "nunca deshabilitar", así que en ese
+        // caso la tarea sigue siendo elegible por cuantos fallos acumule. Sin esta
+        // rama, el filtro `failed_attempts < max_failed_attempts` sería `n < 0`,
+        // siempre falso, y una tarea con 0 no volvería a ejecutarse nunca: el 0
+        // desactivaría la tarea entera en lugar de solo la auto-deshabilitación.
+        //
+        // Las dos condiciones van en un MISMO `Op.or`. Poner `Op.or` como elemento
+        // suelto de este `Op.and` genera `(A AND (max=0) AND B)`, que deja fuera
+        // toda tarea con max distinto de 0: el filtro parece funcionar pero solo
+        // deja pasar los casos que ya no le interesan a nadie.
+        Sequelize.or(
+          { max_failed_attempts: 0 },
+          Sequelize.where(
+            Sequelize.col("failed_attempts"),
+            Op.lt,
+            Sequelize.col("max_failed_attempts"),
+          ),
         ),
       ],
     },
@@ -375,10 +398,17 @@ export const getNextIntervalTaskRun = async () => {
             { dateend: { [Op.is]: null } },
           ],
         },
-        Sequelize.where(
-          Sequelize.col("failed_attempts"),
-          Op.lt,
-          Sequelize.col("max_failed_attempts"),
+        // Misma rama que en getIntervalTaskProcess, y por el mismo motivo: con
+        // `max_failed_attempts = 0` la tarea nunca se auto-deshabilita, así que debe
+        // seguir contando como próxima vencimiento aunque lleve muchos fallos. Las dos
+        // condiciones comparten un `Op.or` (ver la nota de getIntervalTaskProcess).
+        Sequelize.or(
+          { max_failed_attempts: 0 },
+          Sequelize.where(
+            Sequelize.col("failed_attempts"),
+            Op.lt,
+            Sequelize.col("max_failed_attempts"),
+          ),
         ),
       ],
     },
@@ -646,7 +676,21 @@ export const rescheduleIntervalTask = async (task) => {
 
 /**
  * Fuerza la ejecución de una tarea en el próximo ciclo del worker.
+ *
+ * No reactiva una tarea deshabilitada, y no finge que sí. El worker solo toma
+ * tareas con `enabled: true` (getIntervalTaskProcess), así que poner `next_run`
+ * en una tarea apagada no la hace ejecutar: el ciclo entero no la verá. Antes esta
+ * función devolvía `success: true` en ese caso, y un agente que siguiera el flujo
+ * recomendado de la guía (crear sin `enabled: true`, forzar la ejecución, y recién
+ * ahí habilitarla) se quedaba esperando un `get_interval_task_runs` que nunca
+ * llegaba con ejecuciones.
+ *
+ * Se responde 409 con `reason: "TASK_DISABLED"` para que el rechazo sea legible
+ * por máquina y no solo un texto. Para desbloquear una tarea apagada por el backoff
+ * existe `reset_interval_task_attempts`, que sí la reactiva.
+ *
  * @param {number|string} idtask
+ * @returns {Promise<{success: boolean, message: string, code?: number, reason?: string}>}
  */
 export const runNowIntervalTask = async (idtask) => {
   try {
@@ -659,6 +703,18 @@ export const runNowIntervalTask = async (idtask) => {
       return {
         success: false,
         message: "La tarea está en ejecución y no permite concurrencia.",
+      };
+    }
+
+    if (!task.enabled) {
+      return {
+        success: false,
+        code: 409,
+        reason: "TASK_DISABLED",
+        message:
+          "La tarea está deshabilitada y el worker no la ejecutará. " +
+          "Habilítala con upsert_interval_task (enabled: true) o usa " +
+          "reset_interval_task_attempts si el backoff la apagó.",
       };
     }
 

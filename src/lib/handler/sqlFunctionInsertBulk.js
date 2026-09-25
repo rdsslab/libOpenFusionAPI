@@ -1,16 +1,19 @@
 import { Sequelize, QueryTypes } from "sequelize";
-import { mergeObjects } from "../server/utils.js";
 import { parseQualifiedName } from "../db/utils.js";
 import {
+  applyConnectionOverride,
+  buildConnectionCacheKey,
   getAppVarContext,
   getHandlerExecutionContext,
+  parseConnectionOverrideAllowlist,
   parseJsonConfig,
   replyException,
   resolveAppVarPlaceholder,
+  resolveConnectionOverrideAllowlist,
   sendHandlerError,
   sendHandlerResponse,
 } from "./utils.js";
-import { buildConnectionCacheKey } from "./utils.js";
+import { recordConnectionOverride } from "./connectionOverrideLog.js";
 
 import { Pool } from "./ConnectionPool.js";
 
@@ -46,17 +49,56 @@ export const sqlFunctionInsertBulk = async (context) => {
 
     let data_request = request.body || {};
 
-    // Merge de parámetros de conexión del request (override)
+    // Merge de parámetros de conexión del request (override).
+    //
+    // Aquí no había ninguna restricción: era el mismo patrón abierto que el
+    // handler SQL principal, con la diferencia de que la clave se llama `config`
+    // y no `connection`. Que el segundo caso estuviera sin cubrir mientras el
+    // primero sí lo estaba es justo lo que hace peligroso documentar la
+    // restricción como si cubriera "los handlers SQL".
+    //
+    // Igual que en el principal, el techo es nulo: instalar esto no cambia el
+    // comportamiento de ningún endpoint, y quien quiera acotarlo declara
+    // `connection_override_allow` en su `custom_data`.
+    const overrideAllowlist = resolveConnectionOverrideAllowlist(
+      null,
+      parseConnectionOverrideAllowlist(
+        paramsSQL.config?.connection_override_allow,
+      ),
+    );
+
     if (data_request.config) {
+      let connection_json;
       try {
-        let connection_json =
+        connection_json =
           typeof data_request.config === "object"
             ? data_request.config
             : JSON.parse(data_request.config);
-        paramsSQL.config = mergeObjects(paramsSQL.config, connection_json);
       } catch (e) {
         sendHandlerError(reply, 400, "Invalid JSON in config params");
         return;
+      }
+
+      const { config: merged, applied, rejected } = applyConnectionOverride(
+        paramsSQL.config,
+        connection_json,
+        overrideAllowlist,
+      );
+      paramsSQL.config = merged;
+
+      if (applied.length > 0 || rejected.length > 0) {
+        recordConnectionOverride(
+          { applied, rejected },
+          overrideAllowlist,
+          {
+            handler: "SQL-INSERT-BULK",
+            resource: method.resource,
+            idendpoint: method.idendpoint,
+            idapp: method.idapp,
+            environment: method.environment,
+          },
+          { method: request.method, url: request.url },
+        );
       }
     }
 

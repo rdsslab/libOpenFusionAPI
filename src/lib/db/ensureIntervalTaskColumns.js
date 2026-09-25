@@ -42,6 +42,20 @@ const INTERVAL_TASK_COLUMNS = [
     "history_limit",
     { type: DataTypes.SMALLINT, allowNull: false, defaultValue: 50 },
   ],
+  // H7: el backoff era un tope global fijo (1 h) y no se podía desactivar. Para una
+  // tarea de monitoreo eso es contraproducente: el chequeo que debe seguir corriendo
+  // justo cuando el sistema falla es el primero que se ralentiza. `backoff_enabled`
+  // mantiene el intervalo aunque la tarea falle; el valor por defecto true conserva
+  // el comportamiento actual. `max_backoff_seconds` sustituye a la constante
+  // MAX_BACKOFF_SECONDS cuando está definido.
+  [
+    "backoff_enabled",
+    { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
+  ],
+  [
+    "max_backoff_seconds",
+    { type: DataTypes.SMALLINT, allowNull: true },
+  ],
 ];
 
 /**

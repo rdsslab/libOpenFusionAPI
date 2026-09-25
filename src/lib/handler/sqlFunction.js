@@ -7,10 +7,16 @@ import {
   replyException,
   sendHandlerError,
   sendHandlerResponse,
+  applyConnectionOverride,
   buildConnectionCacheKey,
+  detectSqlParamStyle,
+  parseConnectionOverrideAllowlist,
   resolveAppVar,
   resolveAppVarPlaceholder,
+  resolveConnectionOverrideAllowlist,
+  scanSqlPlaceholders,
 } from "./utils.js";
+import { recordConnectionOverride } from "./connectionOverrideLog.js";
 
 import { Pool } from "./ConnectionPool.js";
 import { mergeObjects } from "../server/utils.js";
@@ -173,6 +179,21 @@ export const sqlFunction = async (context) => {
     }
 
     if (data_request) {
+      // La allowlist se resuelve de la config ALMACENADA del endpoint y antes de
+      // mezclar nada del body. La combinación es una intersección con el techo del
+      // handler, que aquí no pone ninguno: instalar esto no cambia el
+      // comportamiento de ningún endpoint existente. Que se lea antes no es lo que
+      // hace esto seguro —la intersección ya lo es, porque un body no puede
+      // pasar del techo—, sino que evita un caso raro: que el propio body declare
+      // un `connection_override_allow` que acabe viajando dentro de la config
+      // como un campo más sin significance.
+      const overrideAllowlist = resolveConnectionOverrideAllowlist(
+        null,
+        parseConnectionOverrideAllowlist(
+          paramsSQL.config?.connection_override_allow,
+        ),
+      );
+
       // Obtiene los parametros de conexión
       if (data_request?.connection) {
         try {
@@ -186,7 +207,30 @@ export const sqlFunction = async (context) => {
         }
       }
 
-      paramsSQL.config = mergeObjects(paramsSQL.config, connection_json);
+      if (connection_json) {
+        const { config: merged, applied, rejected } = applyConnectionOverride(
+          paramsSQL.config,
+          connection_json,
+          overrideAllowlist,
+        );
+
+        paramsSQL.config = merged;
+
+        if (applied.length > 0 || rejected.length > 0) {
+          recordConnectionOverride(
+            { applied, rejected },
+            overrideAllowlist,
+            {
+              handler: "SQL",
+              resource: method.resource,
+              idendpoint: method.idendpoint,
+              idapp: method.idapp,
+              environment,
+            },
+            { method: request.method, url: request.url },
+          );
+        }
+      }
     }
 
     // Obtiene los valores para hacer el bind de datos
@@ -235,11 +279,17 @@ export const sqlFunction = async (context) => {
     }
 
     // Auto-detectar si la query usa :key (replacements) o $key (bind)
-    // Según docs Sequelize: replacements usa ":" y bind usa "$"
+    // Según docs Sequelize: replacements usa ":" y bind usa "$".
+    //
+    // La detección usa detectSqlParamStyle() y no una regex cruda porque un `:` en
+    // PostgreSQL no siempre es un placeholder: los casts `::tipo` y los literales
+    // `to_char(now(), 'HH24:MI')` son las dos fuentes de falsos positivos. Con la
+    // regex anterior, `SELECT fn_insert($event::json)` se clasificaba como
+    // replacements, `$event` quedaba sin sustituir y PostgreSQL respondía
+    // "error de sintaxis en o cerca de $" en el 100% de los casos.
     if (paramsSQL.query && !replacements && !Array.isArray(data_bind)
       && Object.keys(data_bind).length > 0) {
-      const hasColonParams = /:[a-zA-Z_][a-zA-Z0-9_]*/.test(paramsSQL.query);
-      if (hasColonParams) {
+      if (detectSqlParamStyle(paramsSQL.query) === "replacements") {
         replacements = data_bind;
         data_bind = {};
       }
@@ -247,15 +297,10 @@ export const sqlFunction = async (context) => {
 
     // For named bind params ($param), fill omitted values with empty string.
     // This keeps optional SQL filters from failing when a query param is absent.
+    // Se reutiliza el escáner para no contar como bind un `$param` que en realidad
+    // está dentro de un literal o de un comentario (p.ej. `SELECT 'coste: $total'`).
     if (paramsSQL.query && !replacements && !Array.isArray(data_bind)) {
-      const bindNames = new Set();
-      const bindRegex = /\$([a-zA-Z_][a-zA-Z0-9_]*)/g;
-      let match;
-      while ((match = bindRegex.exec(paramsSQL.query)) !== null) {
-        bindNames.add(match[1]);
-      }
-
-      for (const bindName of bindNames) {
+      for (const bindName of scanSqlPlaceholders(paramsSQL.query).bind) {
         if (!Object.prototype.hasOwnProperty.call(data_bind, bindName)) {
           data_bind[bindName] = "";
         }

@@ -1,13 +1,17 @@
 import { mergeObjects } from "../server/utils.js";
 import {
+  applyConnectionOverride,
   getAppVarContext,
   getHandlerExecutionContext,
+  parseConnectionOverrideAllowlist,
   parseJsonConfig,
   replyException,
+  resolveConnectionOverrideAllowlist,
   sendHandlerError,
   sendHandlerResponse,
   resolveAppVarPlaceholder,
 } from "./utils.js";
+import { recordConnectionOverride } from "./connectionOverrideLog.js";
 import hana from "@sap/hana-client";
 
 const connections = new Map();
@@ -162,18 +166,46 @@ export const sqlHana = async (context) => {
           return;
         }
 
-        // SECURITY: Only allow specific overrides (uid, pwd)
-        // Prevent clients from changing the host/port or other critical configs
-        const ALLOWED_OVERRIDES = ["uid", "pwd", "user", "password"];
-        const safe_connection_params = {};
+        // Techo del handler: en HANA el override solo puede cambiar credenciales.
+        // Es lo que ya hacía este bloque y se conserva tal cual, pero ahora pasa
+        // por la misma función que los otros dos handlers SQL, de forma que la
+        // decisión se toma en un solo sitio. Un endpoint puede estrecharlo con
+        // `connection_override_allow`; no puede ampliarlo nunca, porque la lista
+        // efectiva es la intersección con este techo.
+        const hanaCeiling = new Set([
+          "uid",
+          "pwd",
+          "user",
+          "password",
+        ]);
+        const overrideAllowlist = resolveConnectionOverrideAllowlist(
+          hanaCeiling,
+          parseConnectionOverrideAllowlist(
+            paramsSQL.config?.connection_override_allow,
+          ),
+        );
 
-        for (const key of Object.keys(connection_json)) {
-          if (ALLOWED_OVERRIDES.includes(key)) {
-            safe_connection_params[key] = connection_json[key];
-          }
+        const { config: merged, applied, rejected } = applyConnectionOverride(
+          paramsSQL.config,
+          connection_json,
+          overrideAllowlist,
+        );
+        paramsSQL.config = merged;
+
+        if (applied.length > 0 || rejected.length > 0) {
+          recordConnectionOverride(
+            { applied, rejected },
+            overrideAllowlist,
+            {
+              handler: "SQL-HANA",
+              resource: method.resource,
+              idendpoint: method.idendpoint,
+              idapp: method.idapp,
+              environment: method.environment,
+            },
+            { method: request.method, url: request.url },
+          );
         }
-
-        paramsSQL.config = mergeObjects(paramsSQL.config, safe_connection_params);
       }
 
 

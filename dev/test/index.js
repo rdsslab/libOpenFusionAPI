@@ -100,6 +100,56 @@ async function runAllTests() {
         args: ["interval_task_upsert_test.js"],
       },
       {
+        // Puro: no toca servidor ni base de datos. Cubre la detección de
+        // placeholders SQL (bind vs replacements) sin los falsos positivos de los
+        // casts `::tipo` y de los literales de texto.
+        label: "sql_param_detection_test.js",
+        command: "node",
+        args: ["sql_param_detection_test.js"],
+      },
+      {
+        // Puro: distingue el agotamiento de conexiones del fallo de credenciales,
+        // que antes comparten el mismo mensaje.
+        label: "connection_pool_limits_test.js",
+        command: "node",
+        args: ["connection_pool_limits_test.js"],
+      },
+      {
+        // Puro: `parse_bigint` convierte int8 solo dentro del rango seguro de
+        // Number y deja el resto de tipos con el parser de pg.
+        label: "sql_parse_bigint_test.js",
+        command: "node",
+        args: ["sql_parse_bigint_test.js"],
+      },
+      {
+        // Puro: la clave de caché del pool tiene que cubrir TODAS las options.
+        // Lo que se le escapaba no daba error, devolvía la respuesta de otra base.
+        label: "sql_connection_cache_key_test.js",
+        command: "node",
+        args: ["sql_connection_cache_key_test.js"],
+      },
+      {
+        // Puro: la allowlist del override de conexión acota y solo acota. Es el
+        // control de H5; sin el test, cambiar el merge al filtrar pasaria inadvertido.
+        label: "sql_connection_override_allow_test.js",
+        command: "node",
+        args: ["sql_connection_override_allow_test.js"],
+      },
+      {
+        // Puro: valida `$_RETURN_STATUS_` (rango 200-399, 204/304 sin body).
+        label: "js_return_status_test.js",
+        command: "node",
+        args: ["js_return_status_test.js"],
+      },
+      {
+        // Levanta una VM real y un `reply` simulado para comprobar que el código
+        // elegido acaba en reply.code() y que la caché captura ese mismo código.
+        // No necesita servidor: la VM se compila en memoria.
+        label: "js_return_status_integration.js",
+        command: "node",
+        args: ["js_return_status_integration.js"],
+      },
+      {
         label: "fetch_timeout_test.js",
         command: "node",
         args: ["fetch_timeout_test.js"],

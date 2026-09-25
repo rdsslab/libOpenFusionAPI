@@ -6,7 +6,8 @@ import {
   resetIntervalTaskAttempts,
 } from "../../../../../db/interval_task.js";
 import { getIntervalTaskRuns } from "../../../../../db/interval_task_run.js";
-import { validateCron } from "../../../../../timer/schedule.js";
+import { getEndpointById } from "../../../../../db/endpoint.js";
+import { validateCron, describeTaskTimeoutMismatch } from "../../../../../timer/schedule.js";
 import { readIntervalTaskSkill } from "../../../../intervalTaskDocs.js";
 import {
   recordAudit,
@@ -16,6 +17,32 @@ import {
 
 function wakeIntervalTaskWorker(params) {
   params?.reply?.openfusionapi?.server?.TasksInterval?.wake?.();
+}
+
+/**
+ * Compara el `exec_time_limit` guardado con el `timeout` real del endpoint
+ * apuntado. Devuelve null cuando no hay nada que avisar, incluido el caso en que
+ * el endpoint ya no existe o no se puede leer: un aviso que falla al construirse
+ * no debe tumbar un upsert que sí es válido.
+ *
+ * @param {object} task
+ * @returns {Promise<string|null>}
+ */
+async function collectTimeoutMismatchWarning(task) {
+  const idendpoint = task?.idendpoint;
+  if (!idendpoint) return null;
+
+  try {
+    const endpoint = await getEndpointById(idendpoint);
+    if (!endpoint) return null;
+    const plain = typeof endpoint?.get === "function" ? endpoint.get({ plain: true }) : endpoint;
+    return describeTaskTimeoutMismatch(task, plain?.timeout);
+  } catch (error) {
+    console.warn(
+      `[interval_tasks] Could not compare exec_time_limit with the endpoint timeout: ${error.message}`,
+    );
+    return null;
+  }
 }
 
 export async function fnGetIntervalTasksByIdApp(params) {
@@ -101,6 +128,16 @@ export async function fnUpsertIntervalTask(params) {
     r.data = { result: upserted.result, created: upserted.created };
     r.code = 200;
     wakeIntervalTaskWorker(params);
+
+    // Aviso, no rechazo: la incoherencia entre `exec_time_limit` y el timeout del
+    // endpoint es legal y a veces intencionada, pero hace que `exec_time_limit`
+    // parezca una red de seguridad que no puede llegar a activarse. Se devuelve
+    // dentro del 200 para que un cliente que ignore el campo no se rompa.
+    const mismatch = await collectTimeoutMismatchWarning(upserted.result);
+    if (mismatch) {
+      r.data.warnings = [mismatch];
+      console.warn(`[interval_tasks] ${mismatch}`);
+    }
 
     await recordAudit(params, {
       action: upserted.previous ? AUDIT_ACTIONS.UPDATE : AUDIT_ACTIONS.CREATE,
@@ -200,7 +237,10 @@ export async function fnRunIntervalTaskNow(params) {
     const result = await runNowIntervalTask(body.idtask);
 
     r.data = result;
-    r.code = result.success ? 200 : 400;
+    // `runNowIntervalTask` fija `code: 409` cuando la tarea está deshabilitada,
+    // para que el rechazo sea legible por máquina y no se confunda con un error
+    // genérico. El resto de rechazos (no existe, en ejecución) conservan 400.
+    r.code = result.success ? 200 : result.code || 400;
     if (result.success) wakeIntervalTaskWorker(params);
   } catch (error) {
     r.data = error;

@@ -106,6 +106,11 @@ export class EndpointCache {
             idendpoint: ep?.handler?.params?.idendpoint,
             idapp: ep?.handler?.params?.idapp,
             headers: reply?.openfusionapi?.lastResponse?.headers,
+            // El código con el que se respondió la PRIMERA vez. Sin esto, un
+            // endpoint que devuelve 203 (o 201) serviría 200 en la segunda petición
+            // desde caché, y el cliente vería dos respuestas distintas para la
+            // misma entrada. Se guarda el que se envió, no el que se quería enviar.
+            statusCode: reply?.statusCode,
           };
 
           this._cache.add({

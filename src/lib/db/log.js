@@ -545,6 +545,13 @@ export const getLogs = async (options = {}) => {
     // === CONFIGURACIÓN DE LA CONSULTA ===
 
     // Atributos ligeros (siempre presentes)
+    //
+    // `environment` va aquí a propósito: una búsqueda sin `environment` devuelve filas
+    // de todos los entornos mezcladas, y sin esta columna el llamador no puede
+    // distinguir de cuál es cada una. Reproducirlo da `environment: null` en todas
+    // ellas aunque la base tenga dev, prd y null a la vez, que es exactamente lo que
+    // hace un diagnóstico creer que el filtro no funciona. Son 20 bytes por fila y
+    // evita una clase entera de conclusiones equivocadas.
     const lightweightAttributes = [
       "id",
       "timestamp",
@@ -554,6 +561,7 @@ export const getLogs = async (options = {}) => {
       "url",
       "method",
       "status_code",
+      "environment",
       "log_level",
       "response_time",
     ];

@@ -91,7 +91,13 @@ export const createFunctionVM = async (
 
         return {
           data: typeof $_RETURN_DATA_ !== "undefined" ? $_RETURN_DATA_ : null,
-          headers: typeof $_CUSTOM_HEADERS_ !== "undefined" ? $_CUSTOM_HEADERS_ : {}
+          headers: typeof $_CUSTOM_HEADERS_ !== "undefined" ? $_CUSTOM_HEADERS_ : {},
+          // El sandbox no envía nada por su cuenta: solo comunica la intención. El
+          // código lo valida y lo aplica jsFunction. Queda undefined cuando el
+          // endpoint no lo asigna, para que la ausencia se distinga de un 200
+          // explícito. (Sin acentos ni backticks: esto vive dentro de una cadena
+          // de plantilla y un acento suelto la rompe.)
+          statusCode: typeof $_RETURN_STATUS_ !== "undefined" ? $_RETURN_STATUS_ : undefined
         };
       })()
     `;

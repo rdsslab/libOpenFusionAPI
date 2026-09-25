@@ -726,11 +726,11 @@ export const system_app = {
               },
               "js_code": {
                 "type": "string",
-                "description": "JavaScript source code stored in endpoint_upsert.code. Use $_RETURN_DATA_ for responses instead of return."
+                "description": "JavaScript source code stored in endpoint_upsert.code. Use $_RETURN_DATA_ for responses instead of return. Optionally assign an integer 200-399 to $_RETURN_STATUS_ to answer with a status other than 200 (201 created, 202 accepted, 204 no content, 302 redirect); leave it unset for 200."
               },
               "custom_data": {
                 "$ref": "#/$defs/jsonValue",
-                "description": "Optional custom_data object forwarded to endpoint_upsert."
+                "description": "Optional custom_data object forwarded to endpoint_upsert. Handler-specific: this handler uses it for JS endpoint options. For SQL handlers the same object carries the connection settings instead; use the matching `upsert_sql_endpoint_handler`, `upsert_sql_bulk_i_endpoint_handler` or `upsert_hana_endpoint_handler` tool to document or set those keys."
               },
               "cors": {
                 "$ref": "#/$defs/jsonValue"
@@ -4658,7 +4658,7 @@ export const system_app = {
               },
               "custom_data": {
                 "$ref": "#/$defs/jsonValue",
-                "description": "Optional custom_data merged with bulk_config."
+                "description": "Optional custom_data merged with bulk_config.\nTwo optional keys are accepted here as well. `connection_override_allow`: an array of dotted paths (e.g. [\"database\",\"options.host\"]) limiting which parts of the stored connection a request body may replace at runtime. Omitting it leaves every key overridable, which is the default and is intended for multi-tenant endpoints; set it to stop a public endpoint from being redirected to another host, dialect or SQLite file. It can only narrow the handler's own ceiling, never widen it. `parse_bigint`: set true to receive `int8`/`bigint` columns as numbers instead of strings, for values that fit in `Number.MAX_SAFE_INTEGER`; anything larger stays a string, and decimals are never converted. Opt-in, because the driver default is lossless."
               },
               "cors": {
                 "$ref": "#/$defs/jsonValue"
@@ -5905,7 +5905,7 @@ export const system_app = {
               "code": {
                 "type": "string",
                 "default": "",
-                "description": "Handler payload. Convention depends on `handler`: JS => server-side JavaScript source and it must assign `$_RETURN_DATA_` instead of using `return`; FUNCTION => internal function name such as `fnMyFunction`; FETCH => target URL string; TEXT => raw text content while MIME metadata lives in `custom_data.mimeType`. This handler can be used to expose text with a mimetype, but also for other types of files like a PDF converted to base64 or other files up to 1Mega. Optionally, add `custom_data.fileName` if it requires to be downloadable; SQL => SQL query string while connection settings live in `custom_data`; SQL_BULK_I/SOAP/HANA/MONGODB/MCP => handler-specific configuration payload. Messaging bots are not endpoints: to create or modify a bot call `get_bot_skill` and use `upsert_bot`. You can also pass an AppVar placeholder string such as `\"$_MY_VAR\"`; it will be resolved at runtime to the effective application variable value."
+                "description": "Handler payload. Convention depends on `handler`: JS => server-side JavaScript source and it must assign `$_RETURN_DATA_` instead of using `return`. The success status can be changed by assigning an integer between 200 and 399 to `$_RETURN_STATUS_` (defaults to 200; 4xx/5xx must go through `$_EXCEPTION_`; 204 and 304 send no body); FUNCTION => internal function name such as `fnMyFunction`; FETCH => target URL string; TEXT => raw text content while MIME metadata lives in `custom_data.mimeType`. This handler can be used to expose text with a mimetype, but also for other types of files like a PDF converted to base64 or other files up to 1Mega. Optionally, add `custom_data.fileName` if it requires to be downloadable; SQL => SQL query string while connection settings live in `custom_data`; SQL_BULK_I/SOAP/HANA/MONGODB/MCP => handler-specific configuration payload. Messaging bots are not endpoints: to create or modify a bot call `get_bot_skill` and use `upsert_bot`. You can also pass an AppVar placeholder string such as `\"$_MY_VAR\"`; it will be resolved at runtime to the effective application variable value."
               },
               "cors": {
                 "$ref": "#/$defs/jsonValue",
@@ -6897,7 +6897,8 @@ export const system_app = {
                 "$ref": "#/$defs/jsonValue"
               },
               "custom_data": {
-                "$ref": "#/$defs/jsonValue"
+                "$ref": "#/$defs/jsonValue",
+                "description": "SQL connection settings for this endpoint, as an object: `database` (name), `username`, `password` and `options` (`host`, `port`, `dialect` one of 'mssql', 'postgres', 'mysql', 'mariadb' or 'sqlite', plus optional `dialectOptions` and `ssl`). The whole field may instead be a single Application Variable reference such as \"$_VAR_MAIN_DB\" (pattern ^\\$_VAR_[A-Z0-9_]+$), which replaces the entire object; in that string form none of the keys below can be sent alongside it. The SQL query itself goes in `code`, never here. `query_type` may be set to override the query type that is otherwise inferred from the leading verb (e.g. \"INSERT\").\nTwo further optional keys: `connection_override_allow`, an array of dotted paths (e.g. [\"database\",\"options.host\"]) limiting which parts of the stored connection a request body may replace at runtime. Omitting it leaves every key overridable, which is the default and is intended for multi-tenant endpoints; set it to stop a public endpoint from being redirected to another host, dialect or SQLite file. It can only narrow the handler's own ceiling, never widen it. And `parse_bigint`, set true to receive `int8`/`bigint` columns from PostgreSQL as numbers instead of strings, for values that fit in `Number.MAX_SAFE_INTEGER`; anything larger stays a string and decimals are never converted. It is opt-in because the driver default is lossless."
               },
               "headers_test": {
                 "$ref": "#/$defs/jsonValue"
@@ -7036,7 +7037,7 @@ export const system_app = {
         "enabled": true,
         "name": "upsert_interval_task",
         "title": "Upsert Interval Task",
-        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nSchedules an EXISTING endpoint to run unattended. The task holds no code of its own: the logic stays in the endpoint, which remains callable by hand. Call 'get_interval_task_skill' first if you have not scheduled a task before.\nScheduling: `schedule_mode` is `interval` (every `interval` seconds, the default) or `cron` (a 5 or 6 field expression in `cron`, interpreted in `timezone`). Either mode can be narrowed to an execution window with `window_start`, `window_end` and `window_days`, and bounded in time with `datestart` and `dateend`.\nOperation mode: omit `idtask` for INSERT (the id is generated automatically); send an existing `idtask` for UPDATE. An UPDATE is a PARTIAL merge over the stored row: fields you do not send keep their current value, an explicit null clears the field, and `params` is the one field replaced whole rather than merged key by key. An `idtask` that does not exist is rejected with 404 instead of creating a task with that id.\nIMPORTANT: `enabled` defaults to false, so a task created without `enabled: true` is stored but never runs. That is the recommended way to create one: store it disabled, force one execution with 'run_interval_task_now', check the outcome with 'get_interval_task_runs', and only then enable it.\nErrors: 400 with `code: \"MISSING_IDENDPOINT\"` when creating without `idendpoint`; 400 `cron is required when schedule_mode is 'cron'` when the expression is missing, and 400 `Invalid cron expression: <reason>` when it does not parse; 404 with `code: \"INTERVAL_TASK_NOT_FOUND\"` when the `idtask` does not exist. Response: `{result, created}`, where `created` is true only on INSERT.",
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nSchedules an EXISTING endpoint to run unattended. The task holds no code of its own: the logic stays in the endpoint, which remains callable by hand. Call 'get_interval_task_skill' first if you have not scheduled a task before.\nScheduling: `schedule_mode` is `interval` (every `interval` seconds, the default) or `cron` (a 5 or 6 field expression in `cron`, interpreted in `timezone`). Either mode can be narrowed to an execution window with `window_start`, `window_end` and `window_days`, and bounded in time with `datestart` and `dateend`.\nOperation mode: omit `idtask` for INSERT (the id is generated automatically); send an existing `idtask` for UPDATE. An UPDATE is a PARTIAL merge over the stored row: fields you do not send keep their current value, an explicit null clears the field, and `params` is the one field replaced whole rather than merged key by key. An `idtask` that does not exist is rejected with 404 instead of creating a task with that id.\nIMPORTANT: `enabled` defaults to false, so a task created without `enabled: true` is stored but never runs. That is the recommended way to create one: send `enabled: true` together with a LONG `interval`, so the task is live but will not fire on its own while you verify it, force one execution with 'run_interval_task_now', check the outcome with 'get_interval_task_runs', and only then set the real `interval` or `cron`. Do NOT create it disabled and then try to force it: that combination cannot execute, because the scheduler only picks up tasks with `enabled: true`.\nWarnings: on success the response may carry a `warnings` array with non-blocking observations — currently an `exec_time_limit` that disagrees with the endpoint's own timeout, where the endpoint's timeout is the one that actually aborts the run. The write succeeded either way, so read `warnings` and surface it instead of treating it as an error.\nErrors: 400 with `code: \"MISSING_IDENDPOINT\"` when creating without `idendpoint`; 400 `cron is required when schedule_mode is 'cron'` when the expression is missing, and 400 `Invalid cron expression: <reason>` when it does not parse; 404 with `code: \"INTERVAL_TASK_NOT_FOUND\"` when the `idtask` does not exist. Response: `{result, created}`, where `created` is true only on INSERT.",
         "operation_mode": "write",
         "requires_explicit_confirmation": true,
         "destructive": false,
@@ -7163,9 +7164,20 @@ export const system_app = {
               },
               "max_failed_attempts": {
                 "type": "integer",
-                "minimum": 1,
+                "minimum": 0,
                 "default": 10,
-                "description": "Consecutive failures tolerated before the task is disabled automatically. Retries are spaced with exponential backoff up to one hour. Clear the counter with 'reset_interval_task_attempts' after fixing the cause."
+                "description": "Consecutive failures tolerated before the task is disabled automatically. Retries are spaced with exponential backoff up to 'max_backoff_seconds'. Use 0 to mean NEVER disable the task automatically: it keeps running and keeps logging failures however many accumulate, which is what a monitoring task usually wants. Clear the counter with 'reset_interval_task_attempts' after fixing the cause."
+              },
+              "backoff_enabled": {
+                "type": "boolean",
+                "default": true,
+                "description": "Set to false to keep the task on its normal interval even when it keeps failing. A health check that must run every 2 minutes should not drift to every 32 minutes because the system it watches is down — that is exactly when it matters most. The task is still disabled after 'max_failed_attempts' consecutive failures unless that is 0."
+              },
+              "max_backoff_seconds": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 2592000,
+                "description": "Ceiling for the exponential backoff of this task, in seconds (max 2592000 = 30 days). Omit to use the global ceiling of 3600 (one hour). Raise it for a task whose failures are slow to clear, lower it to retry more eagerly."
               },
               "history_limit": {
                 "type": "integer",
@@ -7815,7 +7827,7 @@ export const system_app = {
               },
               "custom_data": {
                 "$ref": "#/$defs/jsonValue",
-                "description": "Optional custom_data merged with hana_config."
+                "description": "Optional custom_data merged with hana_config.\nThis handler also accepts `connection_override_allow`: an array of dotted paths (e.g. [\"database\",\"options.host\"]) limiting which parts of the stored connection a request body may replace at runtime. Omitting it leaves every key overridable, which is the default and is intended for multi-tenant endpoints; set it to stop a public endpoint from being redirected to another HANA server. It can only narrow the handler's own ceiling, never widen it, and on this handler that ceiling never includes credentials: a request body cannot change the user or the password even when the allowlist names them."
               },
               "cors": {
                 "$ref": "#/$defs/jsonValue"
@@ -14055,7 +14067,7 @@ export const system_app = {
         "enabled": true,
         "name": "run_interval_task_now",
         "title": "Run Interval Task Now",
-        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nForces one execution of an interval task on the scheduler's next cycle and wakes the worker immediately. It does so by setting the task's next execution to now and clearing its consecutive failure counter; it does not run the endpoint synchronously, so this tool returns before the execution finishes.\nRUNS THE ENDPOINT FOR REAL: whatever the endpoint writes, sends or calls actually happens, exactly as on a scheduled run. Use it to verify a task you just created, then read the outcome with 'get_interval_task_runs'.\nThis does not change the schedule: after the forced run the task returns to its normal `interval` or `cron` cadence. It also does not re-enable a disabled task — use 'reset_interval_task_attempts' for that.\nErrors: 400 when the task does not exist, or when it is already running and `allow_concurrent` is false. Response: `{success, message}`.",
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nForces one execution of an interval task on the scheduler's next cycle and wakes the worker immediately. It does so by setting the task's next execution to now and clearing its consecutive failure counter; it does not run the endpoint synchronously, so this tool returns before the execution finishes.\nRUNS THE ENDPOINT FOR REAL: whatever the endpoint writes, sends or calls actually happens, exactly as on a scheduled run. Use it to verify a task you just created, then read the outcome with 'get_interval_task_runs'.\nThis does not change the schedule: after the forced run the task returns to its normal `interval` or `cron` cadence. A DISABLED TASK CANNOT BE FORCED: the scheduler only picks up tasks with `enabled: true`, so forcing a disabled task would never run it. This tool therefore answers **409** with `reason: \"TASK_DISABLED\"` and changes nothing — it does not silently pretend to have scheduled the run. To verify a task without leaving it on a short schedule, keep it **enabled** with a long `interval`, force the run here, then shorten the interval. To bring back a task the backoff disabled, use 'reset_interval_task_attempts'.\nErrors: 400 when the task does not exist, or when it is already running and `allow_concurrent` is false. 409 with `reason: \"TASK_DISABLED\"` when the task exists but `enabled` is false. Response: `{success, message, code?, reason?}`.",
         "operation_mode": "write",
         "requires_explicit_confirmation": true,
         "destructive": false,

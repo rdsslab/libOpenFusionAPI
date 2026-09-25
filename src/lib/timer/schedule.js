@@ -26,6 +26,22 @@ export const TASK_STATUS = {
 /** Tope del backoff exponencial: no esperar más de una hora entre reintentos. */
 const MAX_BACKOFF_SECONDS = 3600;
 
+/**
+ * Tope de fallos consecutivos cuando la tarea no define `max_failed_attempts`.
+ * Debe coincidir con el `defaultValue` de la columna en `models.js` y con
+ * `default_max_failed_attempts` en `docs/interval_tasks/manifest.json`.
+ */
+const MAX_FAILED_ATTEMPTS_DEFAULT = 10;
+
+/**
+ * Tope duro de `max_backoff_seconds` por tarea (30 días). Solo existe para atrapar
+ * erratas: un valor disparatado produciría un `next_run` tan lejano que la tarea
+ * parece borrada. Deliberadamente NO se usa `MAX_SCHEDULER_DELAY_MS`, que es el
+ * intervalo de sondeo del worker (60 s) y nada tiene que ver con la separación
+ * entre reintentos.
+ */
+const HARD_MAX_BACKOFF_SECONDS = 30 * 24 * 3600;
+
 /** Cuántos disparos de cron se prueban antes de rendirse al buscar uno dentro de la ventana. */
 const MAX_CRON_LOOKAHEAD = 500;
 
@@ -284,21 +300,143 @@ export function computeBackoffNextRun(task, failedAttempts, options = {}) {
   const from = options.from instanceof Date ? options.from : new Date();
   const attempts = Math.max(1, Number(failedAttempts) || 1);
   const base = baseSpacingSeconds(task, from);
-  const delay = Math.min(base * Math.pow(2, attempts - 1), MAX_BACKOFF_SECONDS);
+
+  // `backoff_enabled: false` mantiene el intervalo aunque la tarea falle. Por
+  // defecto sigue activo, así que una tarea existente no cambia de comportamiento.
+  // Sin esto, un chequeo de monitoreo de 2 min que falla 3 veces pasa a correr
+  // cada 8 min, luego 16, luego 32… hasta 1 h: exactamente lo contrario de lo que
+  // se quiere cuando el sistema observado está fallando.
+  //
+  // El salto es un intervalo base, NO cero: `nextWindowStart` sin ventana devuelve
+  // el `from` tal cual, y programar la tarea para "ahora" justo después de un fallo
+  // la convertiría en un bucle cerrado de reintentos. La ventana se sigue respetando
+  // porque el candidate es ahora+intervalo, no ahora.
+  if (isBackoffDisabled(task)) {
+    return nextWindowStart(task, new Date(from.getTime() + base * 1000));
+  }
+
+  const ceiling = resolveMaxBackoffSeconds(task);
+  const delay = Math.min(base * Math.pow(2, attempts - 1), ceiling);
 
   return nextWindowStart(task, new Date(from.getTime() + delay * 1000));
 }
 
 /**
+ * `backoff_enabled` vale false solo si el usuario lo puso así de forma explícita.
+ * `undefined` y `null` significan "no configurado" y mantienen el backoff, que es
+ * el comportamiento previo.
+ *
+ * @param {object} task
+ * @returns {boolean}
+ */
+function isBackoffDisabled(task) {
+  const raw = task?.backoff_enabled;
+  if (raw === undefined || raw === null) return false;
+  if (typeof raw === "string") {
+    const v = raw.trim().toLowerCase();
+    return v === "false" || v === "0" || v === "no" || v === "off";
+  }
+  return raw === false;
+}
+
+/**
+ * Tope del backoff para esta tarea: `max_backoff_seconds` si está definido y es
+ * válido, y el tope global de 1 h en caso contrario.
+ *
+ * @param {object} task
+ * @returns {number}
+ */
+function resolveMaxBackoffSeconds(task) {
+  const raw = Number(task?.max_backoff_seconds);
+  if (Number.isFinite(raw) && raw > 0) {
+    return Math.min(raw, HARD_MAX_BACKOFF_SECONDS);
+  }
+  return MAX_BACKOFF_SECONDS;
+}
+
+/**
+ * ¿Hay incoherencia entre el presupuesto de la tarea y el timeout del endpoint?
+ *
+ * `exec_time_limit` es lo que el worker impone a la llamada HTTP y lo que usa el
+ * reaper para liberar una tarea que quedó colgada. El `timeout` del endpoint lo
+ * impone el propio endpoint, por dentro. Cuando `exec_time_limit >= timeout`, el
+ * endpoint siempre responde primero: la tarea nunca llega a vencer por su cuenta,
+ * y el reaper nunca entra, porque nunca hay una tarea colgada — solo un endpoint
+ * que devolvió su propio 504.
+ *
+ * El efecto no es que la tarea falle: es que `exec_time_limit` aparenta ser la red
+ * de seguridad que no es, y el síntoma que aparece es distinto del que se busca.
+ * Quien lea `exec_time_limit: 300` pensando "esta tarea se corta a los 5 minutos"
+ * no lo deduce del registro, porque el registro dice 504 del endpoint.
+ *
+ * Por eso es un aviso y no un rechazo: las dos configuraciones son legales y
+ * útiles, solo se pide que sean coherentes. Un margen pequeño (el endpoint cortando
+ * un poco antes) es normal y no se avisa.
+ *
+ * @param {object} task
+ * @param {number|undefined|null} endpointTimeoutSeconds
+ * @returns {string|null} mensaje de aviso, o null si no hay nada que avisar
+ */
+export function describeTaskTimeoutMismatch(task, endpointTimeoutSeconds) {
+  const endpointTimeout = Number(endpointTimeoutSeconds);
+  if (!Number.isFinite(endpointTimeout) || endpointTimeout <= 0) return null;
+
+  const limit = Number(task?.exec_time_limit);
+  if (!Number.isFinite(limit) || limit <= 0) return null;
+
+  if (limit < endpointTimeout) return null;
+
+  if (limit === endpointTimeout) {
+    return (
+      `exec_time_limit (${limit}s) equals the endpoint timeout (${endpointTimeout}s). ` +
+      `Both timers will fire, and the endpoint's own 504 is what reaches the task history. ` +
+      `Give the task a larger exec_time_limit so the two are distinguishable.`
+    );
+  }
+
+  return (
+    `exec_time_limit (${limit}s) is larger than the endpoint timeout (${endpointTimeout}s), ` +
+    `so it can never be the one that stops a run: the endpoint aborts first and the task ` +
+    `records a 504 rather than a timeout. Either lower exec_time_limit below ` +
+    `${endpointTimeout}s, or raise the endpoint timeout above ${limit}s.`
+  );
+}
+
+/**
  * ¿La tarea agotó sus reintentos y debe deshabilitarse?
+ *
+ * `max_failed_attempts: 0` significa explícitamente **nunca deshabilitar**, y es
+ * lo que un usuario espera al escribir un 0. Antes caía en el valor por defecto
+ * (10) por el `max > 0 ? max : 10`, de modo que un 0 devolvía el comportamiento
+ * contrario al buscado y sin ningún aviso.
+ *
+ * La distinción entre "0 explícito" y "sin configurar" no se puede hacer con
+ * `Number()` a secas: `Number(null)`, `Number("")` y `Number(undefined)` dan
+ * `NaN` o `0`, y un `null` heredado de una base vieja se confundiría con un 0
+ * pedido a propósito — dejando la tarea sin deshabilitarse nunca. Por eso se
+ * mira el valor crudo antes de convertirlo.
+ *
  * @param {object} task
  * @param {number} failedAttempts
  * @returns {boolean}
  */
 export function shouldDisableForFailures(task, failedAttempts) {
-  const max = Number(task?.max_failed_attempts);
-  const limit = Number.isFinite(max) && max > 0 ? max : 10;
-  return Number(failedAttempts) >= limit;
+  const raw = task?.max_failed_attempts;
+
+  if (raw === undefined || raw === null || raw === "") {
+    return Number(failedAttempts) >= MAX_FAILED_ATTEMPTS_DEFAULT;
+  }
+
+  const max = Number(raw);
+  if (!Number.isFinite(max) || max < 0) {
+    return Number(failedAttempts) >= MAX_FAILED_ATTEMPTS_DEFAULT;
+  }
+
+  if (max === 0) {
+    return false;
+  }
+
+  return Number(failedAttempts) >= max;
 }
 
 /**
