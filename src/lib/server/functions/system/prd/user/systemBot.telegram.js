@@ -1165,12 +1165,8 @@ $BOT.command("linkapp", async (ctx) => {
 });
 
 // ── Paso 1 (callback): elegir aplicación ─────────────────────────────────────
-$BOT.on("callback_query:data", async (ctx, next) => {
+$BOT.callbackQuery(/^appsel:/, async (ctx) => {
   const data = String(ctx.callbackQuery?.data || "");
-  if (!data.startsWith("appsel:")) {
-    await next();
-    return;
-  }
   const idapp = data.slice("appsel:".length);
   const chat = ctx.chat;
   if (!chat || !isGroupChat(chat)) return;
@@ -1226,16 +1222,8 @@ $BOT.on("callback_query:data", async (ctx, next) => {
 });
 
 // ── Paso 2 (callback): vincular (app, entorno) ───────────────────────────────
-$BOT.on("callback_query:data", async (ctx, next) => {
+$BOT.callbackQuery(/^linkapp:/, async (ctx) => {
   const data = String(ctx.callbackQuery?.data || "");
-  if (!data.startsWith("linkapp:")) {
-    await next();
-    return;
-  }
-  if (data.startsWith("linkapp-switch:") || data.startsWith("linkapp-cancel:")) {
-    await next();
-    return;
-  }
   const rest = data.slice("linkapp:".length);
   const sep = rest.indexOf(":");
   const idapp = sep === -1 ? rest : rest.slice(0, sep);
@@ -1281,12 +1269,8 @@ $BOT.on("callback_query:data", async (ctx, next) => {
 });
 
 // ── Confirmación de cambio de entorno ────────────────────────────────────────
-$BOT.on("callback_query:data", async (ctx, next) => {
+$BOT.callbackQuery(/^linkapp-switch:/, async (ctx) => {
   const data = String(ctx.callbackQuery?.data || "");
-  if (!data.startsWith("linkapp-switch:")) {
-    await next();
-    return;
-  }
   const rest = data.slice("linkapp-switch:".length);
   const sep = rest.indexOf(":");
   const idapp = rest.slice(0, sep);
@@ -1318,12 +1302,7 @@ $BOT.on("callback_query:data", async (ctx, next) => {
   }
 });
 
-$BOT.on("callback_query:data", async (ctx, next) => {
-  const data = String(ctx.callbackQuery?.data || "");
-  if (data !== "linkapp-cancel") {
-    await next();
-    return;
-  }
+$BOT.callbackQuery("linkapp-cancel", async (ctx) => {
   const chat = ctx.chat;
   setState(chat?.id, null);
   try {
@@ -1334,12 +1313,8 @@ $BOT.on("callback_query:data", async (ctx, next) => {
   }
 });
 
-$BOT.on("callback_query:data", async (ctx, next) => {
+$BOT.callbackQuery(/^unlinkapp:/, async (ctx) => {
   const data = String(ctx.callbackQuery?.data || "");
-  if (!data.startsWith("unlinkapp:")) {
-    await next();
-    return;
-  }
   const idapp = data.slice("unlinkapp:".length);
   const chat = ctx.chat;
   if (!chat || !isGroupChat(chat)) return;
