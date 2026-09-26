@@ -10,6 +10,6 @@
   },
   "configuration": {
     "code": "Target database table name, as a plain string (e.g. \"users\"). Not a JSON object.",
-    "custom_data": "Database connection settings, stored directly as the object (not nested under a `config` key) or as an AppVar reference string like \"$_VAR_MAIN_DB\". `query_type` and `connection_override_allow` are also read from here. The request body must be an object with a `data` key holding the rows; the response is {\"inserted\": <count>}."
+    "custom_data": "Database connection settings, stored directly as the object (not nested under a `config` key) or as an AppVar reference string like \"$_VAR_MAIN_DB\". Also read from here: `query_type`, `connection_override_allow`, and `ignoreDuplicates` (skips rows whose key already exists; only the boolean true or the string \"true\" enables it, and only sqlite, postgres, mysql and mariadb implement it — on mssql it has no effect). The request body must be an object with a `data` key holding the rows, plus an optional `config` key for the runtime connection override; the response is {\"inserted\": <count>}."
   }
 }

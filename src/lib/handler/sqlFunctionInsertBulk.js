@@ -41,6 +41,15 @@ export const sqlFunctionInsertBulk = async (context) => {
       query_type = QueryTypes[paramsSQL.config.query_type];
     }
 
+    // ignoreDuplicates también venía de custom_data, pero la clave nunca se leía: se
+    // pasaba a bulkInsert() sin asignar, así que llegaba siempre como undefined y la opción
+    // no hacía nada. Ahora se lee, y solo un boolean explícito la activa: cualquier otro
+    // valor se trata como false, para que un `true` escrito como texto no se comporte
+    // de forma distinta a un true de verdad.
+    paramsSQL.ignoreDuplicates =
+      paramsSQL.config.ignoreDuplicates === true ||
+      paramsSQL.config.ignoreDuplicates === "true";
+
     // Solo POST tiene sentido para bulk insert
     if (request.method !== "POST") {
       sendHandlerError(reply, 405, "Only POST method is allowed for bulk insert");

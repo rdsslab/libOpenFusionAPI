@@ -124,12 +124,11 @@ Preferred shape:
   `POST`, `PUT` and `PATCH`.
 - `headers` adds request headers.
 - **The task method must be one of `GET`, `POST`, `PUT`, `PATCH`, `DELETE` or `QUERY`.** The HTTP
-  client the worker uses has no `head` or `options` verb, so a task pointing at a `HEAD` or
-  `OPTIONS` endpoint does not perform the request: the run is recorded as an error whose message is
-  `uF[task.method.toLowerCase()] is not a function`, and after the usual consecutive failures the
-  task is disabled. `endpoint_upsert` does allow a `HEAD` or `OPTIONS` endpoint to exist, so this
-  is only a problem when a task targets one — do not create such a task, and check the endpoint's
-  `method` before pointing a task at it.
+  client the worker uses implements no other verb. `endpoint_upsert` does allow a `HEAD` or
+  `OPTIONS` endpoint to exist, so a task can point at one; since 13.11.1 the worker rejects that
+  before the request instead of failing with `uF[task.method.toLowerCase()] is not a function`. The
+  run is still recorded as an error, and after the usual consecutive failures the task is disabled.
+  Check the endpoint's `method` before pointing a task at it.
 
 Legacy fallback: an object with **neither** a `data` nor a `headers` key is sent whole as `data`,
 which is the shape kept for tasks already configured that way. `{"headers": {...}}` on its own is

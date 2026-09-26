@@ -142,6 +142,24 @@ async function runAllTests() {
         args: ["js_return_status_test.js"],
       },
       {
+        // Puro: cubre las dos opciones que antes no tenian efecto.
+        // `ignoreDuplicates` se pasaba a bulkInsert() sin asignar nunca, asi que
+        // llegaba como undefined; y el worker llamaba a verbos que uFetch no
+        // implementa, con un TypeError que no decia qué estaba mal.
+        label: "bulk_insert_options_test.js",
+        command: "node",
+        args: ["bulk_insert_options_test.js"],
+      },
+      {
+        // Puro: la documentación MCP dice cosas que el código no cumple. Comprueba que
+        // el filtro idclient de audit_log_search llegue al where, que los links de
+        // agent_onboarding cuadren con su outputSchema, y que user_create y
+        // execute_endpoint_test no prometan lo que no hacen.
+        label: "mcp_docs_consistency_test.mjs",
+        command: "node",
+        args: ["mcp_docs_consistency_test.mjs"],
+      },
+      {
         // Levanta una VM real y un `reply` simulado para comprobar que el código
         // elegido acaba en reply.code() y que la caché captura ese mismo código.
         // No necesita servidor: la VM se compila en memoria.

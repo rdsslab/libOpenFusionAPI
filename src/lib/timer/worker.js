@@ -28,6 +28,14 @@ const fetchOFAPI = new URLAutoEnvironment({ environment: "no_env" });
 /** Tareas que este worker tiene en vuelo ahora mismo. */
 const running = new Set();
 
+/**
+ * Verbos que el cliente saliente implementa. Deliberadamente explícita: listar lo que
+ * este worker NO puede hacer es la información que evita que alguien configure una
+ * tarea que va a fallar en cada corrida. `endpoint_upsert` admite HEAD y OPTIONS, así
+ * que un endpoint con esos verbos puede existir y ser el destino de una tarea.
+ */
+const SUPPORTED_TASK_VERBS = ["get", "post", "put", "patch", "delete", "query"];
+
 /** Evita que un ciclo lento haga que se solapen los ticks del `setInterval`. */
 let tickInProgress = false;
 let tickTimer = null;
@@ -268,7 +276,28 @@ async function runFetchTask(task, runningState = {}) {
     const uF = fetchOFAPI.create(task.url, false);
     if (token) uF.setBearerAuthorization(token);
 
-    const resp_task = await uF[task.method.toLowerCase()]({
+    // El cliente saliente no implementa todos los verbos HTTP. `task.method` viene del
+    // endpoint, y `endpoint_upsert` admite HEAD y OPTIONS, así que una tarea puede
+    // apuntar a un endpoint cuyo verbo este cliente no tiene. Sin esta comprobación la
+    // llamada fallaría con `uF[task.method.toLowerCase()] is not a function`, un mensaje
+    // que no dice qué está mal ni qué verbos sí valen.
+    const verb = String(task.method).toLowerCase();
+    if (typeof uF[verb] !== "function") {
+      await finishTask(task, {
+        status: TASK_STATUS.ERROR,
+        result: {
+          error:
+            `Unsupported method ${task.method} for an interval task. ` +
+            `Supported: ${SUPPORTED_TASK_VERBS.join(", ")}.`,
+          access: task.access,
+        },
+        started_at,
+        error: `Unsupported method ${task.method} for an interval task`,
+      });
+      return;
+    }
+
+    const resp_task = await uF[verb]({
       data,
       headers,
       timeout,

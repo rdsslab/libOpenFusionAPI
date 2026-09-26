@@ -198,12 +198,98 @@ la vía rápida, sin cambiar el resultado.
 
 ## [13.11.1] - 2026-09-25
 
-Correcciones de documentación. **No cambia ningún comportamiento**: el código de esta versión es
-el mismo que en 13.11.0. El objetivo es que ninguna descripción diga una cosa y el código haga
-otra, porque un agente que lee la documentación y llama a la herramienta no tiene forma de saber
+Auditoría de la documentación que consume un agente —descripciones MCP, `AI_SKILL.md`,
+`manifest.json`, README— contrastada contra el código, más dos arreglos de comportamiento que la
+auditoría destapó. El motivo de fondo es que la documentación describía *el comportamiento que el
+handler had tenía*, y un agente que la lee y luego llama a la herramienta no tiene forma de saber
 cuál de las dos es la verdad.
 
 ### Fixed
+
+#### Dos opciones que se aceptaban y no hacían nada
+
+`ignoreDuplicates` en `SQL_BULK_I` se leía de `custom_data`, se pasaba a `bulkInsert()`... y nunca se
+asignaba. Llegaba siempre como `undefined`, así que la opción llevaba desde su introducción sin
+efecto. Ahora se lee y se normaliza: solo el booleano `true` o la cadena `"true"` la activan, para
+que un `true` escrito como texto no se comporte distinto a un `true` de verdad.
+
+Esto es un cambio de comportamiento deliberado: un endpoint que ya tuviera la clave puesta empieza a
+respetarla al actualizar, y un lote que antes fallaba por una clave duplicada ahora se inserta a
+medias. **No hay aviso en tiempo de ejecución**, porque no hay forma de saber si quien configuró la
+clave quería ese comportamiento o la puso esperando que hiciese algo.
+
+La opción tampoco es universal. Sequelize la traduce a lo que cada motor escribe, y solo cuatro de
+los cinco dialectos que documenta el proyecto lo implementan:
+
+| `options.dialect` | SQL emitida | ¿Funciona? |
+|---|---|---|
+| `sqlite` | `INSERT OR IGNORE` | sí |
+| `postgres` | `ON CONFLICT DO NOTHING` | sí |
+| `mysql` / `mariadb` | `INSERT IGNORE` | sí |
+| `mssql` | — | **no** |
+
+En `mssql` la opción sigue sin hacer nada, y una clave duplicada sigue tumbando el lote sin ningún
+error que lo diga. Si necesitas saltarte duplicados en SQL Server, filtra las filas antes de
+enviarlas. Queda documentado en la skill y en el manifest; no se ha añadido un aviso en runtime
+porque sería una función nueva y no una corrección.
+
+#### El worker de interval tasks fallaba con un `TypeError` en vez de un motivo
+
+`worker.js` despachaba la petición con `uF[task.method.toLowerCase()]`, y el cliente saliente
+implementa `GET`, `POST`, `PUT`, `PATCH`, `DELETE` y `QUERY`: no tiene `head` ni `options`. Como
+`endpoint_upsert` **sí** admite un endpoint `HEAD` o `OPTIONS`, una interval task podía apuntar a
+uno, y entonces cada corrida terminaba en `uF[task.method.toLowerCase()] is not a function` —un
+mensaje que no dice qué está mal ni qué verbos sí valen— y la acababa auto-deshabilitando.
+
+Ahora el verbo se comprueba antes de la llamada y el motivo enumera los válidos. La ejecución se
+sigue registrando como error y el auto-deshabilitado por fallos consecutivos no cambia: lo que
+cambia es que el motivo sea accionable.
+
+#### `audit_log_search`: el filtro `idclient` no filtraba
+
+El filtro venía documentado en la prosa y en el esquema, y `idclient` aparecía en el archivo
+—pero solo en la lista de `attributes`, que es la proyección. Nunca llegaba al `where`. Pedir
+"qué hizo el cliente API X" devolvía **todas** las filas, con la columna `idclient` a la vista,
+que es exactamente lo que hace que un filtro roto parezca funcionar. En una herramienta de
+auditoría de seguridad no es cosmético.
+
+Ahora el filtro se aplica. El test nuevo no se limita a comprobar esa línea: recorre todos los
+filtros que el esquema declara y exige que cada uno tenga su construcción en el `where`, con
+`from`/`to` por su camino propio (`dateFilter` sobre `where.timestamp`), para que el
+siguiente filtro decorativo falle en el test y no en producción.
+
+De paso, la prosa describía una lista plana cuando `getAuditLogs` devuelve un sobre
+`{ rows, total, offset, limit }`, y se saltaba el filtro `actor_kind`. Como el `out` schema
+está deshabilitado, nada más lo decía.
+
+#### `user_create`: el schema decía que sin password la cuenta no puede entrar
+
+`"If omitted, login is disabled"`. Es falso, y falso en la dirección peligrosa: `createUser`
+genera una contraseña aleatoria, la guarda **hasheada** y la devuelve una sola vez en
+`temporaryPassword`. La cuenta sí inicia sesión con ella. Un administrador que creara un
+usuario confiando en el schema dejaría una credencial activa, y además sería la primera vez que
+la ve.
+
+#### `execute_endpoint_test`: la prosa daba 10 minutos de default donde hay 5
+
+Decía `default 600000 ms / 10 minutes`, pero 600000 es el **máximo**: el default real es 300000
+(5 minutos), tanto en el esquema como en el código. No es cosmético en el caso que la propia
+descripción advierte: un test legítimo de `prd` que tarde entre 5 y 10 minutos se aborta a los
+5 con HTTP 504, con escrituras reales a medias y sin rollback, que es justo lo que esa prosa
+promete no dejar pasar.
+
+#### `agent_onboarding`: el `outputSchema` declaraba cinco enlaces que no llegaban
+
+Declaraba 18 claves en `links` y el código devolvía 13. Tres eran herramientas **reales y
+publicadas** que el onboarding simplemente se había olvidado enlazar (`endpoint_migrate`,
+`appvar_migrate`, `audit_log_search`); dos no existían en ninguna parte (`mcp_readme`,
+`mcp_skill`). Las tres primeras están enlazadas ya —lo que además convierte en cierta la promesa
+de la descripción sobre promover endpoints y appvars entre entornos, que hasta ahora no tenía
+respuesta—, y las dos inventadas se han quitado del esquema, porque un esquema que declara campos
+que nunca llegan hace que un cliente los espere para siempre.
+
+El test comprueba la coherencia en las dos direcciones: ninguna clave declarada sin devolver, y
+ninguna devuelta sin declarar.
 
 #### Las skills mandaban crear endpoints por herramientas que ya no existen
 
@@ -271,6 +357,12 @@ consulta a otro servidor o a otro archivo SQLite. Documentado en los tres handle
 - La lista de herramientas de descubrimiento del handler MCP omitía
   `validate_json_schema_for_mcp` y `get_endpoint_tool_docs`.
 - El manifest de NA decía que `code` no aplicaba, cuando NA degrada a TEXT y `code` es el payload.
+- La skill de FETCH listaba los headers hop-by-hop que se eliminan como "p. ej." y se quedaba
+  corto: también se quitan `origin` y `x-forwarded-for`, y lo que sí se preserva a propósito es
+  `ofapi-trace-id`. Y no decía que el verbo tiene que ser uno de los que el cliente implementa:
+  cualquier otro —`HEAD` y `OPTIONS` incluidos, que `endpoint_upsert` sí deja crear— recibía un
+  `405` en cada llamada.
+- HANA no documentaba que `sslValidateCertificate` viene por defecto en `false`.
 
 #### La documentación de H5 y H10 estaba en herramientas que nadie puede leer
 

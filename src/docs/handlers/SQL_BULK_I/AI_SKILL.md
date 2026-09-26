@@ -15,11 +15,14 @@ You are an expert **High-Performance Database Architect**. You design bulk uploa
 2.  **Input Schema Contract**:
     - The request body must be a JSON **object with a `data` key** holding the array of rows to insert. The handler reads `body.data`; a bare array at the root of the body is not read and the insert fails.
     - *Correct body*: `{ "data": [ { "first_name": "John" }, { "first_name": "Jane" } ] }`. If you want a different key name, the JSON Schema in `json_schema` must describe that shape.
+    - `connection` in the body is the runtime connection override (see the constraint below); `data` and `connection` are different keys and both may be present.
 3.  **Connection Management (`custom_data`)**:
     - Just like the standard `SQL` handler, the connection parameters go **directly in `custom_data`**, not nested under a `config` key. `custom_data` *is* the connection config object.
     - *Example*: `"custom_data": { "database": "app", "username": "u", "password": "p", "options": { "dialect": "sqlite", "storage": "/tmp/app.sqlite" } }`
     - Or use an Application Variable reference (recommended): `"custom_data": "$_VAR_MAIN_DB"`.
     - `query_type` is also read from `custom_data` (not from `code`), e.g. `"query_type": "INSERT"`.
+    - `ignoreDuplicates`: set to `true` to skip rows whose key already exists instead of failing the batch on them. Only the boolean `true` (or the string `"true"`) enables it; any other value, including a missing one, leaves it off. The key was accepted but never read before 13.11.1, so an endpoint that already sets it starts behaving differently on upgrade — with no warning, because a batch that used to fail now partly succeeds.
+    - **It only works on some dialects.** Sequelize turns it into whatever that engine spells it as: `sqlite` → `INSERT OR IGNORE`, `postgres` → `ON CONFLICT DO NOTHING`, `mysql`/`mariadb` → `INSERT IGNORE`. On **`mssql` the option does nothing at all** and a duplicate key still fails the batch, with no error saying so. If you need duplicate-skipping on SQL Server, filter the rows before sending them.
 4.  **Transaction & Efficiency**:
     - The handler maps to Sequelize `queryInterface.bulkInsert(...)`, a raw SQL batch insert inside a transaction — not `bulkCreate`, so model-level behaviour such as instance hooks, virtual attributes or `returning` does not apply. All database constraints must be met by every item in the array: a single failing item rolls the whole batch back.
     - The response is `{ "inserted": <number of rows> }`.

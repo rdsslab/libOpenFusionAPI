@@ -149,6 +149,7 @@ export const getAuditLogs = async (filters = {}) => {
 
   const where = {};
   if (filters.actor_kind) where.actor_kind = filters.actor_kind;
+  if (filters.idclient) where.idclient = filters.idclient;
   if (filters.actor_username) {
     where.actor_username = { [Op.eq]: filters.actor_username };
   }
