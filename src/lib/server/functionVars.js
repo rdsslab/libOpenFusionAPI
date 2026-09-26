@@ -1413,11 +1413,11 @@ $_EXCEPTION_({
 
 // tell the caller what to fix, keeping the sensitive context private
 $_EXCEPTION_({
-  message: "El correo del colaborador no es válido.",
+  message: "The employee's email address is not valid.",
   statusCode: 422,
   data: {
     log: { body: request.body },
-    public: { campo: "Correo", valor: "davi88-@hotmail.com" },
+    public: { field: "Email", value: "davi88-@hotmail.com" },
   },
 });
 
@@ -2447,7 +2447,7 @@ const body = request.body || {};
 // }
 
 if (!body.provider?.model) {
-  // El body puede llevar claves de API: va en data.log, que nunca sale al cliente.
+  // The body may carry API keys: it goes in data.log, which never reaches the client.
   $_EXCEPTION_({
     message: 'The request body must include provider.model.',
     statusCode: 400,

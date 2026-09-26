@@ -1,29 +1,29 @@
 <!--
-  NÚCLEO COMÚN DEL SKILL DE JAVASCRIPT — mantenedores, leer antes de editar.
+  COMMON CORE OF THE JAVASCRIPT SKILL — maintainers, read before editing.
 
-  Este archivo NO se sirve por sí solo: se inserta en otros AI_SKILL.md mediante
-  un marcador de include que expande `expandDocIncludes`
-  (src/lib/server/docsInclude.js) al leer el markdown. Consumidores actuales:
+  This file is NOT served on its own: it is inserted into other AI_SKILL.md files
+  through an include marker that `expandDocIncludes`
+  (src/lib/server/docsInclude.js) expands when the markdown is read. Current consumers:
 
-    - endpoints con handler JS  -> src/docs/handlers/JS/AI_SKILL.md
-    - bloques JS de MONGODB     -> src/docs/handlers/MONGODB/AI_SKILL.md
-    - código de bots            -> src/docs/bots/AI_SKILL.md
+    - endpoints with the JS handler  -> src/docs/handlers/JS/AI_SKILL.md
+    - MONGODB JS blocks              -> src/docs/handlers/MONGODB/AI_SKILL.md
+    - bot code                      -> src/docs/bots/AI_SKILL.md
 
-  Aquí va SOLO lo válido para cualquier código JavaScript ejecutado en el sandbox
-  `node:vm`, sin importar quién lo invoca. Todo lo que dependa del contexto de
-  invocación (contrato de respuesta HTTP, request/reply, ciclo de vida del bot,
-  evaluación síncrona o asíncrona del código, forma del payload de creación) va en
-  el archivo que hace el include.
+  Only what is valid for ANY JavaScript code executed in the `node:vm` sandbox
+  belongs here, regardless of who invokes it. Anything that depends on the invocation
+  context (HTTP response contract, request/reply, bot lifecycle, synchronous vs.
+  asynchronous code evaluation, shape of the creation payload) belongs in the file
+  that performs the include.
 
-  Concreto: el antiguo punto 5 ("Synchronous Evaluation") de este núcleo afirmaba
-  que el `await` de nivel superior no está disponible. Eso era FALSO en 2 de los 3
-  contextos que lo incluían, y lo era porque el enunciado es en sí dependiente del
-  contexto: el runtime evalúa el código de un endpoint envolviéndolo en una función
-  `async` (createFunctionVM.js), mientras que el de un bot lo evalúa con
-  `script.runInContext()` de forma síncrona. La regla correcta está hoy, para cada
-  caso, en el archivo que consume este núcleo. No la reintroduzcas aquí.
+  Concretely: the former section 5 ("Synchronous Evaluation") of this core stated
+  that top-level `await` is unavailable. That was FALSE in 2 of the 3 contexts that
+  include it, and it was false because the statement is itself context-dependent:
+  the runtime evaluates endpoint code by wrapping it in an `async` function
+  (createFunctionVM.js), whereas the bot runtime evaluates it synchronously with
+  `script.runInContext()`. The correct rule now lives, for each case, in the file
+  that consumes this core. Do not reintroduce it here.
 
-  Usa encabezados de nivel 2 (##) para que anide bajo el título del anfitrión.
+  Use level 2 headings (##) so this nests under the host document's title.
 -->
 
 ## Engineering Baseline

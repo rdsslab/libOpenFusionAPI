@@ -12,7 +12,7 @@ Never call `new grammy.Bot(...)` and never call `$BOT.start()`; the runtime star
 
 ```javascript
 $BOT.command("start", async (ctx) => {
-  await ctx.reply("Bot activo desde OpenFusionAPI");
+  await ctx.reply("Bot active since OpenFusionAPI");
 });
 ```
 
@@ -20,11 +20,11 @@ $BOT.command("start", async (ctx) => {
 
 ```javascript
 $BOT.command("start", async (ctx) => {
-  await ctx.reply("Envíame cualquier texto y te lo repito.");
+  await ctx.reply("Send me any text and I will repeat it.");
 });
 
 $BOT.on("message:text", async (ctx) => {
-  await ctx.reply(`Recibido: ${ctx.message.text}`);
+  await ctx.reply(`Received: ${ctx.message.text}`);
 });
 ```
 
@@ -35,24 +35,24 @@ Use it as a smoke test: it confirms the token resolved, the worker started, and 
 ```javascript
 $BOT.command("start", async (ctx) => {
   const keyboard = new grammy.InlineKeyboard()
-    .text("Aceptar", "accept")
-    .text("Cancelar", "cancel");
+    .text("Accept", "accept")
+    .text("Cancel", "cancel");
 
-  await ctx.reply("¿Deseas continuar?", { reply_markup: keyboard });
+  await ctx.reply("Do you want to continue?", { reply_markup: keyboard });
 });
 
 $BOT.on("callback_query:data", async (ctx) => {
   const action = ctx.callbackQuery.data;
 
   if (action === "accept") {
-    await ctx.answerCallbackQuery({ text: "Aceptado" });
-    await ctx.editMessageText("Operación confirmada");
+    await ctx.answerCallbackQuery({ text: "Accepted" });
+    await ctx.editMessageText("Operation confirmed");
     return;
   }
 
   if (action === "cancel") {
-    await ctx.answerCallbackQuery({ text: "Cancelado" });
-    await ctx.editMessageText("Operación cancelada");
+    await ctx.answerCallbackQuery({ text: "Cancelled" });
+    await ctx.editMessageText("Operation cancelled");
   }
 });
 ```

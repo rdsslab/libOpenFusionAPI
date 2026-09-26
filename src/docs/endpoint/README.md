@@ -116,7 +116,7 @@ Here you can set the tool name, title, and description — providing AI systems 
 
 ---
 
-## Migración entre ambientes (copy/promote)
+## Migrating between environments (copy/promote)
 
 If you need to **copy, promote, duplicate, port, or move** an existing endpoint to another environment
 (`dev`, `qa`, `prd`), use the dedicated MCP tools instead of recreating it with `endpoint_upsert`:

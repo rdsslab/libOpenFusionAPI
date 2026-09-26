@@ -21,7 +21,7 @@ flowchart TD
     NA -- "yes" --> REMAP["Remap to TEXT<br/>endpoint.handler = 'TEXT'"]
     REMAP --> VALID
     NA -- "no" --> VALID{"handler && handler.fn present?"}
-    VALID -- "no" --> BAD["404 { error: Handler '<name>' no es valido }"]
+    VALID -- "no" --> BAD["404 { error: Handler '<name>' no es válido }"]
     VALID -- "yes" --> DISP["await handler.fn({ request, reply, endpoint, server_data })"]
     DISP --> OUT["Response through sendHandlerResponse"]
     DISP -- "throws" --> ERR["replyException → 500"]

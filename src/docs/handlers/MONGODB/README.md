@@ -20,7 +20,7 @@ When an endpoint is configured with the **MONGODB** handler:
 <details>
 <summary>⚙️ Endpoint Configuration</summary>
 
-La configuración del handler se puede estructurar de varias formas en el objeto de conexión (`config`/`custom_data`/`mongo_config`):
+The handler configuration can be structured in several ways inside the connection object (`config`/`custom_data`/`mongo_config`):
 
 1. **Usando una URI directa (Recomendado para MongoDB Atlas)**:
 ```json
@@ -34,7 +34,7 @@ La configuración del handler se puede estructurar de varias formas en el objeto
   "code": " ... javascript logic ... "
 }
 ```
-O directamente como una cadena si solo se requiere la URI de conexión.
+Or directly as a string if only the connection URI is required.
 
 2. **Estructura por partes (Legacy)**:
 ```json

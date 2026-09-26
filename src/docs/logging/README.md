@@ -1,17 +1,17 @@
-# Endpoint Logging — Configuración de verborrea por status
+# Endpoint Logging — Per-status verbosity configuration
 
-> **READ ME FIRST**: este documento define el contrato completo de `endpoint.ctrl.log`
-> (la parametrización de cuándo y cuánto se registra por clase de status). Es la
-> fuente de verdad que usan `EndpointLogger` (runtime), `endpoint_upsert` (escritura)
-> y las tools de lectura (`read_endpoint_data`, `app_endpoints`) para decidir cuánto
-> capturar por respuesta HTTP.
+> **READ ME FIRST**: this document defines the complete contract of `endpoint.ctrl.log`
+> (the parameterization of when and how much is logged per status class). It is the
+> source of truth used by `EndpointLogger` (runtime), `endpoint_upsert` (writes)
+> and the read tools (`read_endpoint_data`, `app_endpoints`) to decide how much
+> to capture per HTTP response.
 
 ---
 
-## 1. Dónde se guarda
+## 1. Where it is stored
 
-Cada endpoint persiste un objeto JSON en la columna `ctrl` del modelo `Endpoint`.
-Dentro llevas la sub-clave de logging:
+Every endpoint persists a JSON object in the `ctrl` column of the `Endpoint` model.
+Inside it you keep the logging sub-key:
 
 ```json
 "ctrl": {
@@ -25,70 +25,70 @@ Dentro llevas la sub-clave de logging:
 }
 ```
 
-Solo se admiten **estas cinco claves**. Cualquier otra clave (o un `log` que no sea
-un objeto, o un valor fuera de rango) se rechaza al guardar con el error
-`INVALID_LOG_LEVEL` (HTTP 400) y `details` describiendo el campo conflictivo.
+Only **these five keys** are accepted. Any other key (or a `log` that is not an
+object, or a value out of range) is rejected on save with the
+`INVALID_LOG_LEVEL` error (HTTP 400) and `details` describing the offending field.
 
 ---
 
-## 2. Semántica de los niveles
+## 2. Level semantics
 
-| Valor | Significado | Qué se captura (Endloggger) |
-|-------|-------------|------------------------------|
-| 0 | Disabled | No se registra nada para esa clase de status. |
-| 1 | Basic    | Datos mínimos: timestamp, status, ids, tiempo de respuesta. |
-| 2 | Normal   | Añade params/query/body que llegaron en la petición. |
-| 3 | Full     | Añade headers completos y datos sensibles de la respuesta. |
+| Value | Name      | What is captured (EndpointLogger)                    |
+|-------|-----------|------------------------------------------------------|
+| 0 | Disabled | Nothing is logged for that status class.             |
+| 1 | Basic    | Minimum data: timestamp, status, ids, response time. |
+| 2 | Normal   | Adds the params/query/body that arrived in the request. |
+| 3 | Full     | Adds full headers and sensitive response data.       |
 
-Los niveles son **por clase de status** (cada clave mapea a un rango de códigos):
+Levels are **per status class** (each key maps to a range of codes):
 
-| Clave               | Rango HTTP |
+| Key                 | HTTP range |
 |---------------------|------------|
 | `status_info`       | 1xx        |
 | `status_success`    | 2xx        |
 | `status_redirect`   | 3xx        |
-| `status_client_error`| 4xx       |
-| `status_server_error`| 5xx       |
+| `status_client_error`| 4xx        |
+| `status_server_error`| 5xx        |
 
 ---
 
 ## 3. Defaults
 
-Cuando una clave (o todo `log`) se omite:
+When a key (or the whole `log`) is omitted:
 
-| Clave                | Default |
-|----------------------|---------|
-| `status_info`        | 1       |
-| `status_success`     | 1       |
-| `status_redirect`    | 1       |
+| Key                 | Default |
+|---------------------|---------|
+| `status_info`       | 1       |
+| `status_success`    | 1       |
+| `status_redirect`   | 1       |
 | `status_client_error`| 2       |
 | `status_server_error`| 3       |
 
-En un INSERT se usa el default. En un UPDATE solo se modifican las claves enviadas;
-el resto conserva su valor almacenado.
+On an INSERT the default is used. On an UPDATE only the submitted keys are changed;
+the rest keep their stored value.
 
 ---
 
-## 4. Cómo lo lee el runtime
+## 4. How the runtime reads it
 
-`EndpointLogger` (src/lib/server/endpoint/EndpointLogger.js) en cada respuesta:
-1. Lee `endpoint.ctrl.log` (vía la columna persistida `ctrl`).
-2. Determina la clase de status con `getLogLevelForStatus(status)` (utils.js).
-3. Aplica el nivel y genera el log (con `$_RETURN_DATA_` truncado según nivel).
+`EndpointLogger` (src/lib/server/endpoint/EndpointLogger.js) on every response:
+1. Reads `endpoint.ctrl.log` (via the persisted `ctrl` column).
+2. Determines the status class with `getLogLevelForStatus(status)` (utils.js).
+3. Applies the level and generates the log (with `$_RETURN_DATA_` truncated according to the level).
 
-Si `ctrl.log` no está, se aplican los defaults (apartado 3).
+If `ctrl.log` is absent, the defaults apply (section 3).
 
 ---
 
-## 5. Cómo lo modificas desde MCP
+## 5. How you change it from MCP
 
-La tool `endpoint_upsert` acepta `ctrl.log`. Ejemplo — subir solo `status_server_error`
-a nivel Pleno (3) sin tocar el resto:
+The `endpoint_upsert` tool accepts `ctrl.log`. Example — raising only
+`status_server_error` to Full (3) without touching anything else:
 
 ```json
 {
   "idapp": "<idapp>",
-  "resource": "mis-recursos",
+  "resource": "my-resources",
   "method": "GET",
   "handler": "TEXT",
   "ctrl": {
@@ -97,22 +97,22 @@ a nivel Pleno (3) sin tocar el resto:
 }
 ```
 
-En un UPDATE, omite las claves que no quieras cambiar. En un INSERT, las que omitas
-cogen el default del apartado 3.
+On an UPDATE, omit the keys you do not want to change. On an INSERT, the ones you
+omit get the default from section 3.
 
 ---
 
-## 6. Contrato de error
+## 6. Error contract
 
-Si envías `ctrl.log` inválido (clave desconocida, valor no entero, o fuera de 0-3),
-`upsertEndpoint` lanza un error con `code = "INVALID_LOG_LEVEL"` y `details` con la
-clave y el valor conflictivos. `fnEndpointUpsert` lo devuelve como HTTP 400 para que
-los agentes puedan detectarlo y corregirlo sin un 500 genérico.
+If you send an invalid `ctrl.log` (unknown key, non-integer value, or outside 0-3),
+`upsertEndpoint` throws an error with `code = "INVALID_LOG_LEVEL"` and `details`
+naming the offending key and value. `fnEndpointUpsert` returns it as HTTP 400 so
+agents can detect and correct it without a generic 500.
 
 ---
 
-## Ver también
+## See also
 
-- `src/lib/db/endpoint.js` — validación `validateLogLevelControl`.
-- `src/docs/logging/AI_SKILL.md` — versión condensada para agentes.
-- `src/docs/handlers/JS/README.md` — parámetro `log_level` por petición.
+- `src/lib/db/endpoint.js` — `validateLogLevelControl` validation.
+- `src/docs/logging/AI_SKILL.md` — condensed version for agents.
+- `src/docs/handlers/JS/README.md` — per-request `log_level` parameter.

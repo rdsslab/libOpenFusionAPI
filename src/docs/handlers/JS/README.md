@@ -29,22 +29,22 @@ You have access to a context object (implied) with helper functions injected via
 
 ## Log Level (log_level)
 
-Muchos endpoints y herramientas MCP permiten configurar el nivel de log para cada petición. Los valores posibles y su significado son:
+Many endpoints and MCP tools allow configuring the log level per request. The possible values and their meaning are:
 
-| Valor     | Nombre     | Descripción                                                                 |
+| Value     | Name       | Description                                                                 |
 |-----------|------------|-----------------------------------------------------------------------------|
-| 0         | Disabled   | No se guarda ningún log para la petición.                                    |
-| 1         | Basic      | Solo los campos mínimos (timestamp, método, status, ids, etc.).              |
-| 2         | Normal     | Incluye parámetros, query, body, user agent, etc.                            |
-| 3         | Full       | Incluye todo lo anterior más headers completos y respuesta serializada.       |
+| 0         | Disabled   | No log is stored for the request.                                          |
+| 1         | Basic      | Only the minimum fields (timestamp, method, status, ids, etc.).              |
+| 2         | Normal     | Includes parameters, query, body, user agent, etc.                           |
+| 3         | Full       | Includes everything above plus full headers and the serialized response.     |
 
-**Uso recomendado:**
-- Usa `Basic` para monitoreo ligero.
-- Usa `Normal` para depuración estándar.
-- Usa `Full` solo para auditoría o troubleshooting profundo (puede incluir datos sensibles o grandes).
-- Usa `Disabled` para endpoints donde no se requiere ningún registro.
+**Recommended use:**
+- Use `Basic` for lightweight monitoring.
+- Use `Normal` for standard debugging.
+- Use `Full` only for auditing or deep troubleshooting (it may include sensitive or large data).
+- Use `Disabled` for endpoints where no record is required.
 
-En los schemas y herramientas MCP, el campo `log_level` acepta estos valores (0-3) y puede aparecer como `integer` o como selector textual en UIs.
+In schemas and MCP tools, the `log_level` field accepts these values (0-3) and may appear as an `integer` or as a textual selector in UIs.
 -   `request.query` — Query string parameters for GET endpoints (object).
 -   `request.body` — Parsed JSON body for POST endpoints; also used for multipart form-data fields.
 -   `request.headers` — Incoming HTTP headers.
@@ -290,7 +290,7 @@ const body = request.body || {};
 const prompts = body.prompts ?? body.prompt ?? body.messages;
 
 if (!prompts) {
-  // `data.log` queda solo en el log; `data.public` es lo único que ve quien llama.
+  // `data.log` stays in the log only; `data.public` is all the caller ever sees.
   $_EXCEPTION_({
     message: "The request body must include prompts, prompt, or messages.",
     statusCode: 400,
@@ -302,7 +302,7 @@ const ai = $_APP_VARS_["$_VAR_AI_DEFAULTS"];
 const mcpServers = $_APP_VARS_["$_VAR_MCP_SERVERS_DEFAULT"] ?? [];
 
 if (!ai || typeof ai !== "object") {
-  // Las variables de aplicación llevan credenciales: jamás en `public`.
+  // Application variables carry credentials: never put them in `public`.
   $_EXCEPTION_({
     message: "Application variable $_VAR_AI_DEFAULTS is required and must be an object.",
     statusCode: 500,

@@ -153,11 +153,11 @@ $BOT.command("start", async (ctx) => {
 
 ```javascript
 $BOT.command("start", async (ctx) => {
-  await ctx.reply("Envíame cualquier texto y te lo repito.");
+  await ctx.reply("Send me any text and I will repeat it.");
 });
 
 $BOT.on("message:text", async (ctx) => {
-  await ctx.reply(`Recibido: ${ctx.message.text}`);
+  await ctx.reply(`Received: ${ctx.message.text}`);
 });
 ```
 
@@ -173,15 +173,15 @@ const isAuthorized = (ctx) =>
 
 $BOT.command("start", async (ctx) => {
   if (!isAuthorized(ctx)) {
-    await ctx.reply("No autorizado");
+    await ctx.reply("Not authorized");
     return;
   }
 
   const keyboard = new grammy.InlineKeyboard()
-    .text("Ver estado", "status")
-    .text("Cancelar", "cancel");
+    .text("View status", "status")
+    .text("Cancel", "cancel");
 
-  await ctx.reply("¿Qué deseas hacer?", { reply_markup: keyboard });
+  await ctx.reply("What do you want to do?", { reply_markup: keyboard });
 });
 
 // Pattern filters: grammY matches the data and skips the other handler
