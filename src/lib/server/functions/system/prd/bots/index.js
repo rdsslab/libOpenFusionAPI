@@ -1,6 +1,7 @@
 import {
   getBotCatalog,
   getBotById,
+  getBotListingById,
   upsertBot,
   deleteBot,
   enableBot,
@@ -38,8 +39,17 @@ export async function fnListBots(params) {
     const query = params.request.query || {};
 
     // If idbot is provided, return a single bot (GET /bots?idbot=...).
+    //
+    // El camino por idbot usa la MISMA proyección que el catálogo, para que `token` y `code`
+    // sigan siendo cosa que hay que pedir explícitamente. Antes llamaba a `getBotById`, que
+    // hace `findByPk` sin restringir atributos y por tanto devolvía la fila completa: el
+    // mismo endpoint entregaba la credencial del bot en el detalle y la ocultaba en la lista.
     if (query.idbot) {
-      const bot = await getBotById(query.idbot);
+      const wants = (v) => v === "true" || v === true;
+      const bot = await getBotListingById(query.idbot, {
+        include_code: wants(query.include_code),
+        include_token: wants(query.include_token),
+      });
       if (!bot) {
         r.code = 404;
         r.data = { success: false, error: "Bot not found" };

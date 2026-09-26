@@ -442,6 +442,86 @@ Daba por bueno un manifest que afirmaba que `custom_data` no se usaba cuando sí
 herramientas, para que la regla de referencias cruzadas pueda seguir señalando nombres de
 herramienta que de verdad no existen.
 
+
+#### `list_bots` entregaba el token en el detalle y lo ocultaba en la lista
+
+`getBotCatalog` construye su proyección a mano y deja `token` y `code` fuera salvo que se pidan
+con `include_token` / `include_code`. El camino por `idbot` no pasaba por ahí: llamaba a
+`getBotById`, que hace `findByPk` **sin restringir atributos**, y Sequelize devuelve entonces la
+fila entera. El mismo endpoint entregaba la credencial del bot en el detalle y la ocultaba en la
+lista —el orden natural de error, porque el detalle parece justo el sitio donde menos habría que
+mirar.
+
+Ambos caminos ahora usan la misma función, `botListingAttributes()`. No basta con copiar la lista
+en los dos sitios: con dos listas propias, el día que se añada una columna sensible a una, la otra
+se queda atrás sin que nada avise, que es el defecto que se está corrigiendo.
+
+`getBotById` **no** se toca, a propósito: `upsertBot` lo usa para leer el token y el código
+previos y preservarlos, y para eso necesita la fila completa. Un arreglo que hubiera recortado
+también ese camino habría roto el upsert.
+
+#### `search_code` filtraba por código sin devolver el código
+
+Con `search_code: true` la búsqueda metía `code` en las condiciones del `WHERE` y la proyección
+no incluía esa columna. La opción se podía activar, cambiaba el conjunto de resultados, y la
+respuesta no daba la evidencia de por qué: el agente recibía un `idendpoint` y tenía que abrir
+los resultados uno a uno para reconstruir su propia búsqueda.
+
+Ahora `code` entra en la proyección **cuando se pide**, no siempre. Sigue fuera por defecto
+porque es la columna más pesada de la fila, que es el mismo motivo por el que `mcp` está
+excluido: meterla siempre convertiría cada búsqueda de keywords en una descarga de fuentes de
+código.
+
+#### Un lote de descripciones que no coincidían con el código
+
+Ocho herramientas describían algo que el código no hacía. Aquí lo distinto es **qué** se corrigió:
+casi todo se arregla en la documentación y no en el código, porque lo que falla es la promesa y no
+el comportamiento, y cambiar el comportamiento habría roto a quien ya depende de él. Donde el
+agenteTomaría una decisión de seguridad a partir de lo que dice la herramienta, el aviso es
+protagonista, no una nota al pie.
+
+- `list_api_keys` devuelve el `token` de cada clave en claro —la función no restringe la
+  proyección— y no lo decía. Ahora lo marca como sensible y recomienda filtrar por `idapp` o
+  `idclient` en lugar de por `token`.
+- `get_app_list_filters` devuelve cada aplicación **entera**, `jwt_key` incluida, y además
+  expande los valores de todas sus AppVars, donde guardan cadenas de conexión. Es la única tool de
+  descubrimiento que reparte claves de firma; `apps_list` ya lo avisaba y esta era la excepción
+  silenciosa.
+- `user_update` y `apiclient_update` guardan la contraseña hasheada pero **sin aplicar la
+  política**, que sí se exige al crear. La asimetría no se corrige en el código —sería un cambio de
+  comportamiento en herramientas de escritura— sino que se documenta, con la recomendación de
+  validar uno mismo antes de llamar.
+- `execute_endpoint_test` ofrecía `HEAD` como inocuo, pero `HEAD` no estaba en su `enum`: un
+  agente podía leer "es seguro" y no encontrar por dónde pedirlo. Y callaba `QUERY`, que sí está y
+  sí lo es. La prosa enumera ahora exactamente los métodos del enum.
+- `upsert_interval_task`: el `timezone` se valida solo con `schedule_mode: 'cron'`, que es el
+  único modo donde se lee. La descripción decía "rejected at save" sin más, y en modo `interval`
+  un nombre IANA inválido se guarda callado.
+- `system_health_stats`: la fuente de métricas puede no existir (`system` vuelve `null`) y el
+  escaneo se topa en 5000 filas, de modo que los percentiles describen las últimas 5000 y no todo
+  el histórico.
+- `describe_all_tables`: el esquema declara un solo campo obligatorio (`connection`) y el código
+  pide cinco fuera de `sqlite` —`database`, `dialect`, `username`, `password`, `host`—, así
+  que enviar solo lo que el esquema dice es un fallo de validación.
+- `audit_log_search` devuelve un **sobre** (`rows`, `total`, `limit`, `offset`), no una lista.
+  Contar `rows.length` y `total` da dos números distintos y no es evidente cuál es cuál.
+- `endpoint_delete` no declaraba `out`: ahora dice que devuelve `success`, `deleted` e
+  `idendpoint`.
+
+#### Dos hallazgos que se descartaron por no sostenerse
+
+Se verificó cada uno contra el código antes de tocar nada, y dos no eran defectos. Se dejan
+constancia porque "descartado" también es un resultado, y porque la próxima auditoría los va a
+volver a encontrar:
+
+- `apiclient_login` sin propiedades en su esquema de entrada. No es un defecto: la tool lee las
+  credenciales de la cabecera `Authorization: Basic` (`auth_data?.Basic?.username`, línea 164 del
+  handler), no del body. Un esquema de entrada vacío es exactamente lo que corresponde, y la
+  descripción ya lo dice.
+- `trace_summary` contando los 3xx como errores. No los cuenta: `getTraceSummary` los mete en su
+  propia familia, y el `sc >= 300` que lo delata es el intervalo del bucket del 3xx
+  (`sc >= 300 && sc <= 399`), junto a un 2xx y sendos más.
+
 ---
 
 ## Referencia

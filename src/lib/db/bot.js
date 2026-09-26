@@ -112,6 +112,72 @@ export const getBotById = async (idbot) => {
 };
 
 /**
+ * Atributos que un listing de bots devuelve. `token` y `code` quedan fuera salvo que se pidan
+ * explícitamente.
+ *
+ * Vive en su propia función, y no en línea dentro de getBotCatalog, porque hay DOS caminos que
+ * devuelven bots a un agente: el catálogo y la consulta por `idbot`. Antes cada uno tenía su
+ * propia lista, y la del `idbot` no tenía lista: `findByPk` sin `attributes` devuelve la fila
+ * entera, token incluido. El mismo endpointrespondía con la credencial o sin ella según si le
+ * pasaras un `idbot`. Al compartir la función, los dos caminos quedan atados por construcción y
+ * añadir una columna obliga a decidir en un solo sitio si es sensible.
+ *
+ * @param {boolean} [include_code=false]
+ * @param {boolean} [include_token=false]
+ * @returns {string[]}
+ */
+export const botListingAttributes = (include_code = false, include_token = false) => {
+  const attributes = [
+    "idbot",
+    "idapp",
+    "name",
+    "provider",
+    "description",
+    "enabled",
+    "environment",
+    "params",
+    // Estado observado del runtime: sin esto el operador solo ve que el bot no está
+    // corriendo, no por qué ni cuándo se vuelve a intentar.
+    ...BOT_RUNTIME_ATTRIBUTES,
+    "createdAt",
+    "updatedAt",
+  ];
+
+  if (include_token) attributes.push("token");
+  if (include_code) attributes.push("code");
+
+  return attributes;
+};
+
+/**
+ * Obtiene un bot por id con la MISMA proyección que el catálogo.
+ *
+ * Es el camino que usa `GET /bots?idbot=...`. Devolver la fila entera desde aquí filtraba el
+ * `token` en todas las respuestas de listado y lo dejaba pasar en las de detalle, que es
+ * peor: el detalle parece el sitio donde menos habría que mirar.
+ *
+ * @param {string} idbot
+ * @param {Object} [options]
+ * @param {boolean} [options.include_code=false]
+ * @param {boolean} [options.include_token=false]
+ * @returns {Promise<object|null>}
+ */
+export const getBotListingById = async (idbot, options = {}) => {
+  const { include_code = false, include_token = false } = options;
+  if (!idbot) return null;
+  try {
+    const bot = await Bot.findByPk(idbot, {
+      attributes: botListingAttributes(include_code, include_token),
+    });
+    if (!bot) return null;
+    return bot.toJSON ? bot.toJSON() : bot;
+  } catch (error) {
+    console.error("[bot.js] Error in getBotListingById:", error);
+    throw error;
+  }
+};
+
+/**
  * Obtiene el catálogo de bots con filtros opcionales.
  * NO incluye el token ni el código por defecto (seguridad).
  *
@@ -150,24 +216,7 @@ export const getBotCatalog = async (filters = {}) => {
       where.enabled = enabled;
     }
 
-    const attributes = [
-      "idbot",
-      "idapp",
-      "name",
-      "provider",
-      "description",
-      "enabled",
-      "environment",
-      "params",
-      // Estado observado del runtime: sin esto el operador solo ve que el bot no está
-      // corriendo, no por qué ni cuándo se vuelve a intentar.
-      ...BOT_RUNTIME_ATTRIBUTES,
-      "createdAt",
-      "updatedAt",
-    ];
-
-    if (include_token) attributes.push("token");
-    if (include_code) attributes.push("code");
+    const attributes = botListingAttributes(include_code, include_token);
 
     const parsedLimit = Number(limit);
     const parsedOffset = Number(offset);

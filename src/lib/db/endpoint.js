@@ -647,6 +647,16 @@ export const searchEndpoints = async (filters = {}) => {
     attributes.push("mcp");
   }
 
+  // Mismo criterio que `mcp`: `code` es la columna más pesada de la fila, así que fuera por
+  // defecto. Pero si quien busca ha pedido `search_code: true`, la búsqueda ya ha usado esa
+  // columna para decidir qué filas devolver, y no devolverla dejaba la respuesta sin poder
+  // decir QUÉ casó. Era una opción que se podía activar, cambiar el conjunto de resultados, y
+  // seguir sin dar la evidencia de por qué: el agente recibía un idendpoint y debía abrirlo
+  // uno por uno para reconstruir su propia búsqueda.
+  if (search_code === true) {
+    attributes.push("code");
+  }
+
   try {
     return await Endpoint.findAll({
       where,

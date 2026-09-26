@@ -28,6 +28,31 @@
  *      fijo, y el fallo del envío tumbaba la llamada después de crear la fila. El esquema
  *      además decía que `username` toma "the email prefix", cuando el hook asigna el email
  *      entero.
+ *
+ * Y en la tercera ronda, un lote de contradicciones menores que se corrigieron en la
+ * DOCUMENTACIÓN, no en el código, porque en casi todos casos lo que falla es la promesa y no
+ * el comportamiento. Corregir el código habría roto a quien ya depende de él; corregir la
+ * descripción no. La excepción son B3 y M6, que eran agujeros de seguridad y van en
+ * listing_projection_test.js.
+ *
+ *   M13 `list_api_keys` devuelve el token de cada clave en claro y no lo decía.
+ *   B7   `get_app_list_filters` devuelve `jwt_key` y todos los valores de AppVar, sin aviso,
+ *        siendo la única tool de descubrimiento que reparte claves de firma.
+ *   M8   La política de contraseñas se exige al crear y no al actualizar.
+ *   B10  `execute_endpoint_test` nombraba HEAD como método seguro, pero HEAD no está en su
+ *        enum; y callaba QUERY, que sí lo está y sí lo es.
+ *   M7   El timezone solo se valida en modo cron, pero la descripción decía "rejected at save".
+ *   M12  `system_health_stats` puede devolver `system` nulo y trunca a 5000 filas.
+ *   M11  `describe_all_tables` declara 1 campo obligatorio y el código exige 5 fuera de sqlite.
+ *   M10  `audit_log_search` devuelve un sobre con paginación, no una lista.
+ *   B9   `endpoint_delete` no declaraba `out`.
+ *
+ * Lo que se DESCARTÓ, comprobado contra el código y no supuesto:
+ *
+ *   B2   `apiclient_login` sin propiedades en su esquema. No es un defecto: lee las
+ *        credenciales de la cabecera `Authorization: Basic`, no del body.
+ *   B5   `trace_summary` contando los 3xx como errores. No: los mete en su propia familia,
+ *        `sc >= 300 && sc <= 399` es el bucket del 3xx junto a un 2xx y sendos más.
  */
 
 import { test } from "node:test";
@@ -356,5 +381,261 @@ test("B1: username toma el email entero, no el prefijo", () => {
     models,
     /if \(!instance\.username\)\s*\{\s*instance\.username\s*=\s*instance\.email;/,
     "el hook beforeValidate debe seguir asignando el email completo",
+  );
+});
+
+/* ------------------------------------------------------------------ *
+ * 7. El lote de la tercera ronda: la documentación cuenta lo que el
+ *    código hace, y el código sigue haciendo lo que la documentación dice.
+ * ------------------------------------------------------------------ */
+
+const readSrc = (p) => readFileSync(join(repoRoot, p), "utf8");
+
+/** Corta el cuerpo de una declaración contando llaves desde la primera a nivel de anidamiento 0. */
+function fnBody(source, header) {
+  const start = source.indexOf(header);
+  assert.ok(start > -1, `no encuentro ${header}`);
+  let parens = 0;
+  let brackets = 0;
+  let braceAt = -1;
+  for (let i = start; i < source.length; i++) {
+    const c = source[i];
+    if (c === "(") parens++;
+    else if (c === ")") parens--;
+    else if (c === "[") brackets++;
+    else if (c === "]") brackets--;
+    else if (c === "{" && parens === 0 && brackets === 0) {
+      braceAt = i;
+      break;
+    }
+  }
+  assert.ok(braceAt > -1, `no encuentro la llave del cuerpo de ${header}`);
+  let depth = 0;
+  for (let i = braceAt; i < source.length; i++) {
+    if (source[i] === "{") depth++;
+    else if (source[i] === "}" && --depth === 0) return source.slice(start, i + 1);
+  }
+  assert.fail(`llaves sin cerrar en ${header}`);
+}
+
+/* M13 — el token de las API keys viene en claro y la descripción lo dice. */
+
+test("M13: la advertencia del token de list_api_keys es cierta", () => {
+  const fn = fnBody(readSrc("src/lib/db/apikey.js"), "export const getApiKeyByFilters");
+  assert.ok(
+    !/attributes\s*:/.test(fn),
+    "getApiKeyByFilters no restringe la proyección, así que el token viene: si algún día lo "
+      + "restringiera, esta advertencia pasaría a ser falsa y el test debe verlo",
+  );
+
+  const d = tool("list_api_keys").mcp.description;
+  assert.match(d, /SENSITIVE/, "la descripción debe marcar la respuesta como sensible");
+  assert.match(d, /token.*in full|in full.*token/i, "y decir que el token viene completo");
+  assert.match(
+    tool("list_api_keys").mcp.side_effects,
+    /discloses every API key token|API key token/,
+    "side_effects debe repetirlo: es el campo que un agente lee para decidir si filtra",
+  );
+});
+
+/* B7 — findAll sin attributes: sale la fila entera, jwt_key incluido. */
+
+test("B7: get_app_list_filters reparte jwt_key, y lo avisa", () => {
+  const fn = fnBody(readSrc("src/lib/db/app.js"), "export async function getApplicationsTreeByFilters");
+  assert.ok(
+    !/attributes\s*:/.test(fn),
+    "sin `attributes` restringidos, Sequelize devuelve todas las columnas de Application",
+  );
+  assert.match(
+    fn,
+    /include:\s*\[[\s\S]*model:\s*AppVars/,
+    "y además expande los AppVars, que guardan credenciales de conexión",
+  );
+
+  const m = tool("get_app_list_filters").mcp;
+  assert.match(m.description, /SENSITIVE/, "la descripción debe avisar");
+  assert.match(m.description, /jwt_key/, "y nombrar la columna concreta, no decir 'secretos'");
+  assert.match(m.side_effects, /jwt_key/);
+
+  // La comparación que da sentido al aviso: apps_list sí lo dice. Si algún día esta tool deja
+  // de repartir claves y la otra sigue avisando, este test no lo ve; la aserción de arriba sí.
+  assert.match(
+    tool("apps_list").mcp.description,
+    /jwt_key/,
+    "apps_list ya avisaba de esto: get_app_list_filters era la excepción silenciosa",
+  );
+});
+
+/* M8 — la política se exige al crear y no al actualizar. */
+
+test("M8: la asimetría de la política de contraseñas sigue existiendo y sigue documentada", () => {
+  const user = readSrc("src/lib/db/user.js");
+  const api = readSrc("src/lib/db/apiclient.js");
+
+  const createUser = fnBody(user, "export async function createUser");
+  const updateUser = fnBody(user, "export async function updateUser");
+  assert.match(
+    createUser,
+    /validatePasswordSecurity/,
+    "el alta SÍ valida la política: es lo que hace asimétrico al update",
+  );
+  assert.ok(
+    !/validatePasswordSecurity/.test(updateUser),
+    "el update no valida. Si algún día empieza a hacerlo, la documentación queda mintiendo "
+      + "y este test obliga a quitar el aviso en vez de dejar que se pudra",
+  );
+
+  const updateClient = fnBody(api, "export async function updateApiClient");
+  assert.match(updateClient, /EncryptPwd/, "el update sí hashea: la contraseña se guarda, pero sin aplicar la política");
+  assert.ok(!/validatePasswordSecurity/.test(updateClient));
+
+  for (const name of ["user_update", "apiclient_update"]) {
+    assert.match(
+      tool(name).mcp.description,
+      /not on update/i,
+      `${name} debe decir que la política no se aplica al actualizar`,
+    );
+  }
+});
+
+/* B10 — la prosa debe enumerar exactamente los métodos que el enum permite. */
+
+test("B10: los métodos seguros que dice la prosa son los del enum", () => {
+  const e = tool("execute_endpoint_test");
+  const methods = e.json_schema.in.schema.properties.method.enum;
+  const prose = e.mcp.description + "\n" + (e.mcp.side_effects ?? "");
+
+  // El defecto era concreto: la prosa ofrecía HEAD como inocuo cuando HEAD no está en el
+  // enum, de modo que un agente podía leer "es seguro" y no encontrar por dónde pedirlo.
+  assert.ok(!/\bHEAD\b/.test(prose), "no debe nombrar un método que el enum no ofrece");
+  for (const m of methods) {
+    assert.match(
+      prose,
+      new RegExp(`\\b${m}\\b`),
+      `si ${m} está en el enum, la prosa debe explicar qué implica`,
+    );
+  }
+
+  // Y lo que sí es seguro de verdad: los dos únicos que no escriben.
+  assert.match(prose, /GET and QUERY/, "los inocuos son GET y QUERY, según el enum");
+});
+
+/* M7 — el timezone solo se valida en modo cron. */
+
+test("M7: la nota del timezone dice que la validación es solo en cron", () => {
+  const tz = tool("upsert_interval_task").json_schema.in.schema.properties.timezone;
+  assert.match(
+    tz.description,
+    /ONLY with `schedule_mode: 'cron'`/,
+    "debe delimitar cuándo se valida",
+  );
+
+  // La razón de la nota: la validación vive dentro del `if (schedule_mode === 'cron')`, así
+  // que fuera de él un nombre inválido se guarda callado.
+  const src = readSrc("src/lib/db/interval_task.js");
+  const cron = fnBody(src, "export const upsertIntervalTask");
+  const gate = cron.indexOf('payload.schedule_mode === "cron"');
+  assert.ok(gate > -1, "debe seguir existiendo la rama de cron");
+  assert.match(
+    cron.slice(gate, gate + 700),
+    /validateCron\(payload\.cron,\s*payload\.timezone\)/,
+    "y la validación del timezone sigue dentro de ella",
+  );
+});
+
+/* M12 — la fuente puede faltar y el escaneo está topado. */
+
+test("M12: los dos límites de system_health_stats son ciertos", () => {
+  const src = readSrc("src/lib/server/functions/system/prd/logs/index.js");
+  assert.match(src, /let system = null;/, "la fuente de métricas puede no existir");
+  // Con frontera de palabra a la derecha: `/limit:\s*5000/` también casa con `50000`, que es
+  // justo el cambio que haría falsa la descripción sin que nada se enterase.
+  assert.match(src, /limit:\s*5000\b/, "y el escaneo se topa en 5000 filas");
+
+  const d = tool("system_health_stats").mcp.description;
+  // Se comprueban las frases, no la cifra suelta: `5000` aparece dos veces en la descripción,
+  // así que buscar solo el número dejaría pasar la mitad de lo que dice.
+  assert.match(
+    d,
+    /`system` comes back null/,
+    "la descripción debe avisar de que la fuente puede faltar",
+  );
+  assert.match(
+    d,
+    /capped at 5000 rows/,
+    "y del tope, dicho como lo que es: un recorte del escaneo",
+  );
+  assert.match(
+    d,
+    /most recent 5000 entries/,
+    "y de qué ventana hablan los percentiles cuando se alcanza",
+  );
+});
+
+/* M11 — el esquema declara 1 campo; el código pide 5 fuera de sqlite. */
+
+test("M11: describe_all_tables no vuelve a prometer que basta con `connection`", () => {
+  const e = tool("describe_all_tables");
+  assert.deepEqual(
+    e.json_schema.in.schema.required,
+    ["connection"],
+    "el esquema sigue declarando un solo campo: por eso la descripción tiene que hacer de "
+      + "peor esquema y enumerar lo que el código exige de verdad",
+  );
+
+  // La lógica no está en un módulo del repo sino en el `code` del propio endpoint, que es
+  // donde vive: una lista corta para sqlite y otra de cinco campos para el resto.
+  assert.match(
+    e.code,
+    /requiredConnectionFields\s*=\s*isSqlite\s*\?\s*\[[^\]]*\]\s*:\s*\[[^\]]*username[^\]]*password[^\]]*host[^\]]*\]/,
+    "el código sigue exigiendo username, password y host fuera de sqlite",
+  );
+
+  assert.match(
+    e.mcp.description,
+    /username.*password.*host/s,
+    "la descripción debe enumerar los campos que el código exige y el esquema calla",
+  );
+});
+
+/* M10 — el sobre de audit_log_search. */
+
+test("M10: audit_log_search dice que devuelve un sobre, no una lista", () => {
+  const d = tool("audit_log_search").mcp.description;
+  assert.match(d, /ENVELOPE/, "debe distinguir el sobre de la lista");
+  assert.match(d, /rows/, "y nombrar dónde están las filas");
+  assert.match(d, /total/, "y el total, que es el número ANTES de limit/offset");
+
+  // Y el código tiene que seguir devolviendo ese sobre, o el aviso sería al revés.
+  const fn = fnBody(readSrc("src/lib/db/audit.js"), "export const getAuditLogs");
+  assert.match(fn, /rows/, "getAuditLogs sigue envolver las filas en `rows`");
+  assert.match(fn, /total/, "y declarando `total`");
+});
+
+/* B9 — endpoint_delete ya declara out. */
+
+test("B9: endpoint_delete declara qué devuelve", () => {
+  const out = tool("endpoint_delete").json_schema?.out;
+  assert.equal(out?.enabled, true, "debe declarar out");
+  assert.equal(out.schema.type, "object");
+  assert.ok(
+    out.schema.properties.success,
+    "y al menos decir si la operación se completó",
+  );
+  assert.deepEqual(out.schema.required, ["success"]);
+});
+
+/* B3/M6 — los arreglos de código ya están; aquí se comprueba que la descripción los cuente. */
+
+test("B3/M6: las descripciones cuentan lo que ahora hace el código", () => {
+  assert.match(
+    tool("list_bots").mcp.description,
+    /same projection|include_token/,
+    "list_bots debe contar que el camino por idbot ya no esquiva el gating",
+  );
+  assert.match(
+    tool("search_endpoints").mcp.description,
+    /search_code/,
+    "search_endpoints debe decir que pedir search_code devuelve el código",
   );
 });

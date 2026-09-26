@@ -160,6 +160,16 @@ async function runAllTests() {
         args: ["mcp_docs_consistency_test.mjs"],
       },
       {
+        // Puro: los listados que se leen por MCP filtraban distinto según el camino.
+        // `list_bots` ocultaba token y code en el catálogo y los devolvía enteros en el
+        // detalle por idbot; `search_code` filtraba por código sin devolverlo. Aquí se
+        // comprueba que catálogo y detalle compartan proyección, y que el gating viva en la
+        // función compartida para que no vuelvan a divergir.
+        label: "listing_projection_test.js",
+        command: "node",
+        args: ["listing_projection_test.js"],
+      },
+      {
         // Levanta una VM real y un `reply` simulado para comprobar que el código
         // elegido acaba en reply.code() y que la caché captura ese mismo código.
         // No necesita servidor: la VM se compila en memoria.
