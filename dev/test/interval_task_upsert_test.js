@@ -18,9 +18,20 @@ import {
   updateIntervalTaskStatus,
 } from "../../src/lib/db/interval_task.js";
 import { Endpoint, IntervalTask } from "../../src/lib/db/models.js";
+import { defaultApps } from "../../src/lib/db/app.js";
 import { TASK_STATUS } from "../../src/lib/timer/schedule.js";
 
 const TEST_APP_ID = "c4ca4238-a0b9-2382-0dcc-509a6f75849b";
+
+/** Identidad de cada interval task: (idtask, idendpoint, note). */
+const taskIdentities = async () => {
+  const rows = await IntervalTask.findAll({
+    attributes: ["idtask", "idendpoint", "note"],
+    order: [["idtask", "ASC"]],
+    raw: true,
+  });
+  return rows.map((r) => ({ idtask: r.idtask, idendpoint: r.idendpoint, note: r.note }));
+};
 
 async function runTests() {
   console.log("--- Starting Interval Task Upsert Tests ---");
@@ -41,7 +52,7 @@ async function runTests() {
 
   try {
     // 1. INSERT
-    console.log("[STEP 1/8] Insert stores the payload and defaults to disabled...");
+    console.log("[STEP 1/9] Insert stores the payload and defaults to disabled...");
     const inserted = await upsertIntervalTask({
       idendpoint: endpointId,
       interval: 900,
@@ -64,7 +75,7 @@ async function runTests() {
     assert.strictEqual(Number(afterInsert.exec_time_limit), 120);
 
     // 2. UPDATE parcial
-    console.log("[STEP 2/8] Partial update keeps the fields that were not sent...");
+    console.log("[STEP 2/9] Partial update keeps the fields that were not sent...");
     await upsertIntervalTask({ idtask: created_idtask, enabled: true });
 
     const afterPartial = await getIntervalTaskById(created_idtask);
@@ -95,7 +106,7 @@ async function runTests() {
     );
 
     // 3. null explícito
-    console.log("[STEP 3/8] An explicit null clears the field...");
+    console.log("[STEP 3/9] An explicit null clears the field...");
     await upsertIntervalTask({ idtask: created_idtask, dateend: null, note: null });
 
     const afterNull = await getIntervalTaskById(created_idtask);
@@ -103,7 +114,7 @@ async function runTests() {
     assert.strictEqual(afterNull.note, null, "note should be cleared");
 
     // 4. La telemetría del scheduler no es configurable desde el upsert
-    console.log("[STEP 4/8] Scheduler telemetry sent in the payload is ignored...");
+    console.log("[STEP 4/9] Scheduler telemetry sent in the payload is ignored...");
     await IntervalTask.update(
       { failed_attempts: 4, status: 3 },
       { where: { idtask: created_idtask } }
@@ -134,7 +145,7 @@ async function runTests() {
     );
 
     // 5. Cambiar la programación recalcula la próxima ejecución
-    console.log("[STEP 5/8] Changing the schedule recomputes next_run...");
+    console.log("[STEP 5/9] Changing the schedule recomputes next_run...");
     const farFuture = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
     await IntervalTask.update(
       { next_run: farFuture },
@@ -150,7 +161,7 @@ async function runTests() {
     );
 
     // 6. La transición devuelve los mismos campos que persiste para publicarlos en vivo
-    console.log("[STEP 6/8] Runtime transition exposes the persisted live patch...");
+    console.log("[STEP 6/9] Runtime transition exposes the persisted live patch...");
     const runningTransition = await updateIntervalTaskStatus(
       created_idtask,
       TASK_STATUS.RUNNING
@@ -161,7 +172,7 @@ async function runTests() {
     assert.ok(runningTransition.runtime.next_run instanceof Date);
 
     // 7. La validación usa la fila fusionada, también en updates parciales
-    console.log("[STEP 7/8] Partial cron updates validate the merged schedule...");
+    console.log("[STEP 7/9] Partial cron updates validate the merged schedule...");
     await upsertIntervalTask({
       idtask: created_idtask,
       schedule_mode: "cron",
@@ -178,7 +189,7 @@ async function runTests() {
     );
 
     // 8. Un idtask inexistente no crea una fila con ese id
-    console.log("[STEP 8/8] An unknown idtask is rejected instead of inserted...");
+    console.log("[STEP 8/9] An unknown idtask is rejected instead of inserted...");
     const GHOST_IDTASK = 987654322;
     await assert.rejects(
       () => upsertIntervalTask({ idtask: GHOST_IDTASK, idendpoint: endpointId }),
@@ -188,6 +199,47 @@ async function runTests() {
 
     const ghost = await getIntervalTaskById(GHOST_IDTASK);
     assert.strictEqual(ghost, null, "No row should have been created with that id");
+
+    // 9. Una segunda pasada de seed no debe pisar una tarea ya existente
+    console.log("[STEP 9/9] A second seed pass does not clobber an existing task...");
+    // defaultApps() corre en CADA arranque, no solo con BUILD_DB. Como el seeder
+    // descarta los idtask del seed y deja que la base asigne los suyos, los ids del
+    // seed (2..6) quedan desalineados de los de la base (1..5). Al restaurar, el
+    // match por idtask solo comprobaba el endpoint, y las tareas de "Admin Alerts"
+    // comparten endpoint: la del seed idtask=3 ("events scan") encontraba la fila
+    // idtask=3, que contenia el digest, y la pisaba. El digest se reinsertaba como
+    // fila nueva y quedaba una "events scan" duplicada disparando cada 60 s.
+    const before = await taskIdentities();
+    assert.ok(before.length > 0, "the seed must have created interval tasks");
+
+    await defaultApps();
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+
+    const after = await taskIdentities();
+    const notes = after.map((t) => t.note);
+    const duplicated = [...new Set(notes.filter((n, i, a) => a.indexOf(n) !== i))];
+    assert.deepStrictEqual(
+      duplicated,
+      [],
+      `A second seed pass duplicated task(s): ${duplicated.join(", ")}`
+    );
+    assert.strictEqual(
+      after.length,
+      before.length,
+      "A second seed pass must not add interval tasks"
+    );
+
+    // La identidad de una tarea es (idendpoint, note): quien la conserva conserva su
+    // idtask, y con el la vinculacion de su historial en ofapi_intervaltask_run.
+    for (const t of before) {
+      const same = after.find((o) => o.idendpoint === t.idendpoint && o.note === t.note);
+      assert.ok(same, `task "${t.note}" disappeared after a second seed pass`);
+      assert.strictEqual(
+        same.idtask,
+        t.idtask,
+        `task "${t.note}" changed its idtask (${t.idtask} -> ${same.idtask}), orphaning its run history`
+      );
+    }
 
     console.log("--- All Interval Task Upsert Tests Passed Successfully! ---");
   } finally {

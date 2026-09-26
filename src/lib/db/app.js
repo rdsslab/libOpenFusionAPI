@@ -180,11 +180,26 @@ async function restoreIntervalTasks(tasks, idendpoint_map, idkey_map = new Map()
 
     if (t.idtask != null) {
       const byId = await IntervalTask.findByPk(t.idtask, {
-        attributes: ["idtask", "idendpoint"],
+        attributes: ["idtask", "idendpoint", "note"],
       });
-      // Sólo vale si apunta al mismo endpoint: en otra instancia ese id puede ser la
-      // tarea de otra aplicación.
-      if (byId && byId.idendpoint === target) existing = byId;
+      // Sólo vale si apunta al mismo endpoint Y es la misma tarea: en otra instancia
+      // ese id puede ser la tarea de otra aplicación, y aun dentro de la misma
+      // aplicación dos tareas pueden compartir endpoint (las de "Admin Alerts"
+      // comparten `a1b2c3d4`). La `note` es la identidad que esta misma función ya
+      // usa en el fallback de abajo, así que el match por id no puede ser más laxo
+      // que él.
+      //
+      // Sin esta comprobación, el seed declaraba idtask 2..6 pero el seeder descarta
+      // esos ids y deja que la base asigne 1..5, de modo que el seed queda
+      // permanentemente desalineado. En el arranque siguiente, la tarea del seed
+      // idtask=3 ("events scan") encontraba la fila idtask=3, que contenía el
+      // *digest* —el endpoint coincide, así que la guarda anterior no lo impedía— y la
+      // pisaba; el digest se reinsertaba como fila nueva. Resultado: una tarea
+      // "events scan" duplicada disparando cada 60 s y el digest perdiendo su idtask
+      // (y con él la vinculación de su historial en ofapi_intervaltask_run).
+      if (byId && byId.idendpoint === target && (byId.note ?? null) === (t.note ?? null)) {
+        existing = byId;
+      }
     }
 
     if (!existing) {
