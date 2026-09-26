@@ -7,6 +7,7 @@
 import assert from "node:assert/strict";
 import { createFunctionVM } from "../../src/lib/server/createFunctionVM.js";
 import { jsFunction } from "../../src/lib/handler/jsFunction.js";
+import { closeDb } from "./close_db.js";
 
 function makeReply() {
   const reply = {
@@ -113,3 +114,8 @@ console.warn = () => {};
 
 console.warn = originalWarn;
 console.log("OK  js_return_status_integration: reply.code() + captura de caché coherentes");
+
+// La suite pasa todas sus aserciones y aun asi el proceso no salia: `jsFunction`
+// arrastra `db/sequelize.js`, y su pool mantiene el event loop vivo contra un
+// motor de red. Con SQLite no se nota, porque ahi el pool esta en memoria.
+await closeDb();

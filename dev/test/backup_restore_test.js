@@ -11,6 +11,7 @@ import {
   Bot,
 } from "../../src/lib/db/models.js";
 import { BOT_RUNTIME_ATTRIBUTES } from "../../src/lib/db/bot.js";
+import { closeDb } from "./close_db.js";
 
 function deepClone(obj) {
   return JSON.parse(JSON.stringify(obj));
@@ -519,8 +520,11 @@ async function runTests() {
   console.log("--- All Backup/Restore Tests Passed Successfully! ---");
 }
 
-runTests().catch((err) => {
-  console.error("\nBackup/Restore test suite failed with error:");
-  console.error(err);
-  process.exit(1);
-});
+runTests()
+  .then(closeDb)
+  .catch(async (err) => {
+    console.error("\nBackup/Restore test suite failed with error:");
+    console.error(err);
+    await closeDb();
+    process.exit(1);
+  });

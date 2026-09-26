@@ -576,6 +576,45 @@ para que una futura traducción de la superficie visible al cliente no lo trate 
 
 ---
 
+## [13.11.3] - 2026-09-26
+
+Arreglos de la auditoría de base de datos contra motores reales. Esta versión cubre el primero de
+ellos: el cuelgue del packet de validación. No cambia el comportamiento de la API.
+
+### Fixed
+
+#### El packet de validación se quedaba esperando una suite que ya había terminado
+
+`dev/test/index.js` lanzaba cada suite y esperaba únicamente al evento `exit` del proceso hijo, sin
+ningún límite de tiempo. Cuatro suites abren el pool de la base de datos de la plataforma —directa o
+indirectamente— y ese pool mantiene el event loop vivo contra un motor de red: el proceso imprimía
+que todas sus aserciones habían pasado y aun así no salía, porque un socket TCP no es un handle que
+se vacíe solo. Con SQLite nunca se notó, porque ahí el pool está en memoria.
+
+La consecuencia no era una suite colgada, sino un packet entero abortado: las quince suites que
+venían después no se ejecutaban nunca y el proceso moría sin imprimir el resumen, así que el
+resultado de la validación era indistinguible del de un corte de red.
+
+| Antes | Ahora |
+|---|---|
+| Sin límite: la suite 10 de 29 colgaba y las 15 siguientes no se ejecutaban | Límite de 300 s por suite, configurable con `TEST_SUITE_TIMEOUT_MS` |
+| Una suite colgada no aparecía en ninguna parte | `FAIL(timeout)` en el resumen, distinto de `FAIL(<código>)` |
+| `SIGTERM` sin escalado | `SIGTERM`, y a los 10 s `SIGKILL` si el hijo lo ignora |
+| El pool se quedaba abierto al terminar la suite | `closeDb()` al final, también en la ruta de error |
+
+El cierre del pool va en un helper compartido (`dev/test/close_db.js`) en vez de repetido en cada
+suite, y espera al `authenticate()` que `sequelize.js` dispara en segundo plano: cerrarlo mientras
+esa promesa sigue en vuelo hace que Sequelize responda `pool is draining and cannot accept work`, un
+error que aparecía sin que nadie lo pidiera.
+
+Las cuatro suites afectadas eran `interval_task_upsert_test.js`, `backup_restore_test.js`,
+`execute_endpoint_test_payload.js` y `js_return_status_integration.js`. Que el síntoma fuera
+invisible en SQLite y no lo fuera en PostgreSQL es exactamente la clase de fallo que el límite por
+suite convierte en visible: el resto de suites que importan de `src/` siguen sin cierre explícito
+porque no abren conexión, y si alguna empezara a hacerlo, el runner la mata y lo dice en el resumen.
+
+---
+
 ## Referencia
 
 - Versionado: `package.json`

@@ -20,6 +20,7 @@ import {
 import { Endpoint, IntervalTask } from "../../src/lib/db/models.js";
 import { defaultApps } from "../../src/lib/db/app.js";
 import { TASK_STATUS } from "../../src/lib/timer/schedule.js";
+import { closeDb } from "./close_db.js";
 
 const TEST_APP_ID = "c4ca4238-a0b9-2382-0dcc-509a6f75849b";
 
@@ -249,8 +250,11 @@ async function runTests() {
   }
 }
 
-runTests().catch((err) => {
-  console.error("\nInterval task upsert test suite failed with error:");
-  console.error(err);
-  process.exit(1);
-});
+runTests()
+  .then(closeDb)
+  .catch(async (err) => {
+    console.error("\nInterval task upsert test suite failed with error:");
+    console.error(err);
+    await closeDb();
+    process.exit(1);
+  });

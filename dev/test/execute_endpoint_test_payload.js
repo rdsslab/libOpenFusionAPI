@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 
 import { fnEndpointTest } from "../../src/lib/server/functions/system/prd/endpoint/index.js";
 import { Application, Endpoint } from "../../src/lib/db/models.js";
+import { closeDb } from "./close_db.js";
 
 const originalFetch = globalThis.fetch;
 const originalApplicationFindOne = Application.findOne;
@@ -270,7 +271,10 @@ async function run() {
   }
 }
 
-run().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+run()
+  .then(closeDb)
+  .catch(async (error) => {
+    console.error(error);
+    await closeDb();
+    process.exit(1);
+  });

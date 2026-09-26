@@ -30,7 +30,12 @@ const dbsequelize = new Sequelize(db_conn, options);
 
 export default dbsequelize;
 
-(async () => {
+// La conexion se abre en segundo plano y sin esperar a nadie, para que importar
+// este fichero no bloquee. Se expone la promesa porque quien vaya a cerrar el pool
+// (las suites de `dev/test/`) tiene que poder esperar a que termine: si se cierra
+// mientras el `authenticate()` sigue en vuelo, Sequelize responde "pool is
+// draining and cannot accept work" y el error aparece sin que nadie lo pidiera.
+export const connectionReady = (async () => {
   try {
     await dbsequelize.authenticate();
     console.log(

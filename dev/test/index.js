@@ -5,6 +5,21 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(__dirname, "../..");
 
+// El limite es POR SUITE, no global: una suite lenta es aceptable, una suite
+// colgada no. Antes no habia ninguno y el runner se quedaba esperando al evento
+// `exit` de un hijo que ya habia impreso que pasaba, pero con el pool de la BD
+// abierto: con SQLite (pool en memoria, sin socket) el proceso se vacia solo y
+// nunca se nota; con un motor de red el socket TCP mantiene el event loop vivo
+// y el packet entero se queda esperando ahi, sin las 15 suites que iban
+// detras. El sintoma era un packet que se acaba sin resumen.
+const SUITE_TIMEOUT_MS = Number(process.env.TEST_SUITE_TIMEOUT_MS) || 300000;
+// Margen entre SIGTERM y SIGKILL: una suite colgada puede tener un manejador
+// propio de SIGTERM, y si lo ignorara el packet volveria a colgarse.
+const SUITE_KILL_GRACE_MS = 10000;
+// Codigo de salida de un hijo que no se pudo lanzar (`spawn` fallido). El 127 es
+// el convencional de "comando no encontrado" y no lo produce ningun test.
+const SPAWN_ERROR_EXIT_CODE = 127;
+
 async function runAllTests() {
   console.log("=== Starting Full System Validation Packet ===");
 
@@ -269,22 +284,64 @@ async function runAllTests() {
         stdio: "inherit"
       });
 
-      const exitCode = await new Promise(resolve => {
-        testProcess.on("exit", resolve);
+      const outcome = await new Promise((resolve) => {
+        let settled = false;
+        let timedOut = false;
+        let timer = null;
+        let killTimer = null;
+
+        const finish = (code) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          clearTimeout(killTimer);
+          resolve({ code, timedOut });
+        };
+
+        timer = setTimeout(() => {
+          timedOut = true;
+          console.error(
+            `${testRun.label} lleva ${SUITE_TIMEOUT_MS / 1000}s sin terminar: se envia SIGTERM.`,
+          );
+          testProcess.kill("SIGTERM");
+          killTimer = setTimeout(() => {
+            if (settled) return;
+            console.error(`${testRun.label} ignoro el SIGTERM: se envia SIGKILL.`);
+            testProcess.kill("SIGKILL");
+          }, SUITE_KILL_GRACE_MS);
+        }, SUITE_TIMEOUT_MS);
+
+        // Un hijo terminado por senal llega con `code === null`; el motivo real
+        // lo lleva `timedOut`, que es lo que se muestra en el resumen.
+        testProcess.on("exit", (code) => finish(code));
+        testProcess.on("error", (err) => {
+          console.error(`${testRun.label} no se pudo lanzar: ${err.message}`);
+          finish(SPAWN_ERROR_EXIT_CODE);
+        });
       });
 
-      const passed = exitCode === 0;
-      results.push({ label: testRun.label, exitCode, ms: Date.now() - startedAt });
+      const passed = outcome.code === 0 && !outcome.timedOut;
+      results.push({
+        label: testRun.label,
+        exitCode: outcome.code,
+        timedOut: outcome.timedOut,
+        ms: Date.now() - startedAt,
+      });
       if (!passed) {
-        console.error(`${testRun.label} failed with exit code ${exitCode}`);
+        console.error(
+          outcome.timedOut
+            ? `${testRun.label} COLGADA: no terminó en ${SUITE_TIMEOUT_MS / 1000}s`
+            : `${testRun.label} failed with exit code ${outcome.code}`,
+        );
         success = false;
       }
     }
 
-    const failed = results.filter((r) => r.exitCode !== 0);
+    const failed = results.filter((r) => r.timedOut || r.exitCode !== 0);
     console.log("\n=== Validation summary ===");
     for (const r of results) {
-      console.log(`  ${r.exitCode === 0 ? "PASS" : `FAIL(${r.exitCode})`}  ${r.label}  (${(r.ms / 1000).toFixed(1)}s)`);
+      const estado = r.timedOut ? "FAIL(timeout)" : r.exitCode === 0 ? "PASS" : `FAIL(${r.exitCode})`;
+      console.log(`  ${estado.padEnd(13)} ${r.label}  (${(r.ms / 1000).toFixed(1)}s)`);
     }
     console.log(`  ${results.length - failed.length}/${results.length} suites OK`);
     if (failed.length > 0) {
