@@ -813,8 +813,15 @@ export const Endpoint = dbsequelize.define(
     freezeTableName: true,
     timestamps: true,
     // ✔ Necesario para que Sequelize reconozca correctamente el índice único
+    //
+    // El nombre NO puede ser el mismo que el de `AppVars`: en MSSQL el nombre de
+    // una constraint UNIQUE es de ámbito de base de datos, no de tabla, y dos
+    // tablas que se llamen `unique_av_combo` dan "There is already an object
+    // named 'unique_av_combo' in the database". En PostgreSQL y SQLite el nombre
+    // sí es por tabla y ahí nunca se notó. El de `AppVars` se queda; este se
+    // renombra, que es la diferencia mínima que evita el choque.
     uniqueKeys: {
-      unique_av_combo: {
+      unique_endpoint_av_combo: {
         fields: ["idapp", "environment", "resource", "method"],
       },
     },

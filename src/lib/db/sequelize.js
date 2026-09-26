@@ -2,6 +2,7 @@ import os from "os";
 import path from "path";
 import { Sequelize } from "sequelize";
 import { attachBigintNormalization } from "../bigint.js";
+import { parcheAlterColumnMssql } from "./mssql_query_generator.js";
 
 //Temporal DDBB
 const tmpPath = path.join(os.tmpdir(), "ofapi.sqlite");
@@ -28,6 +29,18 @@ const options = {
 };
 
 const dbsequelize = new Sequelize(db_conn, options);
+
+// En MSSQL, `ALTER COLUMN` solo admite un tipo y la nulabilidad, y Sequelize
+// mete ademas `DEFAULT`, `IDENTITY`, `PRIMARY KEY`, `UNIQUE` y `CHECK`. Ademas el
+// comentario de columna se escribe con `sp_addextendedproperty`, que no es
+// idempotente, asi que el segundo arranque volvia a fallar. Sin este parche,
+// `sync({ alter: true })` no se completa y la plataforma no arranca en MSSQL.
+//
+// Se parchea la query generator de la instancia y no el prototipo de Sequelize,
+// para que el cambio no salga de este proceso: si algun dia el driver lo arregla,
+// este archivo sobra sin mas que dejar de llamarse. El detalle de por que no se
+// quitan los `defaultValue` de los modelos esta en el modulo.
+parcheAlterColumnMssql(dbsequelize);
 
 // Todo modelo que se defina a partir de aqui lleva la normalizacion de `bigint`.
 // Se envuelve `define` en lugar de enganchar el hook modelo por modelo para que

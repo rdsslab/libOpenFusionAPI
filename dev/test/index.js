@@ -153,6 +153,15 @@ async function runAllTests() {
         args: ["sql_parse_bigint_test.js"],
       },
       {
+        // Puro: reduce una definición de columna de T-SQL a lo que `ALTER COLUMN`
+        // admite, sin comerse el `REFERENCES` ni el `COMMENT` que `changeColumnQuery`
+        // mueve de sitio por su cuenta. Sin esto, `sync({ alter: true })` no se
+        // completa en MSSQL y la plataforma no arranca ahi.
+        label: "mssql_alter_column_test.js",
+        command: "node",
+        args: ["mssql_alter_column_test.js"],
+      },
+      {
         // Este SÍ abre conexión: comprueba que los `bigint` de los modelos de la
         // plataforma llegan como numero cuando se puede representarlos, en el
         // dialecto que toque. El de arriba no puede cubrirlo porque ejercita el

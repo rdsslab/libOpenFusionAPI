@@ -697,6 +697,115 @@ son `BIGINT`. El test falla si algún modelo con `BIGINT` no lleva el enganche.
 
 ---
 
+## [13.11.5] - 2026-09-26
+
+**En MSSQL la plataforma no arrancaba. `sync({ alter: true })` no se podía completar y el
+`buildDB` dejaba 5 de 22 tablas.** Este arreglo deja el esquema completo y repetible, y son
+tres defectos distintos, no uno: el primero tapaba a los otros dos.
+
+El defecto de partida, el del hallazgo H26, es que `ALTER COLUMN` en T-SQL solo admite un tipo
+y la nulabilidad:
+
+```sql
+ALTER TABLE [t] ALTER COLUMN [c] <tipo> [ NOT NULL | NULL ]
+```
+
+Ni `DEFAULT`, ni `IDENTITY`, ni `PRIMARY KEY`, ni `UNIQUE`, ni `CHECK`. Sequelize mete las cinco
+cosas a la vez, en este orden fijo, y de ahí sale tal cual
+
+```sql
+ALTER TABLE [ofapi_user] ALTER COLUMN [rowkey] SMALLINT DEFAULT 0;
+```
+
+que SQL Server rechaza con el error 156. Como el `DEFAULT` viene del `defaultValue` de cada
+atributo, el problema alcanzaba a unas 70 columnas de 20 modelos.
+
+#### Por qué no se quitan los `defaultValue` de los modelos
+
+Es lo que parecía el arreglo obvious y no lo es, así que conviene dejar por escrito por qué se
+descartó. `defaultValue` no es solo DDL: Sequelize lo aplica en **cada ruta de escritura** —
+`create`, `upsert`, `findOrCreate` y `bulkCreate`, con `individualHooks` en `true` o en
+`false`—, así que borrarlo cambiaría el comportamiento. El caso concreto es `LogEntry`, cuyo
+`id` es clave primaria con `defaultValue: UUIDV4` y cuyo `bulkCreate` desactiva los hooks a
+propósito para ir más rápido (`db/log.js`, "para mejor performance"): sin ese default, el
+log de auditoría se inserta sin clave primaria. Se comprobó además que un `beforeValidate`
+**no** reproduce el comportamiento, y que la clave primaria se resiste a que un hook la
+rellene: en las seis rutas de escritura, la `PK` queda `null` tanto con `inst.id = x` como con
+`inst.set("id", x, { raw: true })`.
+
+Lo que se hace es recortar la definición **solo en el `ALTER`**. El `CREATE TABLE` sigue
+emitiendo los defaults intactos, y perderlos en el `ALTER` tampoco destruye los que ya tuviera
+la columna: en T-SQL un `ALTER COLUMN` sin `DEFAULT` los deja como estaban, que es lo que
+produce el `INSERT` de la columna de prueba (`7`, `dev`) y lo que se verificó en el esquema real.
+
+#### El recorte es gramatical, no una lista de palabras prohibidas
+
+La primera versión quita `DEFAULT`, `IDENTITY` y `PRIMARY KEY` uno a uno, y al probar contra
+el motor aparecieron `UNIQUE` y luego `CHECK`; cada uno era un `ALTER COLUMN` distinto que
+fallaba. En vez de seguir sumando palabras, `limpiarDefinicionAlterColumn` reduce la definición
+a lo que la gramática admite y conserva el tipo, la nulabilidad y las dos colas que
+`changeColumnQuery` mueve de sitio por su cuenta.
+
+Las dos colas se conservan **a propósito, no por descuido**: `REFERENCES` acaba en una cláusula
+`ADD FOREIGN KEY` aparte y `COMMENT` en el `sp_addextendedproperty`. Si el saneador se las
+comiera, un `alter` borraría las claves foráneas de la tabla. Por eso el recorrido salta los
+literales: un `DEFAULT N'dato REFERENCES'` no es una clave foránea, y una búsqueda a pelo
+confundiría las dos cosas. También compara palabras completas, que es lo que impide que
+`UNIQUE` rompa `UNIQUEIDENTIFIER`, que es un tipo de columna de T-SQL.
+
+#### Segundo defecto: un nombre de constraint repetido
+
+`AppVars` y `Endpoint` declaraban las dos `uniqueKeys: { unique_av_combo: ... }`. En MSSQL el
+nombre de una constraint `UNIQUE` es **de ámbito de base de datos**, no de tabla, así que la
+segunda creaba `There is already an object named 'unique_av_combo' in the database`. En
+PostgreSQL y SQLite el nombre es por tabla y ahí nunca se notó. Se renombra la de `Endpoint` a
+`unique_endpoint_av_combo`, que es la diferencia mínima que evita el choque. Sin este arreglo el
+`sync()` a secas que se usa de reserva tampoco funciona, y con él el `fallback` de `buildDB`
+dejaba 5 tablas de 22.
+
+#### Tercer defecto: el comentario de columna no era idempotente
+
+`commentTemplate` escribe con `sp_addextendedproperty`, que en T-SQL no es idempotente: si la
+propiedad ya existe responde `Property 'MS_Description' already exists for
+'dbo.ofapi_user.start_date'`. Es decir que el `ALTER` solo podía completarse la primera vez, y
+**a partir del segundo arranque** el `sync({ alter: true })` volvía a fallar. Con un
+`IF NOT EXISTS` delante, si no existe se agrega y si existe se actualiza.
+
+Dos detalles que costaron encontrar y que conviene no volver a tropezar: `escape()` ya antepone
+la `N` de Unicode, así que `OBJECT_ID(N` + `escape(...)`)` produce `NN'...'`; y el punto y coma
+del `EXEC` **hay que conservarlo**, porque el cuerpo de un `IF` en T-SQL es una sentencia y sin
+él queda `EXEC a ELSE EXEC b`, que no parsea.
+
+#### Verificación
+
+Desde base limpia en MSSQL: `sync({ alter: true })` completa y da **21 tablas, 62 defaults y 41
+constraints únicas con 41 nombres distintos**. Y se repite: tres `sync({ alter: true })`
+seguidos sobre la misma base, sin error, que es justamente el caso del segundo arranque que
+fallaba antes. El test `mssql_alter_column_test.js` cubre 26 definiciones de T-SQL, incluidas
+las que llevan `REFERENCES` y `COMMENT`, y falla si alguna conserva algo prohibido.
+
+#### Lo que sigue roto en MSSQL, y no es de este arreglo
+
+Corregido el esquema, la plataforma llega un poco más allá y se estrella en otra cosa:
+
+```
+Error: Primary Key or Unique key should be passed to upsert query
+    at MSSQLQueryGenerator.upsertQuery (...)
+    at upsertIntervalTask (src/lib/db/interval_task.js:115)
+```
+
+Es un **defecto preexistente y aparte**, no una consecuencia de este arreglo: `upsertQuery` de
+MSSQL exige que la carga útil traiga la clave primaria o alguna única, y `restoreIntervalTasks`
+borra `idtask` a propósito para que la base lo asigne (`db/app.js`, "Deja que la base asigne el
+idtask"). Aislado del resto, sobre los tres motores: en PostgreSQL y SQLite el `upsert` sin
+`idtask` funciona, y en MSSQL con `idtask` también; solo la combinación MSSQL sin `idtask` falla.
+
+Que no estuviera en la auditoría original es fácil de explicar: hasta ahora no se podía llegar
+hasta ahí, porque el esquema no se completaba. **MSSQL sigue sin poder servir** por esta razón,
+y queda como pendiente, no como algo resuelto.
+
+---
+
 ## Referencia
 
 - Versionado: `package.json`
