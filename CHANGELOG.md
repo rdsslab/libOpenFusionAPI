@@ -442,53 +442,6 @@ Daba por bueno un manifest que afirmaba que `custom_data` no se usaba cuando sí
 herramientas, para que la regla de referencias cruzadas pueda seguir señalando nombres de
 herramienta que de verdad no existen.
 
-#### La documentación que llega a humanos y agentes pasa a inglés
-
-La documentación era mayoritariamente inglesa, pero quedaban huecos en español dentro de las tres
-capas que de verdad se consumen: las descripciones de las herramientas MCP, los `AI_SKILL.md` que
-sirve `get_handler_skill` y los README de `src/docs/`. Corregidos:
-
-| Capa | Qué estaba en español |
-|---|---|
-| Herramientas MCP | `title` de `get_libopenfusionapi_latest_version` (que además iba mezclado: *«Get last version libOpenFusionAPI versión»*), `description` de `handler_library_documentation` y de `validate_endpoint_code` |
-| `AI_SKILL.md` | Los ejemplos de Telegram de `bots/providers/telegram/` —respuestas del bot, textos de teclado y `ctx.reply()`— convivían en español con cadenas ya en inglés en el mismo bloque |
-| `src/docs/skills/JS_CORE.md` | El comentario de mantenedores. Este fichero se inyecta en cuatro `AI_SKILL.md` (JS, MONGODB, bots, interval_tasks), así que el español llegaba al agente por vía indirecta |
-| `src/docs/logging/README.md` | El fichero entero, siendo la fuente de verdad del contrato `endpoint.ctrl.log` |
-| Otros README | `handlers/JS`, `handlers/MONGODB`, `endpoint` y el ejemplo de `$_EXCEPTION_` |
-| **Los 80 `.md` generados** | La cabecera `<!-- AUTO-GENERADO ... -->` de `handlers/JS/libraries/`, escrita **sin una sola tilde** |
-
-Ese último caso merece explicación, porque es el que un filtro de acentos no ve: `AUTO-GENERADO`,
-`NO EDITAR A MANO` y `a partir de` se escriben sin tildes, así que la cabecera pasaba por limpia en
-cualquier revisión basada en `ñ` y `á`. Vivía en la constante `GENERATED_BANNER` de
-`generateDocs.js`, y como el directorio se vacía y se reescribe en cada regeneración, corregir los
-`.md` a mano se pierde en la siguiente ejecución: el arreglo va en el generador y los 80 ficheros se
-regeneran.
-
-Los ejemplos viven en la fuente, no en el markdown. `functionVars.js` alimenta los 80 ficheros y es
-lo que devuelve la herramienta publicada `handler_library_documentation`, así que se corrigió ahí y
-se regeneró. `docs:js-api:check` verifica que los 81 ficheros (80 detalles más el índice) siguen
-coincidiendo con la fuente.
-
-Fuera de alcance, por decisión explícita: los comentarios en español dentro del código — Convención
-interna del proyecto que no llega a quien consume la API—, y los informes de auditorías ya cerradas
-en `temporales/`, `todo/`, `dev/scratch/` y `dev/test/MCP_VALIDATION_REPORT.md`, que son registro
-de trabajo pasado y no documentación de producto.
-
-#### Una contradicción que la traducción destapó
-
-`flows/RUNTIME.md` documentaba el error de handler desconocido como `Handler '<name>' no es valido`
-—sin tilde—, mientras que `handler/handler.js` lo emite como `no es válido`. El documento describía
-un mensaje que el runtime nunca produce. Corregido el documento para que sea literal.
-
-Lo interesante es que ese mensaje **sigue en español**, y es el único español que queda en la
-documentación, a propósito. No es prosa: es la cadena exacta que el servidor devuelve al cliente, y
-`server/functions/system/prd/endpoint/index.js` la clasifica con un `msg.includes("no es válido")`.
-Traducirla no sería un cambio de documentación sino de comportamiento —rompería a cualquier cliente
-que case ese texto, y el propio repositorio lo hace—, así que queda fuera de este lote. Anotado aquí
-para que una futura traducción de la superficie visible al cliente no lo trate por un descuido.
-
-
-
 #### `list_bots` entregaba el token en el detalle y lo ocultaba en la lista
 
 `getBotCatalog` construye su proyección a mano y deja `token` y `code` fuera salvo que se pidan
@@ -567,6 +520,59 @@ volver a encontrar:
 - `trace_summary` contando los 3xx como errores. No los cuenta: `getTraceSummary` los mete en su
   propia familia, y el `sc >= 300` que lo delata es el intervalo del bucket del 3xx
   (`sc >= 300 && sc <= 399`), junto a un 2xx y sendos más.
+
+---
+
+## [13.11.2] - 2026-09-25
+
+Lote de traducción, sin cambios de comportamiento. La documentación del proyecto ya era
+mayoritariamente inglesa, así que esto no es unIFIER un texto: es cerrar los huecos que quedaban
+dentro de las tres capas que de verdad se consumen —las descripciones de las herramientas MCP, los
+`AI_SKILL.md` que sirve `get_handler_skill` y los README de `src/docs/`— más lo que la traducción
+destapó al choque contra el código.
+
+### Changed
+
+#### La documentación que llega a humanos y agentes pasa a inglés
+
+| Capa | Qué estaba en español |
+|---|---|
+| Herramientas MCP | `title` de `get_libopenfusionapi_latest_version` (que además iba mezclado: *«Get last version libOpenFusionAPI versión»*), `description` de `handler_library_documentation` y de `validate_endpoint_code` |
+| `AI_SKILL.md` | Los ejemplos de Telegram de `bots/providers/telegram/` —respuestas del bot, textos de teclado y `ctx.reply()`— convivían en español con cadenas ya en inglés en el mismo bloque |
+| `src/docs/skills/JS_CORE.md` | El comentario de mantenedores. Este fichero se inyecta en cuatro `AI_SKILL.md` (JS, MONGODB, bots, interval_tasks), así que el español llegaba al agente por vía indirecta |
+| `src/docs/logging/README.md` | El fichero entero, siendo la fuente de verdad del contrato `endpoint.ctrl.log` |
+| Otros README | `handlers/JS`, `handlers/MONGODB`, `endpoint` y el ejemplo de `$_EXCEPTION_` |
+| **Los 80 `.md` generados** | La cabecera `<!-- AUTO-GENERADO ... -->` de `handlers/JS/libraries/`, escrita **sin una sola tilde** |
+
+Ese último caso merece explicación, porque es el que un filtro de acentos no ve: `AUTO-GENERADO`,
+`NO EDITAR A MANO` y `a partir de` se escriben sin tildes, así que la cabecera pasaba por limpia en
+cualquier revisión basada en `ñ` y `á`. Vivía en la constante `GENERATED_BANNER` de
+`generateDocs.js`, y como el directorio se vacía y se reescribe en cada regeneración, corregir los
+`.md` a mano se pierde en la siguiente ejecución: el arreglo va en el generador y los 80 ficheros se
+regeneran.
+
+Los ejemplos viven en la fuente, no en el markdown. `functionVars.js` alimenta los 80 ficheros y es
+lo que devuelve la herramienta publicada `handler_library_documentation`, así que se corrigió ahí y
+se regeneró. `docs:js-api:check` verifica que los 81 ficheros (80 detalles más el índice) siguen
+coincidiendo con la fuente.
+
+Fuera de alcance, por decisión explícita: los comentarios en español dentro del código — Convención
+interna del proyecto que no llega a quien consume la API—, y los informes de auditorías ya cerradas
+en `temporales/`, `todo/`, `dev/scratch/` y `dev/test/MCP_VALIDATION_REPORT.md`, que son registro
+de trabajo pasado y no documentación de producto.
+
+#### Una contradicción que la traducción destapó
+
+`flows/RUNTIME.md` documentaba el error de handler desconocido como `Handler '<name>' no es valido`
+—sin tilde—, mientras que `handler/handler.js` lo emite como `no es válido`. El documento describía
+un mensaje que el runtime nunca produce. Corregido el documento para que sea literal.
+
+Lo interesante es que ese mensaje **sigue en español**, y es el único español que queda en la
+documentación, a propósito. No es prosa: es la cadena exacta que el servidor devuelve al cliente, y
+`server/functions/system/prd/endpoint/index.js` la clasifica con un `msg.includes("no es válido")`.
+Traducirla no sería un cambio de documentación sino de comportamiento —rompería a cualquier cliente
+que case ese texto, y el propio repositorio lo hace—, así que queda fuera de este lote. Anotado aquí
+para que una futura traducción de la superficie visible al cliente no lo trate por un descuido.
 
 ---
 
