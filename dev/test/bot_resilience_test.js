@@ -16,9 +16,10 @@
  */
 
 import assert from "node:assert/strict";
+import { basicAuthHeader } from "./test_credentials.js";
 
 const BASE_URL = "http://localhost:3000";
-const BASIC_AUTH = "Basic " + Buffer.from("admin:admin@admin").toString("base64");
+const BASIC_AUTH = basicAuthHeader();
 
 let passed = 0;
 let failed = 0;

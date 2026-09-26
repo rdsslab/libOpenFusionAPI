@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { basicAuthHeader } from "./test_credentials.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(__dirname, "../..");
@@ -11,7 +12,7 @@ const SERVER_PATH = path.resolve(__dirname, "../../src/server.js");
 const SYSTEM_LOGIN_PATH = "/api/system/system/login/prd";
 const SYSTEM_ENDPOINT_PATH = "/api/system/api/endpoint/prd";
 const SYSTEM_APPS_CATALOG_PATH = "/api/system/api/apps/catalog/prd";
-const AUTH_HEADER = `Basic ${Buffer.from("admin:admin@admin").toString("base64")}`;
+const AUTH_HEADER = basicAuthHeader();
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -61,8 +62,11 @@ async function ensureServer() {
     return { spawned: null };
   }
 
+  // cwd = raíz del proyecto: `src/lib/index.js` hace `import "dotenv/config"`, que
+  // busca el .env desde process.cwd(). Con cwd en dev/test el servidor arrancaba en
+  // modo degradado (JWT_KEY sin definir) y respondía 503 a todo.
   const server = spawn("node", ["--max-old-space-size=4096", SERVER_PATH], {
-    cwd: __dirname,
+    cwd: ROOT_DIR,
     stdio: "inherit",
     env: {
       ...process.env,

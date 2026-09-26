@@ -1,8 +1,9 @@
 import assert from "node:assert";
+import { basicAuthHeader } from "./test_credentials.js";
 
 async function runTests() {
   const baseUrl = "http://localhost:3000";
-  const authHeader = "Basic " + Buffer.from("admin:admin@admin").toString("base64");
+  const authHeader = basicAuthHeader();
   
   console.log("--- Starting System Integration Tests ---");
 

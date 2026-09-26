@@ -1,8 +1,9 @@
 import assert from "node:assert";
 import { fetchFunction } from "../../src/lib/handler/fetchFunction.js";
+import { basicAuthHeader } from "./test_credentials.js";
 
 const baseUrl = "http://localhost:3000";
-const authHeader = "Basic " + Buffer.from("admin:admin@admin").toString("base64");
+const authHeader = basicAuthHeader();
 
 const call = async (url, options = {}) => {
   const res = await fetch(url, options);

@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const ROOT_DIR = path.resolve(__dirname, "../..");
 
 async function runAllTests() {
   console.log("=== Starting Full System Validation Packet ===");
@@ -14,8 +15,13 @@ async function runAllTests() {
   // limiter (por defecto 5 fallos) devolvería 429 en lugar de los 401 esperados.
   // El rate limiting en sí se valida con rate_limit_policy_test.js e
   // rate_limit_integration_test.js.
-  const server = spawn("node", ["--max-old-space-size=4096", "../../src/server.js"], {
-    cwd: __dirname,
+  // El cwd es la RAÍZ del proyecto, no dev/test: `src/lib/index.js` hace
+  // `import "dotenv/config"`, que busca el .env desde process.cwd(). Con el cwd
+  // en dev/test el .env no aparecía, JWT_KEY quedaba sin definir y el servidor
+  // arrancaba en modo degradado ("toda la API responde 503"), de modo que el
+  // probe de readiness nunca veía un 200/401 y el packet abortaba a los 60 s.
+  const server = spawn("node", ["--max-old-space-size=4096", path.join(ROOT_DIR, "src/server.js")], {
+    cwd: ROOT_DIR,
     stdio: "inherit",
     env: {
       ...process.env,
@@ -28,7 +34,10 @@ async function runAllTests() {
   // Wait for server to be ready
   console.log("Waiting for server to be ready (polling http://localhost:3000)...");
   let ready = false;
-  const maxAttempts = 30;
+  let sawDegraded = false;
+  // 90 intentos x 2 s = 180 s. El margen es para BUILD_DB=true, que reconstruye
+  // los ~209 endpoints del seed antes de que el servidor acepte tráfico.
+  const maxAttempts = 90;
   for (let i = 0; i < maxAttempts; i++) {
     try {
       const res = await fetch("http://localhost:3000/api/system/system/login/prd", { method: "POST" });
@@ -37,6 +46,7 @@ async function runAllTests() {
         ready = true;
         break;
       }
+      if (res.status === 503) sawDegraded = true;
     } catch (e) {
       // Not ready yet
     }
@@ -46,6 +56,12 @@ async function runAllTests() {
 
   if (!ready) {
     console.error("Server failed to start in time. Aborting tests.");
+    if (sawDegraded) {
+      console.error(
+        "El servidor respondió 503 en todo momento: está en modo degradado. Suele ser JWT_KEY sin definir," +
+          " es decir, el .env de la raíz del proyecto no se está leyendo (¿cwd incorrecto al lanzarlo?).",
+      );
+    }
     server.kill();
     process.exit(1);
   }
@@ -160,6 +176,16 @@ async function runAllTests() {
         args: ["mcp_docs_consistency_test.mjs"],
       },
       {
+        // Puro: los cuatro fallos críticos de la superficie MCP, que eran silenciosos
+        // (el servidor respondía con normalidad y el agente se iba creyendo lo que le
+        // decían). Comprueba que los argumentos del agente llegan al endpoint, que los
+        // errores se marcan con isError, que las descripciones del JSON Schema llegan a
+        // tools/list y que el prefijo `READ ONLY:` decide las anotaciones de riesgo.
+        label: "mcp_tool_result_contract_test.js",
+        command: "node",
+        args: ["--test", "mcp_tool_result_contract_test.js"],
+      },
+      {
         // Puro: los listados que se leen por MCP filtraban distinto según el camino.
         // `list_bots` ocultaba token y code en el catálogo y los devolvía enteros en el
         // detalle por idbot; `search_code` filtraba por código sin devolverlo. Aquí se
@@ -215,22 +241,29 @@ async function runAllTests() {
       {
         label: "check_mcp_name_uniqueness",
         command: "node",
+        args: ["check_mcp_name_uniqueness.js"],
+      },
+      {
+        label: "check_mcp_name_uniqueness (demo)",
+        command: "node",
         args: [
           "check_mcp_name_uniqueness.js",
-          "--server-key",
-          "openfusion_system_remote_prd",
-          "--app",
-          "system",
-          "--environment",
-          "prd",
           "--idapp",
-          "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+          "c4ca4238-a0b9-2382-0dcc-509a6f75849b",
+          "--environment",
+          "dev",
         ],
       },
     ];
 
+    // Se recorren TODAS las suites aunque alguna falle: con `break` en el primer
+    // fallo, un test roto al principio (p. ej. unas credenciales desactualizadas)
+    // dejaba sin ejecutar las 20 siguientes y el reporte solo decia "VALIDATION
+    // FAILED" sin decir qué estaba verde. Ahora se acumula y se resume al final.
+    const results = [];
     for (const testRun of testRuns) {
       console.log(`\n--- Running ${testRun.label} ---`);
+      const startedAt = Date.now();
       const testProcess = spawn(testRun.command, testRun.args, {
         cwd: __dirname,
         stdio: "inherit"
@@ -240,11 +273,22 @@ async function runAllTests() {
         testProcess.on("exit", resolve);
       });
 
-      if (exitCode !== 0) {
+      const passed = exitCode === 0;
+      results.push({ label: testRun.label, exitCode, ms: Date.now() - startedAt });
+      if (!passed) {
         console.error(`${testRun.label} failed with exit code ${exitCode}`);
         success = false;
-        break;
       }
+    }
+
+    const failed = results.filter((r) => r.exitCode !== 0);
+    console.log("\n=== Validation summary ===");
+    for (const r of results) {
+      console.log(`  ${r.exitCode === 0 ? "PASS" : `FAIL(${r.exitCode})`}  ${r.label}  (${(r.ms / 1000).toFixed(1)}s)`);
+    }
+    console.log(`  ${results.length - failed.length}/${results.length} suites OK`);
+    if (failed.length > 0) {
+      console.log(`  Failed: ${failed.map((r) => r.label).join(", ")}`);
     }
   } catch (err) {
     console.error("Test execution error:", err);

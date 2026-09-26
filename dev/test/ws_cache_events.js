@@ -3,8 +3,10 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import WebSocket from "ws";
+import { basicAuthHeader } from "./test_credentials.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const ROOT_DIR = path.resolve(__dirname, "../..");
 const BASE_URL = process.env.WS_CACHE_TEST_BASE_URL || "http://localhost:3000";
 const WS_URL = process.env.WS_CACHE_TEST_WS_URL || "ws://localhost:3000/ws/system/websocket/server/prd";
 
@@ -12,7 +14,7 @@ const DEMO_IDAPP = "c4ca4238-a0b9-2382-0dcc-509a6f75849b";
 const SYSTEM_LOGIN_PATH = "/api/system/system/login/prd";
 const SYSTEM_CACHE_INVALIDATE_PATH = "/api/system/cache/invalidate/prd";
 const CACHEABLE_DEMO_PATH = "/api/demo/ofapi/examples/js/echo_name/dev?name=ws_cache_probe_20260522";
-const BASIC_AUTH_HEADER = `Basic ${Buffer.from("admin:admin@admin").toString("base64")}`;
+const BASIC_AUTH_HEADER = basicAuthHeader();
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -61,8 +63,11 @@ async function ensureServer() {
     return { spawned: null };
   }
 
-  const server = spawn("node", ["--max-old-space-size=4096", "../../src/server.js"], {
-    cwd: __dirname,
+  // cwd = raíz del proyecto: `src/lib/index.js` hace `import "dotenv/config"`, que
+  // busca el .env desde process.cwd(). Con cwd en dev/test el servidor arrancaba en
+  // modo degradado (JWT_KEY sin definir) y respondía 503 a todo.
+  const server = spawn("node", ["--max-old-space-size=4096", path.join(ROOT_DIR, "src/server.js")], {
+    cwd: ROOT_DIR,
     stdio: "inherit",
     env: {
       ...process.env,
