@@ -3,10 +3,37 @@ import { z } from "zod";
 
 /**
  * Convierte JSON Schema estándar a Zod 4 (compatible con MCP SDK).
+ *
+ * La `description` del JSON Schema se traslada al esquema Zod resultante. Sin esto
+ * `z.toJSONSchema()` no tiene nada que serializar y el `description` se pierde: la
+ * herramienta llegaba a `tools/list` con los nombres de los parámetros pero sin una
+ * sola explicación de qué acepta cada uno, mientras `get_endpoint_tool_docs` (que sí
+ * lee el JSON Schema crudo) mostraba la documentación. Solo sobrevivían las
+ * descripciones escritas a mano con `.describe()` en las tools de runtime.
+ *
  * @param {object} schema JSON Schema
  * @param {object} [root] Schema raíz (para resolver $ref)
  */
 export function jsonSchemaToZod(schema, root = null, context = null) {
+  return applySchemaDescription(buildZodFromJsonSchema(schema, root, context), schema);
+}
+
+/**
+ * Traslada `description` al esquema Zod ya construido. No sobrescribe una descripción
+ * previa (la del wrapper `{ value: ... }` la pone el llamante) y tolera que el esquema
+ * no soporte el método, para no romper la conversión por un campo de documentación.
+ */
+function applySchemaDescription(zodSchema, schema) {
+  const description = typeof schema?.description === "string" ? schema.description.trim() : "";
+  if (!description) return zodSchema;
+  if (!zodSchema || typeof zodSchema.describe !== "function") return zodSchema;
+  if (typeof zodSchema.description === "string" && zodSchema.description.length > 0) {
+    return zodSchema;
+  }
+  return zodSchema.describe(description);
+}
+
+function buildZodFromJsonSchema(schema, root = null, context = null) {
   root = root || schema;
   context = context || {
     refCache: new Map(),

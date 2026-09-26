@@ -31,21 +31,27 @@ SELECT * FROM users WHERE id = :id
 ```
 
 **`custom_data` - Inline config**:
+`custom_data` **is** the connection config: the keys live at the root of the object. There is no
+`config` wrapper — the handler reads `custom_data` as the config itself, so nesting the connection
+under `config` produces `400 Database Params configuration is not complete` while the endpoint looks
+correctly configured.
 ```json
 {
-  "config": {
-    "database": "my_db",
-    "username": "db_user",
-    "password": "db_password",
-    "options": {
-      "host": "localhost",
-      "port": 5432,
-      "dialect": "postgres"
-    }
-  },
-  "query_type": "SELECT"
+  "database": "my_db",
+  "username": "db_user",
+  "password": "db_password",
+  "query_type": "SELECT",
+  "options": {
+    "host": "localhost",
+    "port": 5432,
+    "dialect": "postgres"
+  }
 }
 ```
+
+`options` is required: the handler only opens a connection when both `options` and `code` are present.
+`options.dialect` must be explicit — omitting it surfaces the raw Sequelize message
+`Dialect needs to be explicitly supplied as of v4.0.0` rather than a field-level error.
 
 **`custom_data` — Application Variable reference** _(recommended for production)_:
 Instead of storing credentials in the endpoint, reference an Application Variable by name. The runtime resolves this string to the actual connection config stored in AppVars:
@@ -206,17 +212,15 @@ Endpoint `custom_data`:
 
 ```json
 {
-  "config": {
-    "database": "crm",
-    "username": "readonly",
-    "password": "secret",
-    "options": {
-      "host": "db.internal",
-      "port": 5432,
-      "dialect": "postgres"
-    }
-  },
-  "query_type": "SELECT"
+  "database": "crm",
+  "username": "readonly",
+  "password": "secret",
+  "query_type": "SELECT",
+  "options": {
+    "host": "db.internal",
+    "port": 5432,
+    "dialect": "postgres"
+  }
 }
 ```
 

@@ -23,24 +23,25 @@ When an endpoint is configured with the **SQL_BULK_I** handler:
 
 The configuration must be a valid **JSON object**.
 
-**Required Fields**:
--   `table_name`: Target table (can include schema, e.g., `schema.table`).
--   `config`: Database connection details.
+**Required Fields** (all at the root of `custom_data` — there is no `config` wrapper, the handler
+reads `custom_data` as the connection config itself):
+-   `database`: Database name. Missing it returns `400 Database is required`.
+-   `options`: Connection options. Missing it returns `400 Params configuration is not complete`.
 -   `ignoreDuplicates`: (Optional) Boolean to ignore duplicate key errors.
+-   `query_type`: (Optional) Defaults to `INSERT`.
 
-**Example**:
+The target table comes from `code` (`table_name` above is the table name, optionally schema-qualified).
+
+**Example** — `code` is `inventory.logs` and `custom_data` is:
 ```json
 {
-  "table_name": "inventory.logs",
+  "database": "warehouse_db",
+  "username": "writer_svc",
+  "password": "secure_password",
   "ignoreDuplicates": true,
-  "config": {
-    "database": "warehouse_db",
-    "username": "writer_svc",
-    "password": "secure_password",
-    "options": {
-      "host": "192.168.1.50",
-      "dialect": "postgres"
-    }
+  "options": {
+    "host": "192.168.1.50",
+    "dialect": "postgres"
   }
 }
 ```

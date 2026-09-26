@@ -478,7 +478,10 @@ export const demo_app = {
         "enabled": true,
         "name": "demo_sql_echo_name_v1",
         "title": "demo_sql_echo_name_v1",
-        "description": "Return the provided name using a parameterized SQL query over the demo SQLite config."
+        "description": "Return the provided name using a parameterized SQL query over the demo SQLite config.",
+        "meta": {
+          "operation_mode": "read"
+        }
       },
       "json_schema": {
         "in": {
@@ -914,7 +917,10 @@ export const demo_app = {
         "enabled": true,
         "name": "demo_fetch_store_products_v1",
         "title": "demo_fetch_store_products_v1",
-        "description": "Fetch the fake store products list through the demo FETCH endpoint."
+        "description": "Fetch the fake store products list through the demo FETCH endpoint.",
+        "meta": {
+          "operation_mode": "read"
+        }
       },
       "json_schema": {
         "in": {
@@ -1763,7 +1769,10 @@ export const demo_app = {
         "enabled": true,
         "name": "demo_text_plain_v1_20260403220103",
         "title": "demo_text_plain_v1",
-        "description": "Return a plain text example from the demo TEXT handler."
+        "description": "Return a plain text example from the demo TEXT handler.",
+        "meta": {
+          "operation_mode": "read"
+        }
       },
       "json_schema": {
         "in": {
@@ -2823,7 +2832,10 @@ export const demo_app = {
         "enabled": true,
         "name": "example_sql_bind_config_param",
         "title": "SQL Example - Bind with config as parameter",
-        "description": "This endpoint uses the SQL handler to connect to a database and execute a query.\n\nThe endpoint is accessed through the HTTP GET method, which requires a mandatory parameter called name. This parameter is securely bound to the SQL query using Sequelize parameter binding, following Sequelize's recommended query parameterization practices to ensure safe query execution.\n\nUnlike configurations that rely on application-level variables, the database connection parameters for this endpoint are defined directly within a JSON configuration specific to the endpoint. This configuration includes the necessary information required to establish the database connection during execution.\n\nThe input parameter structure and validation rules are defined using a JSON Schema, which ensures that the request contains the required parameter and that the data type is correct.\n\nAdditionally, this endpoint is registered as an MCP tool, allowing it to be invoked directly by AI agents. The tool includes a title and description designed to help AI systems understand the purpose of the endpoint and when it should be used.\n\nKey Operational Details\n\nHandler Type: SQL\n\nHTTP Method: GET\n\nRequired Parameter: name\n\nQuery Binding: Sequelize parameter binding\n\nDatabase Configuration: Defined locally in a JSON configuration specific to this endpoint\n\nInput Validation: JSON Schema\n\nAI Integration: Exposed as an MCP tool with descriptive metadata for AI consumption"
+        "description": "This endpoint uses the SQL handler to connect to a database and execute a query.\n\nThe endpoint is accessed through the HTTP GET method, which requires a mandatory parameter called name. This parameter is securely bound to the SQL query using Sequelize parameter binding, following Sequelize's recommended query parameterization practices to ensure safe query execution.\n\nUnlike configurations that rely on application-level variables, the database connection parameters for this endpoint are defined directly within a JSON configuration specific to the endpoint. This configuration includes the necessary information required to establish the database connection during execution.\n\nThe input parameter structure and validation rules are defined using a JSON Schema, which ensures that the request contains the required parameter and that the data type is correct.\n\nAdditionally, this endpoint is registered as an MCP tool, allowing it to be invoked directly by AI agents. The tool includes a title and description designed to help AI systems understand the purpose of the endpoint and when it should be used.\n\nKey Operational Details\n\nHandler Type: SQL\n\nHTTP Method: GET\n\nRequired Parameter: name\n\nQuery Binding: Sequelize parameter binding\n\nDatabase Configuration: Defined locally in a JSON configuration specific to this endpoint\n\nInput Validation: JSON Schema\n\nAI Integration: Exposed as an MCP tool with descriptive metadata for AI consumption",
+        "meta": {
+          "operation_mode": "read"
+        }
       },
       "json_schema": {
         "in": {
@@ -3516,7 +3528,10 @@ export const demo_app = {
         "enabled": true,
         "name": "demo_js_sum_numbers_v1",
         "title": "demo_js_sum_numbers_v1",
-        "description": "Add query parameters a and b and return the numeric result."
+        "description": "Add query parameters a and b and return the numeric result.",
+        "meta": {
+          "operation_mode": "read"
+        }
       },
       "json_schema": {
         "in": {
@@ -3635,7 +3650,10 @@ export const demo_app = {
         "enabled": true,
         "name": "demo_soap_number_to_words_v1",
         "title": "demo_soap_number_to_words_v1",
-        "description": "Convert the query parameter ubiNum to words using the demo SOAP service."
+        "description": "Convert the query parameter ubiNum to words using the demo SOAP service.",
+        "meta": {
+          "operation_mode": "read"
+        }
       },
       "json_schema": {
         "in": {
@@ -4063,7 +4081,10 @@ export const demo_app = {
         "enabled": true,
         "name": "add_two_numbers",
         "title": "add_two_numbers",
-        "description": "add two numbers"
+        "description": "add two numbers",
+        "meta": {
+          "operation_mode": "read"
+        }
       },
       "json_schema": {
         "in": {
@@ -4312,7 +4333,10 @@ export const demo_app = {
         "enabled": true,
         "name": "demo_text_xml_v1",
         "title": "demo_text_xml_v1",
-        "description": "Return an XML example from the demo TEXT handler."
+        "description": "Return an XML example from the demo TEXT handler.",
+        "meta": {
+          "operation_mode": "read"
+        }
       },
       "json_schema": {
         "in": {
@@ -4532,7 +4556,10 @@ export const demo_app = {
         "enabled": true,
         "name": "demo_function_add_v1",
         "title": "demo_function_add_v1",
-        "description": "Add num_a and num_b using the public demo function fnPublicAdd."
+        "description": "Add num_a and num_b using the public demo function fnPublicAdd.",
+        "meta": {
+          "operation_mode": "read"
+        }
       },
       "json_schema": {
         "in": {
@@ -4750,7 +4777,10 @@ export const demo_app = {
         "enabled": true,
         "name": "demo_text_plain_v1",
         "title": "demo_text_plain_v1",
-        "description": "Return a plain text example from the demo TEXT handler."
+        "description": "Return a plain text example from the demo TEXT handler.",
+        "meta": {
+          "operation_mode": "read"
+        }
       },
       "json_schema": {
         "in": {
@@ -5069,7 +5099,10 @@ export const demo_app = {
         "enabled": true,
         "name": "demo_soap_number_to_dollars_v1",
         "title": "demo_soap_number_to_dollars_v1",
-        "description": "Convert the query parameter dNum to a words/dollars string using the demo SOAP service."
+        "description": "Convert the query parameter dNum to a words/dollars string using the demo SOAP service.",
+        "meta": {
+          "operation_mode": "read"
+        }
       },
       "json_schema": {
         "in": {
@@ -5153,7 +5186,10 @@ export const demo_app = {
         "enabled": true,
         "name": "demo_fetch_store_carts_v1",
         "title": "demo_fetch_store_carts_v1",
-        "description": "Fetch the fake store carts list through the demo FETCH endpoint."
+        "description": "Fetch the fake store carts list through the demo FETCH endpoint.",
+        "meta": {
+          "operation_mode": "read"
+        }
       },
       "json_schema": {
         "in": {
@@ -5253,7 +5289,10 @@ export const demo_app = {
         "enabled": true,
         "name": "demo_fetch_github_user_v1",
         "title": "demo_fetch_github_user_v1",
-        "description": "Fetch the public GitHub profile for edwinspire through the demo FETCH endpoint."
+        "description": "Fetch the public GitHub profile for edwinspire through the demo FETCH endpoint.",
+        "meta": {
+          "operation_mode": "read"
+        }
       },
       "json_schema": {
         "in": {
@@ -5353,7 +5392,10 @@ export const demo_app = {
         "enabled": true,
         "name": "demo_sql_constant_v1",
         "title": "demo_sql_constant_v1",
-        "description": "Return a constant value from a SQL query over the demo SQLite config."
+        "description": "Return a constant value from a SQL query over the demo SQLite config.",
+        "meta": {
+          "operation_mode": "read"
+        }
       },
       "json_schema": {
         "in": {
@@ -5525,7 +5567,10 @@ export const demo_app = {
         "enabled": true,
         "name": "demo_js_echo_name_v2",
         "title": "demo_js_echo_name_v2",
-        "description": "Return the provided name from the demo JS example endpoint."
+        "description": "Return the provided name from the demo JS example endpoint.",
+        "meta": {
+          "operation_mode": "read"
+        }
       },
       "json_schema": {
         "in": {
@@ -6725,7 +6770,10 @@ export const demo_app = {
         "enabled": true,
         "name": "example_sql_bind_config_appvar",
         "title": "SQL Example  - Config on appvar",
-        "description": "This endpoint uses the SQL handler to establish a connection to a database and execute a query.\n\nThe HTTP GET method expects a required parameter called name. This parameter is safely bound to the SQL query using Sequelize parameter binding, ensuring proper query parameterization and preventing SQL injection.\n\nThe database connection configuration is provided through the application variable $_VAR_SQLITE.\nThis variable contains a JSON object with the database connection parameters. During runtime, the system automatically replaces this variable with the actual connection configuration.\n\nThe input parameters are defined using a JSON Schema, which specifies the required structure and validation rules for the request.\n\nAdditionally, this endpoint is exposed as an MCP tool, meaning it can be invoked directly by AI agents. The tool includes a title and description specifically designed to help AI systems understand when and how to use this endpoint.\n\nKey Operational Details\n\nHandler Type: SQL\n\nExecution Context: Database query via Sequelize\n\nInput Parameter: name (required)\n\nDatabase Configuration: Provided via the runtime variable $_VAR_SQLITE\n\nInput Validation: Defined using JSON Schema\n\nAI Integration: Registered as an MCP tool with descriptive metadata for AI usage"
+        "description": "This endpoint uses the SQL handler to establish a connection to a database and execute a query.\n\nThe HTTP GET method expects a required parameter called name. This parameter is safely bound to the SQL query using Sequelize parameter binding, ensuring proper query parameterization and preventing SQL injection.\n\nThe database connection configuration is provided through the application variable $_VAR_SQLITE.\nThis variable contains a JSON object with the database connection parameters. During runtime, the system automatically replaces this variable with the actual connection configuration.\n\nThe input parameters are defined using a JSON Schema, which specifies the required structure and validation rules for the request.\n\nAdditionally, this endpoint is exposed as an MCP tool, meaning it can be invoked directly by AI agents. The tool includes a title and description specifically designed to help AI systems understand when and how to use this endpoint.\n\nKey Operational Details\n\nHandler Type: SQL\n\nExecution Context: Database query via Sequelize\n\nInput Parameter: name (required)\n\nDatabase Configuration: Provided via the runtime variable $_VAR_SQLITE\n\nInput Validation: Defined using JSON Schema\n\nAI Integration: Registered as an MCP tool with descriptive metadata for AI usage",
+        "meta": {
+          "operation_mode": "read"
+        }
       },
       "json_schema": {
         "in": {
@@ -6830,7 +6878,10 @@ export const demo_app = {
         "enabled": true,
         "name": "demo_js_qr_code_styling",
         "title": "demo_js_qr_code_styling",
-        "description": "Generates a QR code image using qr-code-styling library."
+        "description": "Generates a QR code image using qr-code-styling library.",
+        "meta": {
+          "operation_mode": "read"
+        }
       },
       "json_schema": {
         "in": {
@@ -6915,7 +6966,10 @@ export const demo_app = {
         "enabled": true,
         "name": "demo_function_demo_v1",
         "title": "demo_function_demo_v1",
-        "description": "Call the public demo function fnPublicDemo."
+        "description": "Call the public demo function fnPublicDemo.",
+        "meta": {
+          "operation_mode": "read"
+        }
       },
       "json_schema": {
         "in": {
@@ -7120,7 +7174,10 @@ export const demo_app = {
         "enabled": true,
         "name": "demo_fetch_github_repos_v1",
         "title": "demo_fetch_github_repos_v1",
-        "description": "Fetch the public GitHub repositories for edwinspire through the demo FETCH endpoint."
+        "description": "Fetch the public GitHub repositories for edwinspire through the demo FETCH endpoint.",
+        "meta": {
+          "operation_mode": "read"
+        }
       },
       "json_schema": {
         "in": {
@@ -7220,7 +7277,10 @@ export const demo_app = {
         "enabled": true,
         "name": "demo_ldap_search_v1",
         "title": "demo_ldap_search_v1",
-        "description": "Functional LDAP test: binds with the service account, searches people (optional uid filter) and optionally validates a user password against the demo OpenLDAP server."
+        "description": "Functional LDAP test: binds with the service account, searches people (optional uid filter) and optionally validates a user password against the demo OpenLDAP server.",
+        "meta": {
+          "operation_mode": "read"
+        }
       },
       "json_schema": {
         "in": {

@@ -8,6 +8,7 @@ import * as z from "zod";
 //import uFetch from "@rddslab/uFetch";
 import { URLAutoEnvironment } from "../../functionVars.js";
 import { sanitizeToolName, normalizeToolKey } from "../../mcp/toolNames.js";
+import { buildToolResult, resolveOperationMode } from "../../mcp/toolResult.js";
 
 export const CreateMCPHandler = async (app_name, environment) => {
 
@@ -63,15 +64,11 @@ export const CreateMCPHandler = async (app_name, environment) => {
     },
     handler: async ({ handler }) => {
       const skill = await readHandlerSkill(handler);
-      return {
-        content: [
-          {
-            type: "text",
-            mimeType: "text/markdown",
-            text: skill.markdown
-          }
-        ]
-      };
+      return buildToolResult({
+        text: skill.markdown,
+        mimeType: "text/markdown",
+        isError: false,
+      });
     }
   });
 
@@ -98,15 +95,12 @@ export const CreateMCPHandler = async (app_name, environment) => {
         inputSchema: {},
         annotations: { readOnlyHint: true },
       },
-      handler: async () => ({
-        content: [
-          {
-            type: "text",
-            mimeType: "text/markdown",
-            text: instanceNotice,
-          },
-        ],
-      }),
+      handler: async () =>
+        buildToolResult({
+          text: instanceNotice,
+          mimeType: "text/markdown",
+          isError: false,
+        }),
     });
   }
 
@@ -1207,7 +1201,14 @@ ${endpointTestHandlerGuide}
     markdown_api_docs.push(toolDocBlock);
     endpointToolDocsIndex.set(safeToolName, toolDocBlock);
 
-    let zod_inputSchema = z.object({}).describe("Data to send to the endpoint.");
+    // Endpoint sin `json_schema.in`: se publica un objeto que acepta cualquier cosa.
+    // Necesita `.passthrough()` porque el objeto vacío de Zod hace STRIP, y entonces
+    // la llamada era aceptada, los argumentos del agente desaparecían, el endpoint
+    // recibía un body vacío y respondía 200: el agente creía haber ejecutado la
+    // operación con los datos que había enviado. Con `passthrough` llega tal cual,
+    // que es lo que el endpoint recibiría por HTTP. Los tres caminos "flexibles" de
+    // más abajo ya lo usaban; este era el único que se olvidaba.
+    let zod_inputSchema = z.object({}).passthrough().describe("Data to send to the endpoint.");
     let shouldUnwrapSingleValueInput = false;
 
     if (
@@ -1253,6 +1254,16 @@ ${endpointTestHandlerGuide}
     // fuentes de verdad; `mcp.destructive` permite matizar los casos en los que
     // "write" no implica destruir nada (por ejemplo invalidar caché).
     //
+    // `mcp.meta.operation_mode` es la fuente autoritativa. Como fallback se lee el
+    // prefijo textual `READ ONLY:` / `WRITE OPERATION:` de la descripción, que es lo
+    // que la documentación indicaba como forma de declarar el modo y lo que muchos
+    // endpoints ya traían escrito sin que sirviera para nada: el prefijo no se leía,
+    // así que todo endpoint sin `operation_mode` caía en `destructiveHint: true`. Fue
+    // como 20 de las 25 tools de la app de demostración se anunciaban como
+    // destructivas, incluidas lecturas puras como `text_plain` o `js_echo_name`, y en
+    // un cliente que exige aprobación humana para tools destructivas eso bloquea la
+    // app entera.
+    //
     // NOTA: no se publica `outputSchema` a propósito. El SDK exige que toda tool
     // que lo declare devuelva `structuredContent` (validateToolOutput en
     // @modelcontextprotocol/sdk/server/mcp.js), y estas tools devuelven el cuerpo
@@ -1261,7 +1272,8 @@ ${endpointTestHandlerGuide}
     // "Output validation error". La forma de la respuesta se documenta en el
     // dump de `list_api_endpoints_<app>`.
     const buildToolAnnotations = () => {
-      const isReadOnly = String(getMcpField(endpoint, "operation_mode") ?? "").trim() === "read";
+      const isReadOnly =
+        resolveOperationMode(getMcpField(endpoint, "operation_mode"), effectiveDescription) === "read";
       if (isReadOnly) {
         return { readOnlyHint: true };
       }
@@ -1344,28 +1356,18 @@ ${endpointTestHandlerGuide}
             const mimeType = request_endpoint.headers.get("content-type") ?? "text/plain";
             const data_out = await request_endpoint.text();
 
-            return {
-              content: [
-                {
-                  type: "text",
-                  mimeType: mimeType,
-                  text: data_out,
-                  statusCode: request_endpoint.status,
-                },
-              ],
-            };
+            return buildToolResult({
+              text: data_out,
+              mimeType,
+              statusCode: request_endpoint.status,
+            });
           } catch (error) {
             console.error(`[MCP] Error al llamar al endpoint ${url_internal}: `, error);
-            return {
-              content: [
-                {
-                  type: "text",
-                  mimeType: "text/plain",
-                  text: `Error: ${error?.message || "Error desconocido al llamar al endpoint."} `,
-                  statusCode: 500,
-                },
-              ],
-            };
+            return buildToolResult({
+              text: `Error: ${error?.message || "Error desconocido al llamar al endpoint."} `,
+              mimeType: "text/plain",
+              statusCode: 500,
+            });
           }
         }
       });
@@ -1447,15 +1449,14 @@ _mcpConfig.tools.push({
   handler: async (data) => {
     const report = buildJsonSchemaOperationalReport(data || {});
 
-    return {
-      content: [
-        {
-          type: "text",
-          mimeType: "application/json",
-          text: JSON.stringify(report, null, 2),
-        },
-      ],
-    };
+    // `isError: false` explícito: un informe que dice que el schema no es compatible
+    // es una respuesta válida de esta tool, no un fallo de la llamada.
+    return buildToolResult({
+      text: JSON.stringify(report, null, 2),
+      mimeType: "application/json",
+      statusCode: 200,
+      isError: false,
+    });
   }
 });
 
@@ -1475,14 +1476,12 @@ _mcpConfig.tools.push({
     inputSchema: {},
     annotations: { readOnlyHint: true },
   },
-  handler: async () => ({
-    content: [
-      {
-        type: "text",
-        text: md_catalog_resource,
-      },
-    ],
-  })
+  handler: async () =>
+    buildToolResult({
+      text: md_catalog_resource,
+      mimeType: "text/markdown",
+      isError: false,
+    })
 });
 
 _mcpConfig.tools.push({
@@ -1515,14 +1514,7 @@ _mcpConfig.tools.push({
         `To see a specific endpoint, call get_endpoint_tool_docs with the tool name (never truncated), or invoke it directly — each tool's own description includes the HTTP target and required fields.`;
     }
 
-    return {
-      content: [
-        {
-          type: "text",
-          text,
-        },
-      ],
-    };
+    return buildToolResult({ text, mimeType: "text/markdown", isError: false });
   }
 });
 
@@ -1549,28 +1541,21 @@ _mcpConfig.tools.push({
     );
 
     if (!requestedToolName) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Error: parameter 'tool' is required. Available tools can be listed with list_api_endpoints_catalog_${app_name}.`,
-          },
-        ],
-      };
+      return buildToolResult({
+        text: `Error: parameter 'tool' is required. Available tools can be listed with list_api_endpoints_catalog_${app_name}.`,
+        mimeType: "text/plain",
+        isError: true,
+      });
     }
 
     const entry = endpointToolDocsIndex.get(requestedToolName);
 
     if (entry) {
-      return {
-        content: [
-          {
-            type: "text",
-            mimeType: "text/markdown",
-            text: entry,
-          },
-        ],
-      };
+      return buildToolResult({
+        text: entry,
+        mimeType: "text/markdown",
+        isError: false,
+      });
     }
 
     const suggestions = [...endpointToolDocsIndex.keys()]
@@ -1581,14 +1566,11 @@ _mcpConfig.tools.push({
       ? `Did you mean: ${suggestions.join(", ")}?`
       : `Full catalog: list_api_endpoints_catalog_${app_name}.`;
 
-    return {
-      content: [
-        {
-          type: "text",
-          text: `Error: no per-endpoint documentation found for tool '${requestedToolName}'. ${suggestionText}`,
-        },
-      ],
-    };
+    return buildToolResult({
+      text: `Error: no per-endpoint documentation found for tool '${requestedToolName}'. ${suggestionText}`,
+      mimeType: "text/plain",
+      isError: true,
+    });
   }
 });
 

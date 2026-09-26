@@ -4204,16 +4204,20 @@ export const system_app = {
                 "description": "UUID of the application whose endpoints you want to list. Obtain it from 'apps_catalog'."
               },
               "environment": {
-                "type": "string"
+                "type": "string",
+                "description": "Target environment: dev, qa or prd."
               },
               "method": {
-                "type": "string"
+                "type": "string",
+                "description": "HTTP method filter, for example GET or POST."
               },
               "handler": {
-                "type": "string"
+                "type": "string",
+                "description": "Handler filter, for example JS, SQL, FETCH or TEXT."
               },
               "enabled": {
-                "type": "boolean"
+                "type": "boolean",
+                "description": "When true, only enabled endpoints are returned."
               },
               "include_code": {
                 "type": "boolean",
@@ -4390,6 +4394,7 @@ export const system_app = {
               },
               "endpoint": {
                 "type": "object",
+                "description": "Filters that can be applied to the endpoint list.",
                 "properties": {
                   "idendpoint": {
                     "type": "string",
@@ -6263,10 +6268,12 @@ export const system_app = {
                 "description": "UUID of the application whose variables you want to list. Obtain it from 'apps_catalog'."
               },
               "environment": {
-                "type": "string"
+                "type": "string",
+                "description": "Target environment: dev, qa or prd."
               },
               "include_values": {
-                "type": "boolean"
+                "type": "boolean",
+                "description": "When true, the stored values are included in the response."
               },
               "limit": {
                 "type": "integer",
@@ -10595,10 +10602,12 @@ export const system_app = {
             "type": "object",
             "properties": {
               "app": {
-                "type": "string"
+                "type": "string",
+                "description": "Application name filter, for example system or demo."
               },
               "enabled": {
-                "type": "boolean"
+                "type": "boolean",
+                "description": "When true, only enabled applications are returned."
               },
               "limit": {
                 "type": "integer",
@@ -12973,7 +12982,8 @@ export const system_app = {
             "type": "object",
             "properties": {
               "idapp": {
-                "type": "string"
+                "type": "string",
+                "description": "UUID of the application that owns the variable."
               }
             },
             "additionalProperties": false,

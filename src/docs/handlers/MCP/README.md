@@ -60,7 +60,8 @@ Every MCP-enabled endpoint should keep its tool contract structured and predicta
 
 Recommended `mcp.meta` fields:
 
-- `operation_mode`: `read` or `write`.
+- `operation_mode`: `read` or `write`. This is the authoritative source for the tool annotations
+  published to MCP clients.
 - `requires_explicit_confirmation`: `true` for mutating tools.
 - `side_effects`: short description of persistent impact.
 - `safe_alternative`: the safest read-only tool to inspect before using a mutating tool.
@@ -75,7 +76,10 @@ Naming rules:
 
 Description rules:
 
-- Start with either `READ ONLY:` or `WRITE OPERATION:`.
+- Start with either `READ ONLY:` or `WRITE OPERATION:`. The prefix is also read by the server when
+  `mcp.meta.operation_mode` is absent, as a fallback for deriving `annotations.readOnlyHint` /
+  `annotations.destructiveHint`; declaring `operation_mode` is still preferred because it does not
+  depend on prose.
 - State the minimum required parameters.
 - State the expected result shape or effect.
 - If the tool is mutating, explain the confirmation expectation clearly.

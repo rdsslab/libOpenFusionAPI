@@ -20,38 +20,45 @@ When an endpoint is configured with the **MONGODB** handler:
 <details>
 <summary>⚙️ Endpoint Configuration</summary>
 
-The handler configuration can be structured in several ways inside the connection object (`config`/`custom_data`/`mongo_config`):
+`custom_data` **is** the connection config: the keys live at the root of the object. There is no
+`config` or `mongo_config` wrapper. Nesting the connection under `config` leaves the handler with
+`uri`, `host`, `port`, `dbName`, `user` and `pass` all undefined, and the request fails when Mongoose
+tries to build a connection string out of them.
 
-1. **Usando una URI directa (Recomendado para MongoDB Atlas)**:
+1. **Usando una URI directa (Recomendado para MongoDB Atlas)** — `uri` also at the root:
 ```json
 {
-  "config": {
-    "uri": "mongodb+srv://user:password@cluster.mongodb.net/my_database?appName=Cluster0",
-    "options": {
-      "ssl": true
-    }
-  },
-  "code": " ... javascript logic ... "
+  "uri": "mongodb+srv://user:password@cluster.mongodb.net/my_database?appName=Cluster0",
+  "dbName": "my_database",
+  "options": {
+    "ssl": true
+  }
 }
 ```
-Or directly as a string if only the connection URI is required.
+When `uri` is present, `dbName`, `user` and `pass` are forwarded from the top-level keys as Mongoose
+connection options.
 
-2. **Estructura por partes (Legacy)**:
+2. **Estructura por partes**:
 ```json
 {
-  "config": {
-    "host": "localhost",
-    "port": 27017,
-    "dbName": "my_database",
-    "user": "admin",
-    "pass": "secret",
-    "options": {
-      "useNewUrlParser": true
-    }
-  },
-  "code": " ... javascript logic ... "
+  "host": "localhost",
+  "port": 27017,
+  "dbName": "my_database",
+  "user": "admin",
+  "pass": "secret",
+  "options": {
+    "useNewUrlParser": true
+  }
 }
 ```
+
+If `custom_data` is empty the handler connects to `localhost:27017` with database `my_db` and no
+credentials, so a misconfigured endpoint can appear to work while reading a different database.
+
+**Application Variables**: like the other handlers, a bare `"$_VAR_MONGO_DB"` string in `custom_data`
+is resolved to the stored config before the handler runs. The value must still be a valid JSON
+object, and a raw (non-JSON) URI string is rejected with
+`400 Invalid JSON in method custom_data/AppVar`.
 
 </details>
 
