@@ -69,27 +69,49 @@ export async function fnCreateApiClient(params) {
     let data = await createApiClient(body);
 
     if (data && data.client) {
-      let mail = {
-        from: "noreply@openfusionapi.com",
-        to: "edwinspire@gmail.com",
-        subject: `Welcome ${data.client.username}`,
-        html: userRegister(data.client.username, data.password),
-      };
-
-      // Enviar por email la clave al usuario (token de sistema, en memoria)
-      const uF = new uFetch(SYSTEM_PATHS.SEND_EMAIL.PATH);
-      uF.setBearerAuthorization(getSystemToken());
-      const req = await uF[SYSTEM_PATHS.SEND_EMAIL.METHOD]({ data: mail });
-      const res = await req.json();
-
       let token = GenToken({ api: data.client }, 10 * 60); // Valido por 10 minutos
 
-      // TODO: Si falla el envio al correo guardar en log
+      // El envío del correo es un efecto secundario ACCESORIO: la fila ya está creada y la
+      // contraseña ya se devuelve en la respuesta, que es el canal fiable. Por eso un fallo
+      // del envío no puede tumbar la llamada —si lo hiciera, quien la reintentaría crearía un
+      // segundo cliente con una contraseña que nunca se le entregó, sin enterarse de que el
+      // primero sí existe—. Se registra en el log y se avisa en la respuesta.
+      //
+      // El destinatario es el email del propio cliente, con el que se pidió el alta. Antes
+      // era una dirección personal fija, así que la contraseña en claro de cada cliente de
+      // API del mundo acababa en el buzón de quien mantiene el proyecto.
+      let emailResult = null;
+      let emailWarning = null;
+      try {
+        const mail = {
+          from: "noreply@openfusionapi.com",
+          to: data.client.email,
+          subject: `Welcome ${data.client.username}`,
+          html: userRegister(data.client.username, data.password),
+        };
+
+        const uF = new uFetch(SYSTEM_PATHS.SEND_EMAIL.PATH);
+        uF.setBearerAuthorization(getSystemToken());
+        const req = await uF[SYSTEM_PATHS.SEND_EMAIL.METHOD]({ data: mail });
+        emailResult = await req.json();
+      } catch (mailError) {
+        const reason = mailError?.message || String(mailError);
+        console.error(
+          `❌ API client ${data.client.username} creado, pero el correo a ${data.client.email} no salió:`,
+          reason,
+        );
+        emailWarning =
+          "The API client was created, but the welcome email could not be sent, " +
+          `so it was never delivered to ${data.client.email}: ${reason}. ` +
+          "The password in this response is the only copy; hand it over over a channel you trust.";
+      }
+
       r.data = {
         client: data.client,
         password: data.password, // Contraseña generada; se muestra una sola vez
         token: token,
-        email: res,
+        email: emailResult,
+        ...(emailWarning ? { warning: emailWarning } : {}),
       };
       r.code = 200;
     } else {

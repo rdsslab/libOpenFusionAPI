@@ -449,10 +449,10 @@ export const system_app = {
         "enabled": true,
         "name": "apiclient_create",
         "title": "Create API Client",
-        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution.\nCreates a new external API client. A random password is generated and returned in the response (shown only once). Required field: email. Optional: username, first_name, last_name, status, document_id, document_type, phone, startAt, endAt, exp_time.",
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution.\nCreates a new external API client. A random password is generated and returned in the response (shown only once). Required field: email. Optional: username, first_name, last_name, status, document_id, document_type, phone, startAt, endAt, exp_time.\nA welcome email carrying that password is also sent to the `email` you pass, and only to that address. That send is an ACCESSORY: it happens after the row is already committed, so if it fails the client still exists and the call still returns 200, with a `warning` field explaining that the email never went out. Do not retry on seeing that warning \u2014 the client exists, and a retry creates a second one with a different password.",
         "operation_mode": "write",
         "requires_explicit_confirmation": true,
-        "side_effects": "Creates a new ApiClient row. The plaintext password is returned only in this response and cannot be recovered.",
+        "side_effects": "Creates a new ApiClient row. The plaintext password is returned only in this response and cannot be recovered. Sends one welcome email, to the client\u0027s own `email` and nowhere else, containing that same plaintext password; on failure the row stands and the response carries a `warning` instead of failing.",
         "safe_alternative": "Call 'list_api_clients' first to check whether the client already exists."
       },
       "json_schema": {
@@ -465,7 +465,7 @@ export const system_app = {
             "additionalProperties": false,
             "properties": {
               "email": { "type": "string", "description": "Client email address (required)." },
-              "username": { "type": "string", "description": "Username. Defaults to the email prefix if omitted." },
+              "username": { "type": "string", "description": "Username. If omitted it becomes the client\'s email address IN FULL (the beforeValidate hook assigns username = email, it does not truncate at the @), so leaving it out on \"ana@acme.com\" yields \"ana@acme.com\", not \"ana\"." },
               "first_name": { "type": "string", "description": "First name." },
               "last_name": { "type": "string", "description": "Last name." },
               "status": { "type": "string", "enum": ["initial", "active", "suspended", "inactive"], "description": "Client status." },
@@ -9542,18 +9542,22 @@ export const system_app = {
       },
       "cors": {},
       "mcp": {
-        "enabled": false,
-        "name": "",
-        "title": "",
-        "description": ""
+        "enabled": true,
+        "name": "get_libopenfusionapi_latest_version",
+        "title": "Get Latest libOpenFusionAPI Version",
+        "description": "WRITE OPERATION: this tool changes global state. It does not alter the version it reports, but it WRITES the result into the application variable \u0024_VAR_LIBOFAPI_ULTIMA_VERSION, so every call refreshes that cache.\nUsage: Safe for diagnostics, discovery, and analysis workflows; it is idempotent and changes nothing else.\nReturns the latest published libOpenFusionAPI version from the GitHub repository.\nNever fails: if GitHub is unreachable it still answers HTTP 200 with the last known version, flagged with disponible=false and stale=true, plus checked_at and detalle. The outbound failure is recorded in the system log at log_level 4 / status_code 500.",
+        "operation_mode": "write",
+        "requires_explicit_confirmation": false,
+        "side_effects": "Writes the fetched version to the application variable \u0024_VAR_LIBOFAPI_ULTIMA_VERSION (a cache), and nothing else. Idempotent: the value is overwritten with the same data.",
+        "safe_alternative": "N/A"
       },
       "json_schema": {
         "in": {
-          "enabled": false,
+          "enabled": true,
           "schema": {
             "type": "object",
             "properties": {},
-            "additionalProperties": true
+            "additionalProperties": false
           }
         },
         "out": {
@@ -12420,10 +12424,10 @@ export const system_app = {
       },
       "cors": {},
       "mcp": {
-        "enabled": true,
-        "name": "get_libopenfusionapi_latest_version",
-        "title": "Get Latest libOpenFusionAPI Version",
-        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns the latest published libOpenFusionAPI version from the GitHub repository.",
+        "enabled": false,
+        "name": "",
+        "title": "",
+        "description": "",
         "operation_mode": "read",
         "requires_explicit_confirmation": false,
         "side_effects": "No persistent write side effects expected.",

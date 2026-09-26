@@ -199,10 +199,10 @@ la vía rápida, sin cambiar el resultado.
 ## [13.11.1] - 2026-09-25
 
 Auditoría de la documentación que consume un agente —descripciones MCP, `AI_SKILL.md`,
-`manifest.json`, README— contrastada contra el código, más dos arreglos de comportamiento que la
-auditoría destapó. El motivo de fondo es que la documentación describía *el comportamiento que el
-handler had tenía*, y un agente que la lee y luego llama a la herramienta no tiene forma de saber
-cuál de las dos es la verdad.
+`manifest.json`, README— contrastada contra el código, más los arreglos de comportamiento que esa
+contradicción destapó. El motivo de fondo es que la documentación describía *el comportamiento que el
+código tenía cuando se escribió*, y un agente que la lee y luego llama a la herramienta no tiene
+forma de saber cuál de las dos es la verdad.
 
 ### Fixed
 
@@ -244,6 +244,59 @@ mensaje que no dice qué está mal ni qué verbos sí valen— y la acababa auto
 Ahora el verbo se comprueba antes de la llamada y el motivo enumera los válidos. La ejecución se
 sigue registrando como error y el auto-deshabilitado por fallos consecutivos no cambia: lo que
 cambia es que el motivo sea accionable.
+
+#### La tool que promete una versión no la daba
+
+`get_libopenfusionapi_latest_version` no consultaba ninguna versión. Los metadatos MCP estaban
+montados sobre el **único** endpoint en `/database/hooks`, cuyo `code` es
+`ofapi.server.checkwebHookDB(request)`: mete el body en la invalidación de caché y en un
+broadcast websocket, y no devuelve cuerpo. Un agente que la llamara recibía un resultado vacío y,
+de paso, un efecto lateral que no había pedido.
+
+La implementación que sí funciona estaba al lado, en `/libopenfusionapi/version/last`: consulta
+GitHub, nunca falla (si GitHub no responde devuelve 200 con el último valor cacheado, marcado
+`stale`) y guarda el resultado en una AppVar. Estaba con `mcp.enabled: false`, así que ningún
+agente podía leerla. **El frontend sí la veía actualizada porque consume ese resource por HTTP**,
+que es lo que hacía que a simple vista todo pareciera en orden: la función estaba viva, el nombre
+que la prometía no.
+
+Los metadatos se han movido al endpoint correcto. Tres cosas más corrigen el traslado, y ninguna es
+adorno:
+
+- `operation_mode` deja de ser `read`. La implementación real mintea un token de sistema y hace
+  `upsert` de una AppVar, o sea que **escribe**. Declararla de solo lectura habría sido la misma
+  mentira que se acababa de corregir en otras tres herramientas. Como el proyecto exige el prefijo
+  `WRITE OPERATION:` para las tools de escritura, la descripción ahora lo lleva.
+- `side_effects` nombra la AppVar que la llamada modifica, para que el agente sepa que usarla
+  para «saber la versión» cambia estado global.
+- Se habilita `json_schema.in`, que estaba a `false` y hacía que MCP publicase un inputSchema
+  vacío. La tool no admite parámetros, así que toma la forma de las de su clase.
+
+El receptor de hooks conserva su endpoint y su descripción, y simplemente deja de publicado como
+tool.
+
+#### La contraseña de cada cliente API se mandaba a un correo personal
+
+`apiclient_create` enviaba la contraseña **en claro** a `edwinspire@gmail.com`, una dirección
+personal fija en el código, en cada alta de cliente y con independencia del email del cliente. Es
+decir: la credencial de creación de todos los clientes API de una instalación acababa en el buzón de
+quien mantiene el proyecto.
+
+Y el envío se hacía **después** de crear la fila, sin protección: si fallaba, la excepción subía y
+la tool devolvía 500 con el cliente ya creado. Quien reintentara creaba un segundo cliente con otra
+contraseña, y el primero quedaba existiendo sin que nadie lo supiera. El propio código lo
+sabía —había un `// TODO: Si falla el envio al correo guardar en log` sin hacer.
+
+Ahora el correo va al `email` del propio cliente, y su fallo ya no tumba la llamada: se registra
+en el log y la respuesta lleva un `warning` que explica que el correo no salió y que la contraseña
+del cuerpo es la única copia. La ruta de éxito es idéntica byte a byte, así que nada que leiera la
+respuesta antes se entera.
+
+#### `apiclient_create`: el username no toma «el prefijo del email»
+
+El esquema decía *"Username. Defaults to the email prefix if omitted"*. El hook `beforeValidate` de
+ApiClient asigna `instance.username = instance.email`: el email **entero**. Quien diseñara un
+esquema de nombres contando con el prefijo acaba con `ana@acme.com` donde esperaba `ana`.
 
 #### `audit_log_search`: el filtro `idclient` no filtraba
 
