@@ -153,6 +153,16 @@ async function runAllTests() {
         args: ["sql_parse_bigint_test.js"],
       },
       {
+        // Este SÍ abre conexión: comprueba que los `bigint` de los modelos de la
+        // plataforma llegan como numero cuando se puede representarlos, en el
+        // dialecto que toque. El de arriba no puede cubrirlo porque ejercita el
+        // helper como funcion pura, y por eso la normalizacion de la plataforma
+        // podia estar ausente sin que nada se enterara.
+        label: "db_bigint_normalization_test.js",
+        command: "node",
+        args: ["db_bigint_normalization_test.js"],
+      },
+      {
         // Puro: la clave de caché del pool tiene que cubrir TODAS las options.
         // Lo que se le escapaba no daba error, devolvía la respuesta de otra base.
         label: "sql_connection_cache_key_test.js",

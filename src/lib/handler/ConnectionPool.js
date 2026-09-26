@@ -6,6 +6,12 @@ import BulkLoad from "tedious/lib/bulk-load.js";
 import { TYPES } from "tedious/lib/data-type.js";
 import { ISOLATION_LEVEL } from "tedious/lib/transaction.js";
 import { isParseBigintEnabled } from "./utils.js";
+import { parseBigintIfSafe } from "../bigint.js";
+
+// La funcion vive en `src/lib/bigint.js` porque la capa de base de datos de la
+// plataforma necesita la misma conversion y no deberia importar el grafo de este
+// modulo. Se reexporta para no cambiar el contrato con lo que ya lo importa.
+export { parseBigintIfSafe } from "../bigint.js";
 
 const tediousDialectModule = {
   Connection,
@@ -38,51 +44,6 @@ const HARD_MAX_CONNECTIONS = 500;
 
 /** OID de `bigint` / `int8` en el catálogo de tipos de PostgreSQL. */
 const PG_INT8_OID = 20;
-
-/**
- * Convierte un `bigint` de PostgreSQL a número SOLO cuando no se pierde precisión.
- *
- * `pg` devuelve `int8` como string por diseño: un bigint de PostgreSQL llega a
- * 9.2e18, y el `Number` de JavaScript no puede representar eso con exactitud. Es
- * una decisión correcta y no se toca por defecto.
- *
- * El problema es el otro lado: un cliente HTTP que recibe `{"ord":"1"}` en lugar
- * de `{"ord":1}` tiene que distinguir strings de números, y cualquier
- * comparación o suma posterior falla en silencio. `parse_bigint` resuelve eso
- * para el rango en el que no hay pérdida, y deja el string intacto en el que sí la
- * hay: es preferible un string a un `id` que cambió de valor por el camino.
- *
- * `numeric` (OID 1700) no se toca: admite decimales, y convertirlo a `Number`
- * introduciría error de redondeo en importes, que es justo el dato que no debe
- * aproximarse.
- *
- * @param {string} value
- * @returns {number|string}
- */
-export function parseBigintIfSafe(value) {
-  if (typeof value !== "string" || value.trim() === "") return value;
-
-  // Solo decimal canónico. `BigInt()` acepta además "0x10", "0b101" y "0o17",
-  // que PostgreSQL nunca emite para un int8 pero que, si llegaran, se convertirían
-  // silenciosamente a 16, 5 y 15. Un identificador reinterpretado es peor que un
-  // identificador que llega como texto, así que el contrato se limita a lo que el
-  // driver puede enviar de verdad.
-  if (!/^[+-]?\d+$/.test(value.trim())) return value;
-
-  try {
-    const asBigInt = BigInt(value.trim());
-    if (
-      asBigInt <= BigInt(Number.MAX_SAFE_INTEGER) &&
-      asBigInt >= BigInt(Number.MIN_SAFE_INTEGER)
-    ) {
-      return Number(asBigInt);
-    }
-  } catch {
-    // Fuera del rango de BigInt: se devuelve tal cual, que es lo que hacía pg.
-  }
-
-  return value;
-}
 
 /**
  * Equivalente de `parseBigintIfSafe` para el formato binario del protocolo

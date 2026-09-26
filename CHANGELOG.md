@@ -615,6 +615,88 @@ porque no abren conexión, y si alguna empezara a hacerlo, el runner la mata y l
 
 ---
 
+## [13.11.4] - 2026-09-26
+
+Segundos arreglos de la auditoría de base de datos contra motores reales. Este es el que cambia
+comportamiento observable, y el primero que lo hace: **los identificadores y los contadores que la
+API entrega como texto en PostgreSQL y en MSSQL ahora se entregan como número donde se puede.**
+
+### Breaking
+
+#### Un `bigint` de la plataforma llega como número, no como texto
+
+Este es el cambio que puede romper un cliente, y conviene decir exactamente a quién.
+
+| Motor | Antes | Ahora |
+|---|---|---|
+| PostgreSQL | `{"idtask":"7","interval":"600"}` | `{"idtask":7,"interval":600}` |
+| MSSQL | `{"idtask":"7","interval":"600"}` | `{"idtask":7,"interval":600}` |
+| SQLite | `{"idtask":7,"interval":600}` | sin cambio |
+
+Afecta a las columnas `BIGINT` de los 12 modelos de la plataforma que las tienen (de 20), en las
+lecturas **y** en la escritura: un `create()` ya no devuelve un `id` de tipo distinto del que
+devuelve al releerlo. Solo cambia lo que cabe en el rango seguro de `Number`; fuera de ese rango el
+valor sigue llegando como texto, porque un número al que le han cambiado los últimos dígitos por un
+redondeo es peor que un número que llega como texto.
+
+Un cliente afectado tiene que distinguir `"600"` de `600` en sus aserciones. Donde el valor venga de
+`Number(...)` o de una comparación con `===` contra un número, sigue funcionando; donde comparara
+contra un string, hay que quitar la conversión.
+
+### Fixed
+
+#### `parse_bigint` nunca se había aplicado, ni siquiera en el handler que la ofrece
+
+Al buscar cómo arreglar lo de arriba apareció un hallazgo mayor que el que lo motivaba. La opción
+`parse_bigint` de un endpoint SQL está documentada, cableada y **con un test que pasa**, pero no
+hace nada: `parse_bigint: true` entrega el mismo `int8` en texto que `parse_bigint: false`.
+
+La causa no está en el proyecto sino en Sequelize, y es que su `connection-manager` sobrescribe
+`connectionConfig.types` en **cada** conexión y su lista blanca de `dialectOptions` no incluye
+`types`. Un `dialectOptions.types.getTypeParser` se ignora, en silencio. Comprobado por HTTP contra
+un endpoint real con las tres variantes de la opción: idéntico resultado en las tres.
+
+Que el test pasara explica por qué nadie lo notó: `sql_parse_bigint_test.js` ejercita el helper como
+función pura y el constructor de parsers con OIDs inventados, sin abrir nunca una conexión. La
+función es correcta; lo que no llegaba a ejecutarse era la conexión.
+
+Este cambio **no arregla `parse_bigint`**, y es una decisión deliberada: la única vía de inyección
+que funciona en PostgreSQL es `pg-types.setTypeParser(20, …)`, que es global al proceso y no se
+puede aplicar a una sola conexión. Activarla convertiría la opción en un interruptor que ya no
+apaga nada, y cambiaría el comportamiento de cualquier despliegue PostgreSQL existente. Se arregla
+en una versión posterior, o no se arregla; pero mientras tanto el test nuevo cubre lo que sí
+funciona, que es la normalización de los modelos de la plataforma.
+
+#### La normalización se aplica a las asociaciones, no solo a la fila principal
+
+El respaldo de una app es un único `Application.findOne({ include })` seguido de `toJSON()`, y las
+`interval task` viajan dentro. El `afterFind` del modelo incluido no se dispara nunca —una
+asociación no es un `find`—, así que una primera versión del arreglo normalizaba la fila principal
+y dejaba las tareas como texto. Se notó porque `backup_restore_test.js` seguía fallando en
+`interval === 600` con la normalización ya aplicada y en verde. El helper recorre ahora las
+asociaciones cargadas, con control de ciclos.
+
+#### Un test que no abría conexión, ahora sí
+
+`dev/test/db_bigint_normalization_test.js` baja a una base de verdad. Comprueba el rango seguro, el
+fuera de rango, `create()`, `findByPk`, `raw: true` y que las columnas de texto no se toquen; y
+recorre los 20 modelos comprobando que los 12 con `BIGINT` llevan el enganche. En los tres motores
+(`postgres`, `mssql`, `sqlite`) pasa, con la expectativa ajustada al dialecto: en SQLite el driver
+ya devolvía número, y lo que se valida es que el rango seguro llegue SIEMPRE como número, sea cual
+sea el motor. Se comprobó además que **falla sin el arreglo**, por las dos vías: sin el enganche
+falla la asercion de presencia del hook, y con el enganche pero sin conversion falla la de valor
+(`el id devuelto por create() deberia ser numero, y es string`). Un test que pasara con y sin el
+arreglo no seria un test.
+
+#### Un modelo nuevo no puede olvidarse de la normalización
+
+Se envuelve `dbsequelize.define` en `db/sequelize.js` en lugar de enganchar el hook modelo por
+modelo. Los hooks globales de `Sequelize#addHook` no sirven aquí: se comprobó que reciben
+`options.model` como `undefined`, que es exactamente el dato que hace falta para saber qué columnas
+son `BIGINT`. El test falla si algún modelo con `BIGINT` no lleva el enganche.
+
+---
+
 ## Referencia
 
 - Versionado: `package.json`
