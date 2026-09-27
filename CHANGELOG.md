@@ -18,6 +18,76 @@ proyecto, ver [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [13.11.11] - 2026-09-26
+
+### Fixed
+
+#### En MSSQL, el arranque perdía endpoints y backups de endpoint sin decir nada
+
+El `upsert` del dialecto mssql de Sequelize emite `MERGE INTO ... WITH(HOLDLOCK)`, con el
+`WITH(HOLDLOCK)` fijo en su query generator. Eso convierte cada escritura en un SERIALIZABLE
+que se lleva bloqueos hasta el COMMIT, y `restoreAppFromBackup` lanzaba los upserts de todos
+los endpoints del backup a la vez con un `Promise.allSettled` sobre un `map`. Con N a la vez
+el motor no bloquea: rompe el deadlock.
+
+**Medido en un arranque real contra SQL Server, desde base limpia:**
+
+| | Antes | Después |
+|---|---|---|
+| `MERGE` que murieron de 1205 | 30 de 100 | **0** |
+| Backups de endpoint perdidos | 5 | **0** |
+| Endpoints no restaurados | 6 | **0** |
+| `Error creating endpoint backup` | 10 | **0** |
+| Filas en `ofapi_endpoint` / `ofapi_endpoint_bkp` | 209 / 204 | **209 / 209** |
+
+El arranque seguía imprimiendo `Database created or updated successfully with alter: true`
+en ambos casos. Los seis endpoints no se perdían por el `upsert`, sino porque el 1205 mataba
+el `findAll` de `ensureUniqueEnabledMcpName` que va antes.
+
+**El arreglo tiene dos partes, y las dos hacen falta:**
+
+1. **Concurrencia acotada** en `restoreAppFromBackup`: de todos los endpoints a la vez a
+   cuatro a la vez (`OFAPI_RESTORE_ENDPOINTS_CONCURRENCY`). Cuatro y no uno porque el bucle
+   también valida código de endpoints JS y parsea backups de versiones antiguas, y eso no
+   usa conexión pero tarda más que la sentencia. En serie el mismo trabajo tardaba 6512 ms
+   frente a 20341 ms en paralelo: el deadlock no se paga solo una vez, se paga la espera, la
+   víctima, el reintento del motor y la vuelta a empezar.
+2. **Reintento con backoff y jitter** para 1205 y 1204, enganchado a `Sequelize#query`.
+   La víctima de un deadlock siempre se puede reintentar: su transacción ya se abortó y la
+   razón por la que perdió ya no existe. El jitter es lo que impide que las víctimas, que
+   mueren casi a la vez, vuelvan a la vez y reconstruyan el mismo grafo.
+
+**Acción:** ninguna. No cambia la forma de la respuesta ni el esquema. Se puede bajar el
+límite a 1 en bases lentas; el reintento no se puede desactivar y no hace falta.
+
+### Added
+
+- `restoreAppFromBackup` devuelve `endpoints_rejected` cuando algún endpoint no se pudo
+  restaurar, con la misma forma que ya usaba `appvars_rejected`. Antes `upsertEndpoint`
+  registra el error en su `catch` y devuelve `undefined` en vez de lanzar, así que un
+  restore con endpoints caidos devolvía exactamente la misma respuesta que uno completo y
+  `restoreAllAppsFromBackup` lo marcaba como `ok: true`.
+- Log de contención `[db:lock]`, una línea cada 5 s con el acumulado. Reintentar en
+  silencio convierte un error visible en uno invisible, y quien tiene que mirar ese log es
+  quien puede arreglar el código que abre demasiadas transacciones a la vez.
+- `dev/test/db_lock_retry_test.js` y `dev/test/db_concurrency_test.js`, puros, en el packet.
+
+### Known limitations
+
+- **Quedan 20 deadlocks por arranque en MSSQL, y no son de endpoints.** Los 60 `MERGE` que
+  quedan en el log son todos `ofapi_appvars`, desde otro `Promise.allSettled` sin acotar en
+  `src/lib/db/app.js:903`. El reintento absorbe 67 y 20 agotan los 4 intentos; esos ya se
+  reportan en `appvars_rejected`. El patrón está repetido y está pendiente de la fase de
+  análisis de llamadas paralelas.
+- El `1204` está clasificado por su forma —idéntica al `1205`, un `RequestError` de tedious
+  con `.number`— y su clasificación tiene test, pero **no se ha reproducido un 1204 real**.
+- `ETIMEOUT` de tedious ("Request failed to complete in 15000ms") **no** se reintenta a
+  propósito: puede ser una consulta lenta de verdad, y reintentarla multiplica el coste. Se
+  reproduce cuando la conexión de la plataforma espera por un lock, porque su `requestTimeout`
+  es el de tedious, 15 s, mientras que el pool de los endpoints SQL fija 30 s.
+
+---
+
 ## [13.11.10] - 2026-09-26
 
 ### Breaking

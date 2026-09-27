@@ -155,6 +155,26 @@ async function runAllTests() {
         args: ["mssql_alter_column_test.js"],
       },
       {
+        // Puro: quien se reintenta y quien no. El 1205 de MSSQL se absorbe, y ni la
+        // violacion de unicidad ni el ETIMEOUT ni una sentencia dentro de una
+        // transaccion se reintentan. Que el 1205 se repita de verdad esta medido en
+        // MSSQL, contra el arranque real; aqui se comprueba la decision, que es donde
+        // estan los dos errores posibles: tragarse un error que no habia que reintentar,
+        // o reintentar una transaccion ya abortada.
+        label: "db_lock_retry_test.js",
+        command: "node",
+        args: ["db_lock_retry_test.js"],
+      },
+      {
+        // Puro: nunca se pasa del limite, el resultado vuelve en el orden de la
+        // entrada y un fallo no arrastra a los demas. Sin esto, `restoreAppFromBackup`
+        // puede seguir restaurando un backup a medias, que es como se perdian los
+        // endpoints en silencio.
+        label: "db_concurrency_test.js",
+        command: "node",
+        args: ["db_concurrency_test.js"],
+      },
+      {
         // Este SÍ abre conexión: comprueba que los `bigint` de los modelos de la
         // plataforma llegan como numero cuando se puede representarlos, en el
         // dialecto que toque. El de arriba no puede cubrirlo porque ejercita el

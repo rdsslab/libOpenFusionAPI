@@ -3,6 +3,7 @@ import path from "path";
 import { Sequelize } from "sequelize";
 import { attachBigintNormalization } from "../bigint.js";
 import { parcheAlterColumnMssql } from "./mssql_query_generator.js";
+import { adjuntarReintentoAnteBloqueo } from "./lock_retry.js";
 
 //Temporal DDBB
 const tmpPath = path.join(os.tmpdir(), "ofapi.sqlite");
@@ -29,6 +30,19 @@ const options = {
 };
 
 const dbsequelize = new Sequelize(db_conn, options);
+
+// H34: en MSSQL el `upsert` de Sequelize sale con `MERGE ... WITH(HOLDLOCK)`, con el
+// `WITH(HOLDLOCK)` fijo en su query generator, y eso convierte cada escritura en un
+// SERIALIZABLE que se lleva bloqueos hasta el COMMIT. Con escrituras simultaneas el
+// motor rompe el deadlock, no la plataforma. Medido en un arranque real: 30 faltas 1205
+// de 100 sentencias, 6 endpoints sin restaurar y 5 backups perdidos, en silencio.
+//
+// Se envuelve `query` y no los metodos de los modelos porque TODO el SQL de Sequelize
+// pasa por ahi —`QueryInterface#select/insert/update/upsert/bulkInsert` y el DDL del
+// `sync` terminan en `this.sequelize.query(sql, opts)`—, asi que un solo enganche cubre
+// la plataforma entera y el proximo modelo nuevo no se queda fuera. La politica y lo
+// que NO se reintenta estan en el modulo.
+adjuntarReintentoAnteBloqueo(dbsequelize);
 
 // En MSSQL, `ALTER COLUMN` solo admite un tipo y la nulabilidad, y Sequelize
 // mete ademas `DEFAULT`, `IDENTITY`, `PRIMARY KEY`, `UNIQUE` y `CHECK`. Ademas el

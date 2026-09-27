@@ -22,6 +22,7 @@ import {
 import { upsertApiClient } from "./apiclient.js";
 import { upsertApiKey } from "./apikey.js";
 import { default_apps } from "./default/index.js";
+import { mapConLimite, limiteDesdeEntorno } from "./concurrency.js";
 import { v4 as uuidv4 } from "uuid";
 import { system_app } from "./default/system.js";
 import { validateEndpointCode } from "../validation/codeValidator.js";
@@ -825,6 +826,11 @@ export const restoreAppFromBackup = async (app) => {
       // los dos bucles hacían `Promise.allSettled` y descartaban el resultado,
       // así que un backup se restauraba a medias sin avisar a nadie.
       let appvars_rejected = [];
+      // Endpoints que el restore no pudo guardar. `upsertEndpoint` registra el error en
+      // su catch y devuelve `undefined` en vez de lanzar, así que aquí no hay rechazo
+      // que recoger: sin esto, un restore con endpoints caidos devuelve exactamente la
+      // misma respuesta que uno completo.
+      let endpoints_rejected = [];
 
       // Recoge los rechazos de un `Promise.allSettled` sobre upserts de AppVars.
       const collectAppVarRejections = (settled, sources) => {
@@ -920,7 +926,22 @@ export const restoreAppFromBackup = async (app) => {
 
         if (Array.isArray(app.endpoints) && app.endpoints.length > 0) {
 
-          let promises_endpoints = app.endpoints.map(async (ep) => {
+          // H34: esto iba con `Promise.allSettled` sobre un `map`, o sea TODOS los
+          // endpoints del backup a la vez. En un arranque real se observaron 77
+          // operaciones simultaneas y 30 faltas 1205: cada `upsertEndpoint` abre su
+          // propia transaccion y escribe en `ofapi_endpoint` y `ofapi_endpoint_bkp`,
+          // y en MSSQL el `MERGE` del `upsert` sale con `WITH(HOLDLOCK)`, que es un
+          // SERIALIZABLE disfrazado. Con 77 a la vez, el motor no bloquea: rompe el
+          // deadlock, y el resultado eran 6 endpoints sin restaurar y 5 backups
+          // perdidos, en silencio, con el arranque imprimiendo que todo iba bien.
+          //
+          // Acotar la concurrencia es lo que evita el 1205, no lo amortigua. La razon
+          // de que sea 4 y no 1 es que el bucle tambien valida codigo de endpoints JS
+          // y parsea backups de versiones antiguas, y eso no usa conexion pero tarda
+          // mas que la sentencia: en serie se pierde ese solapamiento.
+          const limite_endpoints = limiteDesdeEntorno("OFAPI_RESTORE_ENDPOINTS_CONCURRENCY", 4);
+
+          const promesa_endpoint = async (ep) => {
             // Capturar el idendpoint original ANTES del upsert: upsertEndpoint
             // reescribe ep.idendpoint in-place cuando encuentra un endpoint
             // existente con el mismo (idapp + environment + resource + method).
@@ -1020,18 +1041,50 @@ export const restoreAppFromBackup = async (app) => {
             let res = await upsertEndpoint(ep);
 
             return { res, source_idendpoint };
-          });
+          };
 
-          let result_endpoints = await Promise.allSettled(promises_endpoints);
-          console.log("result_endpoints ==>>>", result_endpoints.length);
+          let result_endpoints = await mapConLimite(app.endpoints, promesa_endpoint, limite_endpoints);
+
+          // Los fallos se contaban y nada mas. `upsertEndpoint` registra el error en su
+          // catch y devuelve `undefined`, asi que un endpoint que no se restaura no
+          // lanza nada aqui: sin este recuento, un backup con seis endpoints caidos
+          // devolvia exactamente la misma respuesta que uno completo, y el
+          // `restoreAllAppsFromBackup` lo marcaba como `ok: true`.
+          const endpoints_fallidos = result_endpoints.filter((r) => !r.ok);
+          if (endpoints_fallidos.length > 0) {
+            console.error(
+              `Error restoring ${endpoints_fallidos.length} endpoint(s) of app ${app.idapp} ` +
+                `(${result_endpoints.length - endpoints_fallidos.length}/${result_endpoints.length} restored):`,
+              endpoints_fallidos.map((r) => r.error),
+            );
+          }
 
           for (const r of result_endpoints) {
-            if (r.status !== "fulfilled" || !r.value?.res?.result) continue;
-            const { res, source_idendpoint } = r.value;
+            if (!r.ok || !r.valor?.res?.result) continue;
+            const { res, source_idendpoint } = r.valor;
             if (source_idendpoint) {
               idendpoint_map.set(source_idendpoint, res.result.idendpoint);
             }
           }
+
+          // Un endpoint caido deja su backup viejo intacto y, si el backup traia
+          // interval tasks que apuntan a el, esas tareas tampoco se pueden restaurar
+          // porque `idendpoint_map` no tiene su entrada. Se reporta con la misma forma
+          // que `appvars_rejected`: un restore que no dice lo que no restauro es un
+          // backup que parece bueno y no lo es, y el que lo pidio no tiene forma de
+          // saberlo salvo que vaya a contarlo endpoint por endpoint.
+          endpoints_rejected = result_endpoints.flatMap((r, indice) => {
+            if (r.ok) return [];
+            const ep = app.endpoints[indice];
+            return [
+              {
+                idendpoint: ep?.idendpoint ?? null,
+                resource: ep?.resource ?? null,
+                method: ep?.method ?? null,
+                error: r.error?.message || String(r.error),
+              },
+            ];
+          });
         }
 
         // Restaurar las interval tasks del backup. Vienen al mismo nivel que
@@ -1050,6 +1103,7 @@ export const restoreAppFromBackup = async (app) => {
         // Se reporta para que quien restaure sepa que el backup quedó incompleto
         // en lugar de asumir que se restauró todo.
         ...(appvars_rejected.length > 0 ? { appvars_rejected } : {}),
+        ...(endpoints_rejected.length > 0 ? { endpoints_rejected } : {}),
       };
     }
   } catch (error) {
