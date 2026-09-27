@@ -170,7 +170,7 @@ handler through its `handler` field. `handler` is what decides the meaning of `c
 |---|---|---|
 | `JS` | JavaScript source | — |
 | `FUNCTION` | internal function name | — |
-| `SQL` | the statement | connection config, plus `query_type`, `parse_bigint`, `connection_override_allow` |
+| `SQL` | the statement | connection config, plus `query_type`, `connection_override_allow` |
 | `SQL_BULK_I` | destination table name | connection config, plus `query_type`, `connection_override_allow` |
 | `HANA` | the statement | connection config, plus `connection_override_allow` |
 | `MONGODB` | the query script | connection config |

@@ -3,13 +3,14 @@ import { DataTypes } from "sequelize";
 /**
  * Conversion de `bigint` a numero SOLO cuando no se pierde precision.
  *
- * Vive aqui, y no en `handler/ConnectionPool.js`, porque lo consumen dos capas
- * que no se conocen: el handler SQL (que lo ofrece como la opcion
- * `parse_bigint` de un endpoint) y la plataforma (que expone las filas de sus
- * propios modelos por HTTP). Importarlo desde la capa de BD leyendo del handler
- * arrastraria `tedious`, `pg-types` y `handler/utils.js` al arbol de la base de
- * datos de la plataforma, para usar una funcion de veinte lineas sin
- * dependencias.
+ * Vive aqui, y no en `handler/ConnectionPool.js`, porque lo consume la capa de base
+ * de datos de la plataforma —que expone por HTTP las filas de sus propios modelos, y
+ * tiene columnas `BIGINT`— y esa capa no deberia arrastrar el grafo del handler SQL
+ * (`tedious`, `pg-types`, `handler/utils.js`) para usar una funcion de veinte lineas
+ * sin dependencias. La otra capa que consumia esto, el handler SQL a traves de la
+ * opcion `parse_bigint` de un endpoint, dejo de hacerlo en 13.11.10: la opcion se
+ * retiro porque nunca llego al driver. La funcion se queda porque la plataforma si la
+ * usa y si funciona.
  *
  * @param {string} value
  * @returns {number|string}
@@ -81,8 +82,10 @@ function esInstanciaDeModelo(valor) {
  * El arreglo es aqui y no en el driver porque Sequelize no deja elegir el parser
  * de tipos: su `connection-manager` sobrescribe `connectionConfig.types` en cada
  * conexion y su lista blanca de `dialectOptions` no incluye `types`, asi que
- * `dialectOptions.types.getTypeParser` se ignora en silencio. Un `DataTypes.BIGINT`
- * con `parse()` propio tampoco sirve: Sequelize no lo invoca al leer. Y los hooks
+ * `dialectOptions.types.getTypeParser` se ignora en silencio —que es exactamente lo
+ * que hacia que la opcion `parse_bigint` del handler SQL no sirviera para nada, y
+ * por eso se retiro en 13.11.10 en vez de arreglar—. Un `DataTypes.BIGINT` con
+ * `parse()` propio tampoco sirve: Sequelize no lo invoca al leer. Y los hooks
  * globales de `Sequelize#addHook` reciben `options.model` como `undefined`, que
  * es justo el dato que haria falta para saber que columnas normalizar; por eso
  * el enganche es por modelo.

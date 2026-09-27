@@ -11,12 +11,14 @@ import { closeDb } from "./close_db.js";
 /**
  * Normalizacion de `bigint` a numero en los modelos de la plataforma.
  *
- * Este test existe porque el que ya habia para esta materia (`sql_parse_bigint_test.js`)
- * pasa sin comprobar nada de lo que importa: ejercita `parseBigintIfSafe` como funcion
- * pura y `buildBigintAwareTypeParser` sobre OIDs inventados, sin abrir nunca una conexion.
- * Por eso la opcion `parse_bigint` de un endpoint puede quedarse sin efecto y el test
- * seguir en verde: la funcion es correcta y lo que no llega a ejecutarse es la que la
- * hace falta. Aqui si se abre una conexion de verdad.
+ * Este test existe porque el que habia para esta materia (`sql_parse_bigint_test.js`,
+ * borrado en 13.11.10) pasaba sin comprobar nada de lo que importa: ejercitaba
+ * `parseBigintIfSafe` como funcion pura y `buildBigintAwareTypeParser` sobre OIDs
+ * inventados, sin abrir nunca una conexion. Ese test era ademas la unica prueba de
+ * la opcion `parse_bigint` de un endpoint, que se retiro porque no llegaba al driver:
+ * era correcta la funcion y no se ejecutaba nunca el camino que hacia falta. Este
+ * test sigue cubriendo lo que si funciona —la normalizacion en los modelos de la
+ * plataforma— y si abre una conexion de verdad.
  *
  * Que se normalice depende del motor, y por eso el mismo criterio no vale para todos:
  *

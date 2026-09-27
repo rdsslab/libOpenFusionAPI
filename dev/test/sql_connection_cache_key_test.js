@@ -67,7 +67,6 @@ const key = buildConnectionCacheKey;
     ["options.dialectOptions", { options: { dialect: "postgres", host: "h", dialectOptions: { ssl: true } } }],
     ["database", { database: "otra", options: { dialect: "sqlite", storage: "/a.db" } }],
     ["username", { username: "otro", options: { dialect: "sqlite", storage: "/a.db" } }],
-    ["parse_bigint", { parse_bigint: true, options: { dialect: "sqlite", storage: "/a.db" } }],
   ];
 
   for (const [nombre, override] of cambios) {
@@ -101,12 +100,39 @@ const key = buildConnectionCacheKey;
   assert.strictEqual(key(), key({}), key({}, "dev"), key(undefined, undefined));
   assert.strictEqual(key({ options: null }, "dev"), key({}, "dev"));
   assert.strictEqual(key({ options: [] }, "dev"), key({}, "dev"));
-  // `parse_bigint` se normaliza: "true" y true describen lo mismo.
+}
+
+/**
+ * `parse_bigint` se retiró: no hace nada y no puede partir el pool.
+ *
+ * Antes la clave lo incluía, con la idea de que dos endpoints que difieren en él
+ * reciben `int8` de otra forma. Nunca fue cierto —la opción no estaba cableada a
+ * ninguna cosa que llegara al driver— y mantenerla en la clave solo vlía: dos
+ * endpoints idénticos salvo en esa clave ocupaban dos entradas del pool y dos
+ * conjuntos de conexiones para recibir exactamente lo mismo.
+ *
+ * Este bloque falla mientras la clave siga includéndola.
+ */
+{
   const base = { database: "db", options: { dialect: "postgres", host: "h" } };
-  assert.strictEqual(key({ ...base, parse_bigint: "true" }, "dev"), key({ ...base, parse_bigint: true }, "dev"));
-  assert.strictEqual(key({ ...base, parse_bigint: "1" }, "dev"), key({ ...base, parse_bigint: true }, "dev"));
-  assert.strictEqual(key({ ...base, parse_bigint: "false" }, "dev"), key(base, "dev"));
-  assert.strictEqual(key({ ...base, parse_bigint: 1 }, "dev"), key(base, "dev"), "un 1 numérico no es un sí");
+  for (const valor of [true, false, "true", "1", 1, 0]) {
+    assert.strictEqual(
+      key({ ...base, parse_bigint: valor }, "dev"),
+      key(base, "dev"),
+      `parse_bigint: ${JSON.stringify(valor)} no debe entrar en la clave: se retiró y no hace nada`,
+    );
+  }
+
+  // Ni debe partir el pool en el camino de HANA, que serializa la config entera
+  // menos las claves de plataforma. Un endpoint antiguo con la clave puesta
+  // describe la misma conexion que uno sin ella, y por eso tiene que dar la misma
+  // clave: si no, hereda un pool de mas sin motivo.
+  const hana = { databaseName: "HXE", user: "u", password: "p" };
+  assert.strictEqual(
+    key({ ...hana, parse_bigint: true }, "dev"),
+    key(hana, "dev"),
+    "una config de HANA con la clave retirada no debe abrir un pool distinto",
+  );
 }
 
 /**

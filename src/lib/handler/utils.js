@@ -562,26 +562,6 @@ export const detectSqlParamStyle = (query) => {
 };
 
 /**
- * `parse_bigint` puede llegar como booleano, como string (desde un formulario o un
- * query string) o ausente. Solo un sí explícito activa la conversión de `int8`.
- *
- * Vive aquí y no en `ConnectionPool.js` a propósito: el pool importa `tedious`,
- * y si este predicado viviera allí, todo consumidor de estas utilidades —incluida
- * la construcción de la clave de caché— arrastraría el driver de SQL Server.
- *
- * @param {unknown} value
- * @returns {boolean}
- */
-export const isParseBigintEnabled = (value) => {
-  if (value === undefined || value === null) return false;
-  if (typeof value === "string") {
-    const v = value.trim().toLowerCase();
-    return v === "true" || v === "1" || v === "yes" || v === "on";
-  }
-  return value === true;
-};
-
-/**
  * Nombres con los que el driver de HANA (`@sap/hana-client`) acepta la contraseña.
  * El de Sequelize es `password`, y aparece suelto en la raíz de la config y también
  * anidado dentro de `options` (`dialectOptions.password`), que es donde algunos
@@ -615,14 +595,45 @@ const fingerprintCredential = (value) =>
 const isPlainConfigObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 
 /**
- * Claves que la plataforma lee de la config pero que no cambian a qué servidor se
- * conecta. Se documentan en los AI_SKILL de SQL, SQL_BULK_I y HANA.
+ * Claves de la config que no cambian a qué servidor se conecta, y por eso quedan
+ * fuera de la clave de caché. `query_type` y `connection_override_allow` se
+ * documentan en los AI_SKILL de SQL, SQL_BULK_I y HANA.
+ *
+ * `parse_bigint` se retiró en 13.11.10: nunca estuvo cableada a nada que llegara
+ * al driver, así que activarla no cambiaba el `int8` que recibía el cliente. Su
+ * nombre se queda aquí, y no por compatiblidad de API sino porque el camino de
+ * HANA serializa la config entera *menos* este set: si un endpoint antiguo
+ * conserva la clave en su `custom_data`, entró en la clave de caché mientras la
+ * opción vivía, y sacarla de aquí le haría abrir un pool distinto del de otro
+ * endpoint idéntico sin la clave. Dos conexiones al mismo servidor que devuelven
+ * exactamente lo mismo, que es el coste de una entrada de pool de más.
  */
 const PLATFORM_CONFIG_KEYS = new Set([
   "query_type",
   "parse_bigint",
   "connection_override_allow",
 ]);
+
+/** Claves ya retiradas que se avisa una sola vez por proceso, para no repetir el aviso por conexión. */
+const AVISADOS_UNA_VEZ = new Set();
+
+/**
+ * Avisa, como mucho una vez por proceso, de una clave de config que ya no hace nada.
+ *
+ * Sin esto, quitar la clave es un silencio: quien la puso en su endpoint hace meses
+ * que espera numeros donde le llegan strings, y no tiene forma de saber que la
+ * opcion que configuró fue la que dejo de existir. El aviso se emite una vez porque
+ * el pool cachea por config y una peticion por segundo no puede ser una linea por
+ * segundo, y porque en los logs de arranque este archivo se lee entero.
+ *
+ * @param {string} clave
+ * @param {string} mensaje
+ */
+const avisarClaveRetirada = (clave, mensaje) => {
+  if (AVISADOS_UNA_VEZ.has(clave)) return;
+  AVISADOS_UNA_VEZ.add(clave);
+  console.warn(mensaje);
+};
 
 /**
  * Build a deterministic cache key for database connections.
@@ -966,7 +977,7 @@ export const buildConnectionCacheKey = (config = {}, environment = 'dev') => {
   const options = isPlainConfigObject(config?.options) ? config.options : undefined;
 
   // Config sin `options`: la conexión entera está en la raíz y se serializa entera,
-  // menos las tres claves que la plataforma usa para sí misma y que no cambian a qué
+  // menos las claves que la plataforma usa para sí misma y que no cambian a qué
   // servidor se conecta. Aquí la lista es de EXCLUSIÓN, al revés que en el camino de
   // Sequelize, y la asimetría es deliberada: olvidarse de una clave de esta lista
   // cuesta una entrada de pool de más, mientras que olvidarse de un campo de
@@ -980,6 +991,20 @@ export const buildConnectionCacheKey = (config = {}, environment = 'dev') => {
     }
   }
 
+  // El aviso va aquí y no en la construcción de la conexión porque esta función la
+  // usan tanto el camino de Sequelize como el de HANA, y la clave retirada puede
+  // venir en cualquiera de los dos. Se emite una vez por proceso.
+  if (config?.parse_bigint !== undefined && config?.parse_bigint !== null) {
+    avisarClaveRetirada(
+      "parse_bigint",
+      "[ConnectionPool] La clave `parse_bigint` de custom_data se retiró en 13.11.10: nunca estuvo " +
+        "conectada al driver, así que no convertía nada y el `bigint` que recibes es el mismo con la " +
+        "clave puesta que sin ella. Se ignora en silencio a partir de ahora. Si esperabas números donde " +
+        "llegas strings, la conversión que sí funciona es la de la plataforma en sus propias tablas, " +
+        "no una clave del endpoint.",
+    );
+  }
+
   return JSON.stringify(
     canonicalize({
       ...raiz,
@@ -991,12 +1016,11 @@ export const buildConnectionCacheKey = (config = {}, environment = 'dev') => {
       database: config?.database ?? config?.databaseName,
       username: config?.username ?? config?.user ?? config?.uid,
       password: config?.password ?? config?.pwd,
-      // Dos endpoints sobre la MISMA base pueden discrepar en `parse_bigint` y por
-      // tanto entregar `int8` como número o como string. Sin esto en la clave, el
-      // segundo hereda la conexión que creó el primero y recibe el tipo que no
-      // pidió, sin ningún aviso: el fallo no estaría en la conexión sino en la
-      // caché que decidió compartirlas.
-      parse_bigint: isParseBigintEnabled(config?.parse_bigint),
+      // `parse_bigint` ya no está, y su ausencia es el arreglo. Durante 13.11.0 a
+      // 13.11.9 estuvo en la clave para que dos endpoints que difieran en ella
+      // recibieran `int8` de forma distinta; como la opción no hacía nada, esa
+      // separación solo compraba dos entradas de pool y dos conjuntos de conexiones
+      // para entregar exactamente la misma respuesta.
       options,
     }),
   );

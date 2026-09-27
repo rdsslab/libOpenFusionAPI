@@ -1,17 +1,9 @@
 import { Sequelize } from "sequelize";
-import pgTypes from "pg-types";
 import Connection from "tedious/lib/connection.js";
 import Request from "tedious/lib/request.js";
 import BulkLoad from "tedious/lib/bulk-load.js";
 import { TYPES } from "tedious/lib/data-type.js";
 import { ISOLATION_LEVEL } from "tedious/lib/transaction.js";
-import { isParseBigintEnabled } from "./utils.js";
-import { parseBigintIfSafe } from "../bigint.js";
-
-// La funcion vive en `src/lib/bigint.js` porque la capa de base de datos de la
-// plataforma necesita la misma conversion y no deberia importar el grafo de este
-// modulo. Se reexporta para no cambiar el contrato con lo que ya lo importa.
-export { parseBigintIfSafe } from "../bigint.js";
 
 const tediousDialectModule = {
   Connection,
@@ -41,59 +33,6 @@ const DEFAULT_MAX_CONNECTIONS = 50;
 
 /** Techo duro: por encima de esto el LRU deja de ser un límite de memoria. */
 const HARD_MAX_CONNECTIONS = 500;
-
-/** OID de `bigint` / `int8` en el catálogo de tipos de PostgreSQL. */
-const PG_INT8_OID = 20;
-
-/**
- * Equivalente de `parseBigintIfSafe` para el formato binario del protocolo
- * extendido, donde `pg` entrega los 8 bytes del int8 en un Buffer en vez de texto.
- *
- * Sin esto, activar `parse_bigint` en una consulta que use el protocolo binario
- * devolvería un Buffer donde el resto de la fila son valores normales, y el
- * Buffer se serializaría como `{"type":"Buffer","data":[...]}`. Eso es peor que el
- * string que se quería evitar.
- *
- * @param {unknown} value
- * @returns {number|Buffer}
- */
-export function parseBigintBinaryIfSafe(value) {
-  if (!Buffer.isBuffer(value) || value.length !== 8) return value;
-
-  // Mismo cálculo que pg-int8: la mitad alta con signo aporta los 32 bits altos.
-  const asBigInt =
-    (BigInt(value.readInt32BE(0)) << 32n) + BigInt(value.readUInt32BE(4));
-
-  if (
-    asBigInt <= BigInt(Number.MAX_SAFE_INTEGER) &&
-    asBigInt >= BigInt(Number.MIN_SAFE_INTEGER)
-  ) {
-    return Number(asBigInt);
-  }
-
-  return value;
-}
-
-/**
- * Envuelve el `getTypeParser` de `pg` para que solo intercept `int8`.
- *
- * Se reutiliza el parser que venga como base (el del propio `pg`, o uno que el
- * usuario haya configurado) para el resto de OIDs: interceptar solo 20 es lo que
- * permite prometer que el resto de los tipos no cambia.
- *
- * @param {Function} baseGetTypeParser
- * @returns {Function}
- */
-export function buildBigintAwareTypeParser(baseGetTypeParser) {
-  const base = typeof baseGetTypeParser === "function" ? baseGetTypeParser : null;
-
-  return (oid, format) => {
-    if (oid === PG_INT8_OID) {
-      return format === "binary" ? parseBigintBinaryIfSafe : parseBigintIfSafe;
-    }
-    return base ? base(oid, format) : pgTypes.getTypeParser(oid, format);
-  };
-}
 
 function getMaxConnections() {
   const raw = Number(process.env.OFAPI_SQL_POOL_MAX_CONNECTIONS);
@@ -328,25 +267,13 @@ class ConnectionPool {  constructor(maxConnections = getMaxConnections()) {
       };
     }
 
-    // H10: `pg` devuelve `int8` como string para no perder precisión. Con
-    // `parse_bigint: true` en la config del endpoint, los valores que caben en el
-    // rango seguro de `Number` llegan como número y el resto sigue siendo string.
-    // Es opt-in porque el comportamiento por defecto de `pg` es el correcto.
-    //
-    // Va en `dialectOptions.types` y NO en las options de sequelize de otra parte:
-    // `pg` solo recibe `types` por `dialectOptions`, así que ponerlo arriba sería
-    // ignorado en silencio y la opción parecería no hacer nada.
-    if (isParseBigintEnabled(paramsSQL.config?.parse_bigint)) {
-      sequelizeOptions.dialectOptions = {
-        ...sequelizeOptions.dialectOptions,
-        types: {
-          ...sequelizeOptions.dialectOptions?.types,
-          getTypeParser: buildBigintAwareTypeParser(
-            sequelizeOptions.dialectOptions?.types?.getTypeParser,
-          ),
-        },
-      };
-    }
+    // H10, retirado: aquí se metía el parser de `int8` en `dialectOptions.types`
+    // cuando la config del endpoint traía `parse_bigint`. No era que estuviera mal
+    // puesto —`pg` solo recibe `types` por ahí— es que Sequelize pisa
+    // `connectionConfig.types` en cada conexión y su lista blanca de
+    // `dialectOptions` no incluye `types`: la opción se ignoraba en silencio y
+    // `parse_bigint: true` devolvía el mismo texto que `false`. Se retiró la opción
+    // entera en 13.11.10 en vez de dejarla cableada a algo que no hacía nada.
 
     const buildSequelize = (options) => new Sequelize(
       paramsSQL.config.database,

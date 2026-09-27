@@ -146,13 +146,6 @@ async function runAllTests() {
         args: ["connection_pool_limits_test.js"],
       },
       {
-        // Puro: `parse_bigint` convierte int8 solo dentro del rango seguro de
-        // Number y deja el resto de tipos con el parser de pg.
-        label: "sql_parse_bigint_test.js",
-        command: "node",
-        args: ["sql_parse_bigint_test.js"],
-      },
-      {
         // Puro: reduce una definición de columna de T-SQL a lo que `ALTER COLUMN`
         // admite, sin comerse el `REFERENCES` ni el `COMMENT` que `changeColumnQuery`
         // mueve de sitio por su cuenta. Sin esto, `sync({ alter: true })` no se

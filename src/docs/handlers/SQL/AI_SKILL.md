@@ -101,13 +101,7 @@ You are an expert **Relational Database Administrator and Multi-Dialect SQL Deve
   *Good*: `first_name || ' ' || last_name`
 - **Date/Time**: Use `NOW()` or `CURRENT_TIMESTAMP`.
 - **`bigint` / `int8` comes back as a STRING**: this is the `pg` driver's default and it is deliberate. A PostgreSQL `bigint` reaches 9.2e18, and JavaScript's `Number` cannot hold that exactly, so returning a number would silently corrupt ids. A query such as `SELECT * FROM t WITH ORDINALITY` therefore gives `{"ord":"1"}`, not `{"ord":1}`, and any `===` comparison against a number in the caller fails.
-  Set `"parse_bigint": true` in the connection config to get numbers for the values that fit in `Number.MAX_SAFE_INTEGER`:
-  ```json
-  { "database": "app", "username": "u", "password": "p",
-    "parse_bigint": true,
-    "options": { "dialect": "postgres", "host": "db", "port": 5432 } }
-  ```
-  It is opt-in, and it is only a type change: a value outside the safe range (`9007199254740993`, or anything past `9223372036854775807`) still arrives as a string rather than as a rounded number, and `numeric` / decimal types are never touched — rounding an amount is worse than handing it over as text. A client that cannot cope with a mixed row should not enable it.
+  There is **no** connection-config key that changes this. A `parse_bigint` key used to be documented here and it never did anything: it was wired to a place Sequelize discards, so the value you got was the same with the key set, unset, or misspelled. It was removed in 13.11.10 and is now ignored, with one warning per server process if a config still carries it. If you need numbers, cast in the query (`SELECT ord::int8::text::bigint` does not help — use `::float8` or `::numeric`, and accept that both convert), or handle the string in the caller. `numeric` / decimal types are never converted by this server.
 
 ### MySQL & MariaDB
 - **Placeholders**: Use `:param` replacements; the same auto-detection described under PostgreSQL applies.

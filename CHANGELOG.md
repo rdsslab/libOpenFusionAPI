@@ -18,6 +18,65 @@ proyecto, ver [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [13.11.10] - 2026-09-26
+
+### Breaking
+
+#### Se retira la clave `parse_bigint` de la conexión de los endpoints SQL
+
+**Antes:** `custom_data.parse_bigint` estaba documentada en el `AI_SKILL.md` y el
+`manifest.json` del handler SQL, cableada en `ConnectionPool.js`, incluida en la clave
+de caché del pool, y cubierta por un test que pasaba. No hacía nada. Con la clave puesta,
+sin ella o mal escrita, la respuesta era byte a byte la misma.
+
+**Ahora:** la clave no existe. Se ignora, y un `console.warn` por proceso avisa la primera
+vez que aparece una config que todavía la lleva, porque el resto es un silencio y quien la
+configuró hace meses que espera una conversión que nunca ocurrió.
+
+**Por qué se retira en vez de arreglarse:** Sequelize sobrescribe
+`connectionConfig.types` en cada conexión y su lista blanca de `dialectOptions` no incluye
+`types`, así que `dialectOptions.types.getTypeParser` se descarta sin avisar. El único
+punto de inyección que funciona en PostgreSQL es `pg-types.setTypeParser(20, ...)`, que es
+global al proceso y no se puede acotar a una conexión: activarlo volvería la opción algo
+que ya no se puede desactivar, y cambiaría el comportamiento de toda instalación
+PostgreSQL existente. De los tres motores, solo en el que podía funcionar es
+exactamente donde no funcionaba: `types` es un parámetro de `pg`, y `tedious` y
+`@sap/hana-client` nunca lo miran.
+
+**Acción:** si usabas `parse_bigint: true`, quítalo. No cambia lo que recibes, porque no
+cambiaría nada igual. Si lo que querías eran números en vez de texto, el sitio para
+conseguirlo es la consulta (`::float8`, `::numeric`) o el cliente; la conversión de
+`bigint` a número que sí funciona en esta plataforma es la de sus propias tablas
+(`ofapi_endpoint`, `ofapi_intervaltask`, …), no una clave del endpoint. Un endpoint
+antiguo con la clave en su `custom_data` abre el mismo pool que antes: el nombre se
+mantiene en la lista de exclusión de la clave de caché para que no parta el pool por sí
+solo.
+
+### Changed
+
+#### La clave `parse_bigint` ya no parte el pool de conexiones
+
+`buildConnectionCacheKey` la incluía para que dos endpoints que difirieran en ella
+recibieran `int8` distinto. Como la opción no cambiaba nada, esa separación solo compraba
+dos entradas de pool y dos conjuntos de conexiones para entregar la misma respuesta.
+Ahora dos endpoints idénticos salvo en esa clave comparten conexión.
+
+**Detalle en `dev/test/sql_connection_cache_key_test.js`**, que cubre también el camino de
+HANA, donde la clave se excluía por nombre y no por valor.
+
+### Removed
+
+- `dev/test/sql_parse_bigint_test.js` y su entrada en el packet. Era el único test de la
+  opción y no comprobaba el comportamiento: ejercitaba el helper como función pura sobre
+  OIDs inventados, sin abrir nunca una conexión. Lo que queda cubriendo esta materia,
+  `dev/test/db_bigint_normalization_test.js`, sí abre una conexión real.
+- `isParseBigintEnabled`, `buildBigintAwareTypeParser`, `parseBigintBinaryIfSafe` y el
+  reexport de `parseBigintIfSafe` desde `ConnectionPool.js`. `parseBigintIfSafe` **no** se
+  borra: la usa la normalización de `bigint` de los modelos de la plataforma, que es lo
+  que sí funcionaba.
+
+---
+
 ## [13.11.0] - 2026-09-25
 
 Revisión de hallazgos sobre la versión 13.10.0: once hallazgos verificados contra
