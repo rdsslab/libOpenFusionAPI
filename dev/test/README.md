@@ -212,6 +212,12 @@ reading each one:
   the path. It now reads `OFAPI_TEST_DB_PATH`, with the old path as the default (13.11.24);
   point it at the same file the server is using, `$TMPDIR/ofapi.sqlite` under the packet.
   `DATABASE_URL` does not cover it: on a networked engine this file still cannot run.
+  Since 13.11.25 it also **writes** to that file: the cleanup batch creates one user as
+  `as_admin` (the BUG-8 check needs it) and the API then refuses to delete it — the caller
+  is the `system` app's api key, which is not `as_admin`, and that refusal is the protection
+  working. So the batch removes that user's rows itself, recovery rows before the user row
+  because it is a foreign key, exactly as `deleteUser` does. That is one more reason this
+  file must not become a packet suite.
 
 ## The three-engine matrix
 

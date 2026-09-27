@@ -18,6 +18,18 @@ proyecto, ver [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [13.11.27] - 2026-09-27
+
+### Changed
+
+- `dev/test/README.md`: el apartado sobre el único fichero que lee la base de datos cuenta
+  ahora que desde 13.11.25 también **escribe** en ella. Explica por qué —el lote de limpieza no
+  puede borrar por la API al usuario `as_admin` que la propia suite crea, porque esa protección
+  es correcta— y por qué el borrado se hace en el mismo orden que `deleteUser`. Es una razón
+  más para que ese fichero no entre en el packet como suite.
+
+---
+
 ## [13.11.26] - 2026-09-27
 
 ### Fixed
