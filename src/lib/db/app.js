@@ -22,10 +22,40 @@ import {
 import { upsertApiClient } from "./apiclient.js";
 import { upsertApiKey } from "./apikey.js";
 import { default_apps } from "./default/index.js";
-import { mapConLimite, limiteDesdeEntorno } from "./concurrency.js";
+import { mapConCierre, crearCierraDePaso, limiteDesdeEntorno } from "./concurrency.js";
 import { v4 as uuidv4 } from "uuid";
 import { system_app } from "./default/system.js";
 import { validateEndpointCode } from "../validation/codeValidator.js";
+
+/**
+ * Puerta de paso de las escrituras del arranque.
+ *
+ * ## Por que una sola puerta y no un limite por bucle
+ *
+ * `defaultApps` lanza las apps en paralelo, asi que un limite por bucle es un limite
+ * por app: con las 2 apps por defecto, un tope de 4 en el bucle de endpoints era un
+ * tope real de 8, que es exactamente el pico medido (4 x 2). Con 5 apps seria 20 —el
+ * `pool.max` de la plataforma— y con 6 lo superaria, momento en el que el unico freno
+ * pasaria a ser el reintento del H34. El pool es de la plataforma, luego el limite
+ * tiene que ser de la plataforma.
+ *
+ * ## Por que una sola puerta para las cinco escrituras
+ *
+ * AppVars, endpoints, backups de endpoint, bots y tareas de intervalo se restauran en
+ * el mismo arranque y sobre las mismas tablas, y el deadlock no lo produce una tabla
+ * concreta sino que dos MERGE se pisen. Un limite que acota el bucle de endpoints y
+ * deja el de appvars sin acotar no acota el arranque: solo mueve el problema al bucle
+ * que nadie miraba. Medido en el arranque real: 35 sentencias en vuelo de 40, todas
+ * `MERGE INTO [ofapi_appvars]`, y eran las que dejaban 20 deadlocks por delante.
+ *
+ * ## Lo que NO puede hacer
+ *
+ * Ninguna operacion que pase por esta puerta puede pedir la puerta otra vez: se
+ * quedaria esperando un hueco que ella misma ocupa, y eso aparece como un arranque
+ * parado, no como un error. Ninguna lo hace hoy; si alguna empieza, el sintoma es que
+ * esto no termina y no habra ninguna exception que lo explique.
+ */
+const cierreEscrituras = crearCierraDePaso(limiteDesdeEntorno("OFAPI_RESTORE_CONCURRENCY", 4));
 
 
 function replaceUFETCH(str) {
@@ -222,7 +252,11 @@ async function restoreIntervalTasks(tasks, idendpoint_map, idkey_map = new Map()
     // en que rechaza, que es lo que tumba el proceso. Sin él, el fallo de una
     // tarea cualquiera mataba la plataforma entera, y el `allSettled` de más
     // abajo llega demasiado tarde para recogerlo.
-    const promesa = upsertIntervalTask(data);
+    //
+    // `upsertIntervalTask` es un MERGE con HOLDLOCK en MSSQL, asi que pasa por la
+    // puerta: las tareas se acumulan en `pending` mientras este bucle sigue, y sin
+    // la puerta salen todas a la vez.
+    const promesa = cierreEscrituras.ejecutar(() => upsertIntervalTask(data));
     promesa.catch(() => {});
     pending.push(promesa);
   }
@@ -304,7 +338,7 @@ async function restoreBots(bots, idapp) {
     // Mismo motivo que en `restoreIntervalTasks`: el rechazo se recoge en el
     // `allSettled`, pero hay que engancharlo en el turno en que ocurre. La
     // variable no puede llamarse `bot`: ese nombre ya es el del `for`.
-    const promesa = upsertBot(data);
+    const promesa = cierreEscrituras.ejecutar(() => upsertBot(data));
     promesa.catch(() => {});
     pending.push(promesa);
   }
@@ -832,10 +866,18 @@ export const restoreAppFromBackup = async (app) => {
       // misma respuesta que uno completo.
       let endpoints_rejected = [];
 
-      // Recoge los rechazos de un `Promise.allSettled` sobre upserts de AppVars.
+      /**
+       * Recoge los rechazos de un `mapConCierre` sobre upserts de AppVars.
+       *
+       * El codigo se desdobla en dos listas —`fuente` y `detalle`— porque el mensaje de
+       * error no dice QUE variable fallo, y un rechazo sin nombre obliga a abrir el
+       * backup entero para saber a que apuntaba. Ademas, en el formato antiguo
+       * (`app.vars`) el `value` puede ser un objeto y no un escalar, y un `${value}`
+       * ahi imprimiría `[object Object]`, que es el error que se_BUSCA hecho ilegible.
+       */
       const collectAppVarRejections = (settled, sources) => {
         settled.forEach((outcome, index) => {
-          if (outcome.status !== "rejected") {
+          if (outcome.ok) {
             return;
           }
 
@@ -843,10 +885,10 @@ export const restoreAppFromBackup = async (app) => {
           const detail = {
             name: source.name,
             environment: source.environment,
-            error: outcome.reason?.message || String(outcome.reason),
-            ...(outcome.reason?.code ? { code: outcome.reason.code } : {}),
-            ...(outcome.reason?.details?.suggestion
-              ? { suggestion: outcome.reason.details.suggestion }
+            error: outcome.error?.message || String(outcome.error),
+            ...(outcome.error?.code ? { code: outcome.error.code } : {}),
+            ...(outcome.error?.details?.suggestion
+              ? { suggestion: outcome.error.details.suggestion }
               : {}),
           };
 
@@ -863,44 +905,40 @@ export const restoreAppFromBackup = async (app) => {
         // Para la version anterior del backup
         // TODO: Esto se debe eliminar despues de la migración
         if (app.vars && typeof app.vars === "object") {
-          // Hacemos un upsert de las variables de aplicación
-          let promises_vars = [];
-          let sources_vars = [];
-          let k_env = Object.keys(app.vars);
-          for (let index = 0; index < k_env.length; index++) {
-            const env_name = k_env[index];
-
-            let k_vars = Object.keys(app.vars[env_name]);
-
-            for (let index2 = 0; index2 < k_vars.length; index2++) {
-              const name_var = k_vars[index2];
-              let v = {
+          // Aplanar el formato antiguo (entorno -> nombre -> valor) a una lista antes
+          // de tocar la base. Antes se acumulaban dos arrays en paralelo —`sources` y
+          // `promises`— que solo se entendian si los dos bucles quedaban sincronizados;
+          // un `continue` en el interior desalineaba el reporte de rechazos sin que
+          // nada fallara. Aplanar antes deja una lista y un solo bucle.
+          const sources_vars = [];
+          for (const env_name of Object.keys(app.vars)) {
+            for (const name_var of Object.keys(app.vars[env_name] ?? {})) {
+              sources_vars.push({
                 idapp: app.idapp,
                 name: name_var,
                 environment: env_name,
                 value: app.vars[env_name][name_var],
-              };
-              sources_vars.push(v);
-              promises_vars.push(
-                protectAppVars ? ensureAppVarOnce(v) : upsertAppVar(v),
-              );
+              });
             }
           }
 
           collectAppVarRejections(
-            await Promise.allSettled(promises_vars),
+            await mapConCierre(
+              sources_vars,
+              (v) => (protectAppVars ? ensureAppVarOnce(v) : upsertAppVar(v)),
+              cierreEscrituras,
+            ),
             sources_vars,
           );
         }
 
         if (Array.isArray(app.vrs) && app.vrs.length > 0) {
-          // Hacemos un upsert de las variables de aplicación
-          let promises_appvars = app.vrs.map((v) => {
-            return protectAppVars ? ensureAppVarOnce(v) : upsertAppVar(v);
-          });
-
           collectAppVarRejections(
-            await Promise.allSettled(promises_appvars),
+            await mapConCierre(
+              app.vrs,
+              (v) => (protectAppVars ? ensureAppVarOnce(v) : upsertAppVar(v)),
+              cierreEscrituras,
+            ),
             app.vrs,
           );
         }
@@ -938,8 +976,9 @@ export const restoreAppFromBackup = async (app) => {
           // Acotar la concurrencia es lo que evita el 1205, no lo amortigua. La razon
           // de que sea 4 y no 1 es que el bucle tambien valida codigo de endpoints JS
           // y parsea backups de versiones antiguas, y eso no usa conexion pero tarda
-          // mas que la sentencia: en serie se pierde ese solapamiento.
-          const limite_endpoints = limiteDesdeEntorno("OFAPI_RESTORE_ENDPOINTS_CONCURRENCY", 4);
+          // mas que la sentencia: en serie se pierde ese solapamiento. Y que el limite
+          // viva en `cierreEscrituras` y no aqui es lo que lo hace global: con las apps
+          // en paralelo, un limite en este bucle es un limite por app.
 
           const promesa_endpoint = async (ep) => {
             // Capturar el idendpoint original ANTES del upsert: upsertEndpoint
@@ -1043,7 +1082,7 @@ export const restoreAppFromBackup = async (app) => {
             return { res, source_idendpoint };
           };
 
-          let result_endpoints = await mapConLimite(app.endpoints, promesa_endpoint, limite_endpoints);
+          let result_endpoints = await mapConCierre(app.endpoints, promesa_endpoint, cierreEscrituras);
 
           // Los fallos se contaban y nada mas. `upsertEndpoint` registra el error en su
           // catch y devuelve `undefined`, asi que un endpoint que no se restaura no

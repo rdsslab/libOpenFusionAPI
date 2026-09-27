@@ -18,6 +18,79 @@ proyecto, ver [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [13.11.12] - 2026-09-27
+
+### Fixed
+
+#### El límite de concurrencia del arranque era por app, y el bucle de appvars no tenía ninguno
+
+13.11.11 acotó el bucle de endpoints a cuatro. Era la pieza correcta pero mal dimensionada,
+y el patrón que arreglaba se repetía justo debajo, en el bucle de appvars.
+
+**El límite era por app, no de la plataforma.** `defaultApps` lanza las apps en paralelo, así
+que un límite de cuatro en cada bucle es un tope real de `4 × nº de apps`: con las 2 apps por
+defecto eran 8, que era exactamente el pico medido (8 sentencias en vuelo sobre
+`ofapi_endpoint`); con 5 apps habría sido 20 —el `pool.max` de la plataforma— y con 6 lo
+habría superado, momento en el que el único freno pasa a ser el reintento.
+
+**Appvars no estaba acotado.** Era el bucle más concurrente del arranque, y el que producía
+los 20 deadlocks que la versión anterior declaraba como limitación conocida. En un arranque
+real, 35 sentencias en vuelo de 40, todas `MERGE INTO [ofapi_appvars]`.
+
+Ambos bucles comparten ahora una **puerta de paso del proceso** en lugar de un límite por
+llamada. La puerta también recoge los upserts de bots y de tareas de intervalo, que estaban
+sin acotar por la misma razón y con el mismo `MERGE`.
+
+**Medido en un arranque real contra SQL Server, desde base limpia.** Las cifras son el pico
+de sentencias **en vuelo** por tabla, con el arranque entero instrumentado:
+
+| | 13.11.11 | 13.11.12 |
+|---|---|---|
+| Escrituras en vuelo, pico por tabla (restore) | 35 en `ofapi_appvars` | **4 en las seis tablas** |
+| Escrituras en vuelo en `ofapi_endpoint` | 8 (= 4 × 2 apps) | **4** |
+| Escrituras en vuelo en `ofapi_endpoint_bkp` | 6 | **4** |
+| Reintentos por 1205 en el arranque | 67 | **0** |
+| AppVars que agotan los 4 intentos | 20 | **0** |
+| Endpoints o backups perdidos | 5 | **0** |
+| Filas en `ofapi_endpoint` / `ofapi_endpoint_bkp` | 209 / 209 | **209 / 209** |
+
+Las seis tablas que pasan por la puerta (appvars, endpoint, endpoint_bkp, bot, bot_bkp,
+intervaltask) quedan en un pico de 4, que es el límite puesto. El pico global de escrituras
+del arranque es 11, y **todo** son `MERGE INTO [ofapi_method]`: los once métodos que
+`defaultMethods` lanza con un `forEach(async)` y que no pasan por la puerta. No ha producido
+ningún 1205 —son once filas de una tabla que nadie más toca en ese momento—, pero es el
+`MERGE` con `WITH(HOLDLOCK)` más numeroso que queda sin acotar, y por eso está en las
+limitaciones conocidas de abajo.
+
+**Acción del operador:** `OFAPI_RESTORE_ENDPOINTS_CONCURRENCY` se renombra a
+`OFAPI_RESTORE_CONCURRENCY` y ahora gobierna **todas** las escrituras del arranque, no solo
+los endpoints. Si la tenías fijada a un valor, funciona igual: el nombre nuevo gana y el
+antiguo se ignora. El valor por defecto sigue siendo 4. Un valor que no sea un entero ≥ 1
+avisa por consola y usa el de por defecto, igual que antes.
+
+### Changed
+
+- `mapConLimite` desaparece de `src/lib/db/concurrency.js`. Se queda sin ningún uso en
+  producción al sustituirlo la puerta, y dejar un limitador por llamada junto a la puerta es
+  invitar a volver a acotar donde no toca: la diferencia entre los dos es justo la que hizo
+  que el arreglo de 13.11.11 no acotara el arranque.
+
+### Known limitations
+
+- `defaultMethods` (`src/lib/db/method.js`) usa `forEach(async)` en una función que no es
+  `async`, así que `await defaultMethods()` no espera nada y el arranque sigue con sus once
+  upserts en vuelo. Medido: es el pico de escrituras más alto que queda, 11 `MERGE` con
+  `WITH(HOLDLOCK)` sobre `ofapi_method`, y es lo único que la puerta no cubre. No ha
+  producido ningún 1205 porque son once filas de una tabla que nadie más toca durante el
+  arranque, pero sigue siendo el `MERGE` sin acotar más numeroso.
+- El planificador de tareas de intervalo (`src/lib/timer/worker.js`) lanza todas las tareas
+  vencidas en un mismo tick, sin cota, y `getIntervalTaskProcess()` no tiene `LIMIT`. No lo
+  cubre esta versión porque escribe con `UPDATE` e `INSERT`, no con `upsert`, y en MSSQL eso
+  no lleva `WITH(HOLDLOCK)`: no produce deadlocks hoy. Lo que tiene es agotamiento del pool
+  del hilo del worker y un `findOne` + `update` sin transacción.
+
+---
+
 ## [13.11.11] - 2026-09-26
 
 ### Fixed
