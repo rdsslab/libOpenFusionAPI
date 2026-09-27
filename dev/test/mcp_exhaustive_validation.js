@@ -10,6 +10,13 @@
 // ellas. Por eso queda fuera y no solo "de momento".
 //
 //   node dev/test/mcp_exhaustive_validation.js
+//
+// Lee la base de la plataforma en `OFAPI_TEST_DB_PATH`, y si no esta, en la ruta
+// antigua `temporales/ofapi12.sqlite` —que no es la de nadie, ver el comentario de
+// `DB_PATH` mas abajo. Apuntala a la misma que usa el servidor, que en el packet es
+// `$TMPDIR/ofapi.sqlite`. Con `DATABASE_URL` en red esto no alcanza: la suite abre
+// SQLite con `node:sqlite` para acuñar api keys, asi que contra un motor real hay
+// que seguir sin ejecutar este fichero.
 /**
  * Validación exhaustiva pre-producción — escenarios de uso real.
  *
@@ -37,7 +44,28 @@ import { TEST_BASE_URL } from "./test_credentials.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..", "..");
-const DB_PATH = path.join(REPO_ROOT, "temporales", "ofapi12.sqlite");
+
+// La ruta de la base estaba escrita a pelo y no es la de nadie. Lo peor no es que
+// falte: `DatabaseSync` crea el fichero si no existe, asi que en una maquina donde
+// alguien lo creo a mano una vez, el fichero sigue ahi con 0 bytes y el fallo sale
+// como `no such table: ofapi_password_recovery`, que culpa a las tablas cuando la
+// causa es la ruta. En el packet, que escribe su SQLite en `TMPDIR`, no hay nada que
+// leer, y entonces las lecturas de la base fallan todas por la misma causa: la del
+// usuario `admin` se pierde, el check de `ctrl.as_admin` no puede leer la fila, y la
+// suite muere en la primera consulta de verdad que hace.
+//
+// Ahora manda `OFAPI_TEST_DB_PATH`, con la ruta vieja como defecto: el mismo
+// patron que `OFAPI_BASE_URL`, y el mismo criterio, que un valor vacio cae al
+// defecto en vez de a una ruta vacia. El `.trim()` no es cosmetico: `"   "` es
+// truthy, asi que sin el un `||` a secas lo deja pasar y `path.resolve` devuelve
+// la ruta absoluta de un directorio llamado con espacios, que falla con un
+// mensaje que no señala ni la variable ni la ruta. `path.resolve` es un no-op
+// sobre las dos rutas, que ya son absolutas, y convierte en absoluta una relativa
+// que llegue por la variable, que si no se resolveria contra el cwd de quien la
+// ejecuta.
+const DB_PATH = path.resolve(
+  process.env.OFAPI_TEST_DB_PATH?.trim() || path.join(REPO_ROOT, "temporales", "ofapi12.sqlite")
+);
 const MCP_CONFIG_PATH = path.join(REPO_ROOT, ".mcp.json");
 
 // Antes escrita a pelo, que hacia que `OFAPI_BASE_URL` se ignorase en silencio.

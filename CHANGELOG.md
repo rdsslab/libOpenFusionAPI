@@ -18,6 +18,70 @@ proyecto, ver [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [13.11.24] - 2026-09-27
+
+### Fixed
+
+**`mcp_exhaustive_validation.js` leía la base de datos de una ruta que no es la de nadie, y no
+había forma de decirle otra.** Cierra el punto 6 que 13.11.23 destapó al arreglar el punto 5.
+
+```js
+const DB_PATH = path.join(REPO_ROOT, "temporales", "ofapi12.sqlite");   // antes
+const DB_PATH = path.resolve(
+  process.env.OFAPI_TEST_DB_PATH?.trim() || path.join(REPO_ROOT, "temporales", "ofapi12.sqlite"),
+);                                                                       // ahora
+```
+
+**El fallo era peor que no encontrar el fichero.** `DatabaseSync` **crea** el fichero si no
+existe, así que en una máquina donde alguien lo creó a mano una vez, ahí sigue, con 0 bytes, y
+la suite moría con `no such table: ofapi_password_recovery`: una queja sobre las tablas cuando
+la causa es la ruta. Con el `TMPDIR` del packet, donde la plataforma escribe su SQLite en
+`$TMPDIR/ofapi.sqlite`, no hay nada que leer y las comprobaciones que dependen de la base
+fallaban por otra causa.
+
+Es el mismo patrón y el mismo criterio que `OFAPI_BASE_URL` en 13.11.21–13.11.23, y con la misma
+convención de normalización: **un valor inválido cae al por defecto, no a un valor degenerado**.
+De ahí el `?.trim()`. Sin él, `OFAPI_TEST_DB_PATH="   "` es *truthy*, un `||` a secas lo deja
+pasar y `path.resolve` devuelve la ruta absoluta de un directorio llamado con espacios. El
+defecto —la ruta antigua— **no se mueve**: es lo que permite distinguir "arreglado" de
+"cambiado de sitio".
+
+Lo que no cubre el arreglo: `DATABASE_URL`. Este fichero abre SQLite con `node:sqlite` para
+acuñar api keys firmadas con el `jwt_key` de una app igual que hace su procesador, así que
+contra PostgreSQL, MSSQL o HANA **sigue sin poder ejecutarse**, y ahora se dice en su cabecera
+en vez de que se descubra al usarlo.
+
+**Verificación, por las dos vías.** En rojo, con `OFAPI_TEST_DB_PATH` apuntando a una base que
+*sí* tiene `ofapi_password_recovery`: exit 2, `no such table`, y el check de `ctrl.as_admin`
+(BUG-8) fallando por leer una base vacía. En verde, mismo comando: cero ocurrencias de las tres
+firmas del rojo, 74/77 comprobaciones OK, y el fichero **llega por fin al final**, que antes no
+llegaba. La regresión es `db_path_override_test.js`, nueva suite pura registrada en el packet
+(41 → 42).
+
+**Y un aviso, porque el arreglo destapa lo que tapaba.** El fichero moría en el lote R, antes
+del lote de limpieza, así que la última tanda de comprobaciones **nunca se había ejecutado en
+esta máquina**. Ahora se ejecuta, y de 77 salen 3 fallos. No son de este arreglo —este solo
+cambia de dónde se lee— pero solo se ven porque este las desbloqueó:
+
+- **`user_delete` vía MCP no borra al usuario `as_admin`** (el B, sin permisos, sí se borra), y
+  en cascada se queda su fila en `ofapi_password_recovery`. El check que lo detecta imprime el
+  `detail` vacío, así que además pierde el motivo: **una comprobación que falla sin decir por
+  qué es media comprobación**.
+- **La aserción del seed está caducada.** Dice `dbTasks === 2` con el comentario «1 disable y 1
+  cleanup», y el seed actual crea **5**: cleanup de recuperaciones, dos de avisos de admin, uno
+  de grupos de app y uno de poda del log de auditoría. El número es un número mágico que se
+  pudrió; el arreglo es que no se pudra.
+
+Ninguno de los dos se toca aquí, porque son hallazgos nuevos y esta serie va de uno en uno. Quedan
+documentados y pendientes de decisión.
+
+### Changed
+
+- `dev/test/README.md`: el apartado de ficheros huérfanos dice ahora de dónde lee la base
+  `mcp_exhaustive_validation.js`, y por qué `DATABASE_URL` no le sirve.
+
+---
+
 ## [13.11.23] - 2026-09-27
 
 ### Fixed

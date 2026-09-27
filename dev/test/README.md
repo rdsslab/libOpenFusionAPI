@@ -202,6 +202,16 @@ reading each one:
   suite: it creates users, `api_clients` and password-recovery rows, so it would dirty the
   state the other suites check. The other two only read, so they could be registered — which
   is why their headers say exactly what they do instead of just complaining.
+- **the one file that reads the database directly** — `mcp_exhaustive_validation.js` opens
+  SQLite with `node:sqlite`, to mint api keys signed with an app's `jwt_key` the way that
+  app's processor does, and to verify rows the API does not return. It read that file from
+  a hardcoded `temporales/ofapi12.sqlite`, which is nobody's database. The failure was worse
+  than a missing file: `DatabaseSync` **creates** the file if it is not there, so on a
+  machine where it had been created once it sat there at 0 bytes and the suite died with
+  `no such table: ofapi_password_recovery` — a complaint about tables when the cause was
+  the path. It now reads `OFAPI_TEST_DB_PATH`, with the old path as the default (13.11.24);
+  point it at the same file the server is using, `$TMPDIR/ofapi.sqlite` under the packet.
+  `DATABASE_URL` does not cover it: on a networked engine this file still cannot run.
 
 ## The three-engine matrix
 

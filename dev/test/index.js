@@ -185,6 +185,16 @@ async function runAllTests() {
         args: ["db_unbounded_writes_test.js"],
       },
       {
+        // Puro: vigila la convencion `OFAPI_TEST_DB_PATH` de
+        // `mcp_exhaustive_validation.js`, que no puede correr en el packet porque muta la
+        // app demo. Es la unica forma de que algo dentro del packet proteja la ruta de la
+        // base de ese fichero, y sale de leer su inicializador de `DB_PATH` tal cual, no
+        // de un `grep` que pasaria con el nombre escrito en un comentario.
+        label: "db_path_override_test.js",
+        command: "node",
+        args: ["db_path_override_test.js"],
+      },
+      {
         // Puro: el seed de metodos tiene que estar terminado cuando su promesa resuelve,
         // no solo haber lanzado las escrituras. Con `forEach(async)` dentro de una
         // funcion que no era `async` el arranque continuaba con 11 `MERGE INTO
