@@ -18,6 +18,34 @@ proyecto, ver [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [13.11.18] - 2026-09-27
+
+### Added
+
+**Cuatro suites que pasaban y que nadie ejecutaba entran en el packet de validación.**
+
+`dev/test/index.js` es una lista escrita a mano: dejar un fichero en `dev/test/` no lo
+registra, y por eso había cuatro suites en verde que no se ejecutaban en ninguna pasada. No
+es un detalle de forma, porque las cuatro cubren código que esta misma serie de arreglos
+tocó.
+
+| Suite | Qué cubre |
+|---|---|
+| `interval_task_schedule_test.js` | `src/lib/timer/schedule.js`: cálculo de `next_run`, backoff, suelo y techo del retraso del planificador, cron y corte por fallos |
+| `interval_task_response_outcome_test.js` | `src/lib/timer/responseOutcome.js`: cómo se lee el éxito o el fallo de la respuesta de una tarea |
+| `tasks_interval_supervisor_test.js` | `src/lib/timer/tasks.js`: el supervisor que lanza el worker del planificador, con un worker falso |
+| `code_validator_callback_chain_test.js` | La regla del validador que marca un `return` dentro de una cadena de `await` en un handler de grammy |
+
+Las tres primeras son las que importan para lo arreglado hace poco: los topes
+`MIN_SCHEDULER_DELAY_MS` y `MAX_SCHEDULER_DELAY_MS` viven en el mismo módulo que la
+primera, y el criterio que decide si una tarea se marca DONE o ERROR —y por tanto si se
+reprograma— es lo que comprueba la segunda. Un fallo ahí no se ve en la pasada en la que
+se introduce: se ve semanas después, como una tarea que no se ejecuta nunca.
+
+Verificado: el packet pasa de **37/37 a 41/41** con las cuatro dentro, en verde, con 0
+fallos y 0 saltadas. Tardan entre 0.0 y 0.1 s cada una, porque no abren ni servidor ni
+conexión: son unitarias puras sobre `src/`.
+
 ## [13.11.17] - 2026-09-27
 
 ### Fixed

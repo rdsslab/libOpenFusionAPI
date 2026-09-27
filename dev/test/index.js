@@ -350,6 +350,45 @@ async function runAllTests() {
           "dev",
         ],
       },
+      {
+        // Puro: el calculo de `next_run`, el backoff, el suelo y el techo del
+        // retraso del planificador, el cron y el corte por fallos. Cubre
+        // `src/lib/timer/schedule.js`, que es donde vive el `MIN/MAX_SCHEDULER_DELAY_MS`
+        // que el drenaje del lote respeta a proposito. Sin esto, un cambio que
+        // tocara uno de los dos topes pasaria inadvertido: el efecto se veria
+        // semanas despues, como una tarea que no se ejecuta.
+        label: "interval_task_schedule_test.js",
+        command: "node",
+        args: ["interval_task_schedule_test.js"],
+      },
+      {
+        // Puro: como se lee el exito o el fallo de la respuesta de una tarea, que
+        // es la distincion de la que depende que el interval task se marque DONE
+        // o ERROR. Es el criterio que decide si la reprogramacion ocurre, asi que
+        // un `success` mal classed postpone la tarea para siempre sin que nada lo
+        // note.
+        label: "interval_task_response_outcome_test.js",
+        command: "node",
+        args: ["interval_task_response_outcome_test.js"],
+      },
+      {
+        // Puro: el supervisor que lanza el worker del planificador, con un worker
+        // falso. Fija que se relanza cuando el worker muere y que no se relanza en
+        // bucle cuando el worker no llega a arrancar, que es la diferencia entre
+        // reintentar y martillear.
+        label: "tasks_interval_supervisor_test.js",
+        command: "node",
+        args: ["tasks_interval_supervisor_test.js"],
+      },
+      {
+        // Puro: la regla del validador que marca un `return` dentro de una cadena
+        // de `await` en un handler de callbacks de grammy, parseando el codigo con
+        // acorn. Es una regla de validacion de codigo de usuario, asi que un fallo
+        // suyo acepta codigo que se cuelga en produccion.
+        label: "code_validator_callback_chain_test.js",
+        command: "node",
+        args: ["code_validator_callback_chain_test.js"],
+      },
     ];
 
     // Se recorren TODAS las suites aunque alguna falle: con `break` en el primer
