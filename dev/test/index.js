@@ -175,6 +175,16 @@ async function runAllTests() {
         args: ["db_concurrency_test.js"],
       },
       {
+        // Puro: el seed de metodos tiene que estar terminado cuando su promesa resuelve,
+        // no solo haber lanzado las escrituras. Con `forEach(async)` dentro de una
+        // funcion que no era `async` el arranque continuaba con 11 `MERGE INTO
+        // [ofapi_method]` en vuelo (H38), y no habia forma de verlo desde fuera: el
+        // seed terminaba "bien" segun el log, solo que antes de empezar.
+        label: "db_method_seed_test.js",
+        command: "node",
+        args: ["db_method_seed_test.js"],
+      },
+      {
         // Este SÍ abre conexión: comprueba que los `bigint` de los modelos de la
         // plataforma llegan como numero cuando se puede representarlos, en el
         // dialecto que toque. El de arriba no puede cubrirlo porque ejercita el

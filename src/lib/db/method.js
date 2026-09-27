@@ -11,7 +11,7 @@ export const getAllMethods = async () => {
 	}
 };
 
-export const defaultMethods = () => {
+export const defaultMethods = async () => {
 	try {
 		// console.log(' defaultMethods >>>>>> ');
 
@@ -29,19 +29,27 @@ export const defaultMethods = () => {
 			{ id: 'OPTIONS', text: `OPTIONS` }
 		];
 
-		methods.forEach(async (m) => {
+		// `forEach` con un callback `async` no espera nada, y la funcion que lo contiene
+		// ni siquiera era `async`: devolvia `undefined` en el acto, asi que el
+		// `await defaultMethods()` del arranque no esperaba nada y las 11 escrituras se
+		// quedaban en vuelo. Medido: 11 `MERGE INTO [ofapi_method]` simultaneos en MSSQL,
+		// el pico de escrituras mas alto que quedaba tras H35/H36, y el patron que
+		// produce el 1205. En serie: una escritura en vuelo, y el arranque no sigue hasta
+		// que la tabla de metodos esta sembrada.
+		for (const m of methods) {
 			try {
 				await Method.upsert({
 					method: m.id,
 					label: m.text
 				});
 			} catch (error) {
-				console.log(error);
+				// Un metodo que falla no puede dejar sin sembrar los que van detras, pero
+				// tampoco puede pasar por alto: antes el `catch` solo imprimia el error sin
+				// decir de que metodo era, y con once llamadas identicas eso no servia.
+				console.error(`Error sembrando el metodo ${m.id}:`, error);
 			}
-		});
-		return;
+		}
 	} catch (error) {
-		console.error('Example error:', error);
-		return;
+		console.error('Error en defaultMethods:', error);
 	}
 };

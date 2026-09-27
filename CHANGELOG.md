@@ -18,6 +18,65 @@ proyecto, ver [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [13.11.13] - 2026-09-27
+
+### Fixed
+
+#### El seed de métodos declaraba estar terminado antes de empezar
+
+Con esto queda resuelta la primera de las dos limitaciones conocidas de 13.11.12.
+
+`defaultMethods` (`src/lib/db/method.js`) sembraba los once métodos con
+`methods.forEach(async (m) => { await Method.upsert(...) })`, dentro de una función que
+**ni siquiera era `async`**: devolvía `undefined` en el acto, así que el
+`await defaultMethods()` de `src/lib/index.js` no esperaba nada. Dos fallos en la misma línea:
+`forEach` no serializa, y la función que lo contiene no devuelve promesa.
+
+El síntoma no era un error, sino su ausencia: el arranque imprimía el seed como terminado y
+seguía adelante, con las once escrituras todavía en vuelo. Y las once escrituras iban a la
+vez, que en MSSQL son once `MERGE INTO [ofapi_method] WITH(HOLDLOCK)` a la vez — el `MERGE`
+sin acotar más numeroso que quedaba, y el que la puerta de 13.11.12 no cubría porque el
+método no pasa por ella. No había producido ningún 1205 —son once filas de una tabla que
+nadie más toca durante el arranque—, pero era el pico de escrituras más alto del arranque
+entero, por encima de los cuatro que fija la puerta.
+
+Ahora el seed va en serie, con un `for...of` y un `await` por método, y la función es `async`:
+una escritura en vuelo, y el arranque no continúa hasta que la tabla de métodos está
+sembrada.
+
+**Medido** con `Method.upsert` instrumentado, sobre la misma función:
+
+| | Antes | Después |
+|---|---|---|
+| Lo que devuelve la función | `undefined` | promesa que resuelve con el seed terminado |
+| Escrituras en vuelo al resolver el `await` | 11 | **0** |
+| Escrituras terminadas al resolver el `await` | 0 | **11** |
+| Pico de escrituras simultáneas | 11 | **1** |
+
+**Acción:** ninguna. No cambia la forma de la respuesta ni el esquema. Lo único observable es
+que el arranque tarda lo que tarda el seed en lugar de declarar que ya terminó, y que un
+método que falle ahora dice en el log **qué** método falló: antes el `catch` imprimía once
+errores idénticos sin decir cuál era cuál.
+
+### Added
+
+- `dev/test/db_method_seed_test.js`, puro, en el packet. Fija las tres cosas que se pueden
+  volver a romper sin que se note: que la función devuelva una promesa, que al resolver
+  estén las once escrituras **terminadas** (no solo lanzadas) y que el pico sea 1. La
+  tercera es la que mide el daño: un test que solo mirara el número de métodos sembrados
+  pasaría con el `forEach` puesto.
+
+### Known limitations
+
+- Queda una sola limitación de 13.11.12 y es la otra: el planificador de tareas de intervalo
+  (`src/lib/timer/worker.js`) lanza todas las tareas vencidas en un mismo tick, sin cota, y
+  `getIntervalTaskProcess()` no tiene `LIMIT`. No lo cubre esta versión porque escribe con
+  `UPDATE` e `INSERT`, no con `upsert`, y en MSSQL eso no lleva `WITH(HOLDLOCK)`: no produce
+  deadlocks hoy. Lo que tiene es agotamiento del pool del hilo del worker y un `findOne` +
+  `update` sin transacción.
+
+---
+
 ## [13.11.12] - 2026-09-27
 
 ### Fixed
