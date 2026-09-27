@@ -8,11 +8,7 @@ import {
   ApiClient,
   ApiKey,
 } from "./models.js";
-import {
-  deleteEndpoint,
-  getEndpointByIdApp,
-  upsertEndpoint,
-} from "./endpoint.js";
+import { getEndpointByIdApp, upsertEndpoint } from "./endpoint.js";
 import { getAppVarsByIdApp, upsertAppVar, ensureAppVarOnce } from "./appvars.js";
 import { upsertBot, BOT_RUNTIME_ATTRIBUTES } from "./bot.js";
 import {
@@ -23,7 +19,6 @@ import { upsertApiClient } from "./apiclient.js";
 import { upsertApiKey } from "./apikey.js";
 import { default_apps } from "./default/index.js";
 import { mapConCierre, crearCierraDePaso, limiteDesdeEntorno } from "./concurrency.js";
-import { v4 as uuidv4 } from "uuid";
 import { system_app } from "./default/system.js";
 import { validateEndpointCode } from "../validation/codeValidator.js";
 
@@ -736,60 +731,103 @@ export const upsertApp = async (
   }
 };
 
-export const saveAppWithEndpoints = async (app) => {
-  try {
-    if (app.idapp) {
-      // Obtener la app actual
-      let array_current_app = await getAppById(app.idapp, false);
+/*
+ * DESHABILITADO (H35): saveAppWithEndpoints
+ *
+ * Se comenta entero y no se arregla. Es decision, y de las dos alternativas posibles
+ * conviene decir cual se eligio: **no tiene ningun llamador vivo**. Su unico, `fnSaveApp`
+ * (`src/lib/server/functions/system/prd/app/index.js`), lleva comentado desde antes de
+ * esta serie, asi que hoy no se puede alcanzar desde ninguna parte. Arreglarla seria
+ * trabajo sobre codigo inalcanzable, y un arreglo que nadie ejercita tampoco esta probado.
+ *
+ * Que le faltaba, para cuando se levante el comentario. Todo esto estaba leido del
+ * codigo, no supuesto:
+ *
+ * - Dos bucles sin cota. El primero borra los endpoints que se fueron de la app; el
+ *   segundo hace un `Promise.allSettled` sobre TODOS los endpoints. Con los 209 endpoints
+ *   de la app por defecto serian 209 MERGE simultaneos, y el MERGE de Sequelize en MSSQL
+ *   es `MERGE ... WITH(HOLDLOCK)`: es exactamente el patron que produjo el error 1205 de
+ *   deadlock. La puerta global de 13.11.12 (OFAPI_RESTORE_CONCURRENCY) acota el camino
+ *   vivo, que es `defaultApps` y `restoreAppFromBackup`, pero esta funcion se lo salta
+ *   entera: escribe con `Endpoint.upsert()` sin pasar por la puerta.
+ *
+ * - El borrado va en un `try`/`catch` que se traga el error con un `console.error`, y el
+ *   guardado en otro que lo relanza. Si el borrado falla, la app se guarda igual y quedan
+ *   endpoints huerfanos de una fila que ya no existe. Y no hay transaccion que ate las dos
+ *   mitades: para cuando el guardado falla, el borrado ya ocurrio y no hay vuelta atras.
+ *
+ * - `if (app.idapp)` se lee dos veces con propositos distintos: al principio para
+ *   comprobar si la app existe, y al final para saber si hay que propagar el id a los
+ *   endpoints. Si la app es nueva el primer `if` no se cumple, y el segundo no continua
+ *   de la misma comprobacion sino que arranca de nuevo.
+ *
+ * - El `else` final tira un error generico ("App could not be saved") cuando `data.idapp`
+ *   vuelve vacio, que es lo que devuelve un upsert que no inserta. El mensaje no dice ni
+ *   que fallo ni donde, y el `catch` que lo envuelve solo lo relanza sin anadir nada.
+ *
+ * Que no se haya roto nada desde que `fnSaveApp` esta comentado es la prueba de que no
+ * hace falta: si algo lo llamara, el arranque habria fallado antes. Cuando se reactive,
+ * el orden es: pasar por `cierreEscrituras` como el resto, meter las dos mitades en una
+ * transaccion, y anadir pruebas que lo ejecuten de verdad. Sin las tres, esto vuelve a
+ * ser el mismo hallazgo.
+ *
+ * Los imports que solo esta funcion usaba (`deleteEndpoint` y `uuidv4`) se retiraron al
+ * comentar el bloque. Al levantarlo, hay que volver a importarlos.
+    export const saveAppWithEndpoints = async (app) => {
+      try {
+        if (app.idapp) {
+          // Obtener la app actual
+          let array_current_app = await getAppById(app.idapp, false);
 
-      if (array_current_app.length > 0) {
-        let current_app = array_current_app[0];
+          if (array_current_app.length > 0) {
+            let current_app = array_current_app[0];
 
-        // Buscar los endpoints que no están en la app actual
-        let endpoints_to_delete = current_app.endpoints.filter(
-          (ep) => !app.endpoints.find((e) => e.idendpoint === ep.idendpoint)
-        );
+            // Buscar los endpoints que no están en la app actual
+            let endpoints_to_delete = current_app.endpoints.filter(
+              (ep) => !app.endpoints.find((e) => e.idendpoint === ep.idendpoint)
+            );
 
-        // Eliminar los endpoints que no están en la app actual
-        let promises_delete = endpoints_to_delete.map((ep) => {
-          return deleteEndpoint(ep.idendpoint);
-        });
-        await Promise.allSettled(promises_delete);
+            // Eliminar los endpoints que no están en la app actual
+            let promises_delete = endpoints_to_delete.map((ep) => {
+              return deleteEndpoint(ep.idendpoint);
+            });
+            await Promise.allSettled(promises_delete);
+          }
+        }
+      } catch (error) {
+        console.error("Error saveAppWithEndpoints:", error);
       }
-    }
-  } catch (error) {
-    console.error("Error saveAppWithEndpoints:", error);
-  }
 
-  try {
-    // Actualizar la app y sus endpoints
-    let data = await upsertApp(app);
+      try {
+        // Actualizar la app y sus endpoints
+        let data = await upsertApp(app);
 
-    if (data.idapp) {
-      // Inserta / Actualiza los endpoints
-      let promises_upsert = app.endpoints.map((ep) => {
-        ep.idapp = data.idapp;
-        if (!ep.idendpoint) {
-          ep.idendpoint = uuidv4();
+        if (data.idapp) {
+          // Inserta / Actualiza los endpoints
+          let promises_upsert = app.endpoints.map((ep) => {
+            ep.idapp = data.idapp;
+            if (!ep.idendpoint) {
+              ep.idendpoint = uuidv4();
+            }
+            if (!ep.handler) {
+              ep.handler = "";
+            }
+
+            return Endpoint.upsert(ep, { returning: true });
+          });
+
+          let result_endpoints = await Promise.allSettled(promises_upsert);
+          // console.log("result_endpoints ==>>>", result_endpoints);
+          //TODO: mejorar el retorno del upsert de lo endpoints
+          return { app: data, endpoints: result_endpoints };
+        } else {
+          throw new Error("App could not be saved");
         }
-        if (!ep.handler) {
-          ep.handler = "";
-        }
-
-        return Endpoint.upsert(ep, { returning: true });
-      });
-
-      let result_endpoints = await Promise.allSettled(promises_upsert);
-      // console.log("result_endpoints ==>>>", result_endpoints);
-      //TODO: mejorar el retorno del upsert de lo endpoints
-      return { app: data, endpoints: result_endpoints };
-    } else {
-      throw new Error("App could not be saved");
-    }
-  } catch (error) {
-    throw error;
-  }
-};
+      } catch (error) {
+        throw error;
+      }
+    };
+ */
 
 export const restoreAppFromBackup = async (app) => {
   try {

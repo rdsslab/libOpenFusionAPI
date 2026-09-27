@@ -175,6 +175,16 @@ async function runAllTests() {
         args: ["db_concurrency_test.js"],
       },
       {
+        // Puro: el camino de escritura sin cota esta comentado, y el test comprueba que
+        // siga comentado mirando el espacio de nombres del modulo. Las dos mitades se
+        // comprueban juntas porque `fnSaveApp` llama a `saveAppWithEndpoints` por un
+        // nombre: levantando solo una, el servidor deja de arrancar o el camino sin cota
+        // vuelve a produccion (H35).
+        label: "db_unbounded_writes_test.js",
+        command: "node",
+        args: ["db_unbounded_writes_test.js"],
+      },
+      {
         // Puro: el seed de metodos tiene que estar terminado cuando su promesa resuelve,
         // no solo haber lanzado las escrituras. Con `forEach(async)` dentro de una
         // funcion que no era `async` el arranque continuaba con 11 `MERGE INTO

@@ -18,6 +18,67 @@ proyecto, ver [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [13.11.15] - 2026-09-27
+
+### Changed
+
+#### `saveAppWithEndpoints` queda comentado, con el motivo al lado
+
+Con esto queda cerrado el alcance de la auditoría H23–H38 de base de datos.
+
+**No se ha arreglado: se ha comentado.** Y conviene decir por qué, porque "comentar el
+código" es exactamente lo que parece una evasión y aquí no lo es: **la función no tiene
+ningún llamador vivo**. Su único, `fnSaveApp`
+(`src/lib/server/functions/system/prd/app/index.js`), ya estaba comentado desde antes de
+esta serie, así que hoy no se puede alcanzar desde ninguna parte. Arreglarla sería trabajo
+sobre código inalcanzable, y un arreglo que nadie ejercita tampoco está probado.
+
+Lo que le faltaba, queda escrito junto al bloque para el que lo levante:
+
+- **Dos bucles sin cota.** El primero borra los endpoints que se fueron de la app; el
+  segundo hace un `Promise.allSettled` sobre **todos** los endpoints. Con los 209 endpoints
+  de la app por defecto serían 209 `MERGE` simultáneos, y el `MERGE` de Sequelize en MSSQL
+  es `MERGE ... WITH(HOLDLOCK)`: exactamente el patrón que produjo el error 1205 de
+  deadlock. La puerta global de 13.11.12 (`OFAPI_RESTORE_CONCURRENCY`) acota el camino
+  vivo —`defaultApps` y `restoreAppFromBackup`—, pero esta función se la saltaba entera:
+  escribía con `Endpoint.upsert()` sin pasar por la puerta.
+- **El borrado y el guardado no estaban atados.** El borrado iba en un `try`/`catch` que
+  se tragaba el error con un `console.error`, y el guardado en otro que lo relanzaba. Si
+  el borrado fallaba, la app se guardaba igual y quedaban endpoints huérfanos de una fila
+  que ya no existía; y no había transacción que atara las dos mitades, así que para
+  cuando el guardado fallaba el borrado ya había ocurrido y no había vuelta atrás.
+- `if (app.idapp)` se leía dos veces con propósitos distintos, y un `else` final lanzaba un
+  error genérico (`"App could not be saved"`) sin decir qué había fallado ni dónde.
+
+### Removed
+
+- Los imports que solo esta función usaba (`deleteEndpoint` y `uuidv4`). Vuelven a
+  Hacerse falta si se levanta el bloque; está anotado junto al comentario.
+
+### Added
+
+- `dev/test/db_unbounded_writes_test.js`, puro. Comprueba que la función no se exporta y
+  que su único llamador tampoco, **juntas**: `fnSaveApp` la invoca por un nombre, así que
+  levantar solo una de las dos deja el servidor sin arrancar, o devuelve a producción el
+  camino sin cota. Mira el espacio de nombres del módulo en vez de su texto, porque "no se
+  exporta" es un hecho exacto y un hecho exacto no se rompe por un reformateo. También
+  comprueba que la nota del motivo siga junto al código: un bloque comentado sin
+  explicación es código muerto sin contexto, y el siguiente que lo lea lo borrará por
+  limpieza.
+
+### Known limitations
+
+- **No queda ninguna limitación conocida de esta serie.** Las de 13.11.10 (clave de caché
+  de plataforma en HANA), 13.11.11 (sin reintento ante bloqueo) y 13.11.12 (puerta de paso
+  del arranque) están resueltas o retiradas; las de 13.11.14 (el bloqueo de fila solo es
+  real en PostgreSQL) y esta entrada (el camino sin cota está comentado, no arreglado) no
+  son defectos activos: son decisiones ya tomadas y documentadas.
+- Cuando alguien reactive `saveAppWithEndpoints`, el orden importa y está anotado en el
+  código: pasar por la puerta global, meter las dos mitades en una transacción, y añadir
+  pruebas que lo ejecuten de verdad. Sin las tres, vuelve a ser el mismo hallazgo.
+
+---
+
 ## [13.11.14] - 2026-09-27
 
 ### Fixed
