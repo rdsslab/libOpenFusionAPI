@@ -1,3 +1,15 @@
+// ESTE FICHERO NO LO EJECUTA NADIE.
+//
+// No convierte esquemas: llama en vivo a la tool MCP
+// `validate_json_schema_for_mcp` y comprueba que la respuesta no venga con
+// banderas de incompatibilidad. No es suite del packet ni tiene npm script, asi
+// que solo arranca escribiendolo:
+//
+//   node dev/test/mcp_schema_conversion.js
+//
+// No muta nada, solo consulta, asi que PODRIA entrar en el packet tal cual. Que
+// no lo este no es una limitacion tecnica: nadie lo registro, que es distinto de
+// que no se pueda.
 import fs from "node:fs";
 import path from "node:path";
 

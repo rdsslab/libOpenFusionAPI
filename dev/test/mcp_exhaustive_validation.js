@@ -1,4 +1,15 @@
 #!/usr/bin/env node
+
+// ESTE FICHERO NO LO EJECUTA NADIE, Y NO DEBE ENTRAR EN EL PACKET.
+//
+// Validacion exhaustiva previa a produccion, sobre las areas de uso real. A
+// diferencia de los otros dos, esta MUTA de verdad: crea usuarios, crea
+// api_clients y deja filas de recuperacion de contrasena. Metida en el packet,
+// cada pasada dejaria usuarios y clientes nuevos en la base de la plataforma, y
+// una suite que ensucia el estado que otras comprueban no puede correr antes que
+// ellas. Por eso queda fuera y no solo "de momento".
+//
+//   node dev/test/mcp_exhaustive_validation.js
 /**
  * Validación exhaustiva pre-producción — escenarios de uso real.
  *

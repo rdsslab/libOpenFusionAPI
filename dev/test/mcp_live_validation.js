@@ -1,4 +1,18 @@
 #!/usr/bin/env node
+
+// ESTE FICHERO NO LO EJECUTA NADIE.
+//
+// Validacion integral previa a produccion: recorre los escenarios que un agente
+// AI ejecuta de verdad, contra el servidor MCP que declara `.mcp.json`. No es
+// suite del packet, que es una lista escrita a mano, ni tiene npm script, asi que
+// solo arranca escribiendolo:
+//
+//   node dev/test/mcp_live_validation.js
+//
+// Necesita la plataforma en marcha. No se automatiza a proposito: su resultado
+// solo vale si se cita el momento y la instancia contra la que se lanzo, y
+// metido en un packet pasaria a ser un "MCP verificado" que en realidad se
+// verifico una vez y a mano.
 /**
  * Validación integral de las tools MCP — previa a paso a producción.
  *

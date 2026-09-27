@@ -18,6 +18,40 @@ proyecto, ver [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [13.11.20] - 2026-09-27
+
+### Changed
+
+**Tres scripts de `dev/test` que no ejecutaba nadie dicen ahora, en su propia cabecera, qué
+son y por qué nadie los ejecuta.**
+
+`dev/test/` tiene 53 ficheros y 41 de ellos son suites del packet. Los tres que quedan en esa
+categoría —`mcp_live_validation.js`, `mcp_exhaustive_validation.js` y
+`mcp_schema_conversion.js`— no están registrados ni tienen npm script, así que solo arrancan
+escribiendo el nombre. Un script de validación de 600 líneas en el repositorio aparenta
+cobertura que no existe, y eso es peor que no tenerlo.
+
+La causa no era que nadie hubiera decidído ejecutarlos: era que **nadie había leído lo que
+hacen**. Al comprobarlo para escribir las cabeceras:
+
+- **`mcp_schema_conversion.js` no convierte esquemas.** Su `main()` llama en vivo a la tool MCP
+  `validate_json_schema_for_mcp` y comprueba que la respuesta no traiga banderas de
+  incompatibilidad. El nombre del fichero prometía una transformación pura de ficheros y no
+  lo es: necesita la plataforma en marcha, como los otros dos.
+- **`mcp_exhaustive_validation.js` muta de verdad**: crea usuarios, crea `api_clients` y deja
+  filas de recuperación de contraseña. Es el único de los tres que **no debe entrar nunca en
+  el packet**, porque ensuciaría el estado que las demás suites comprueban. Lo declaran sus
+  14 llamadas de escritura, sin necesidad de leerlas enteras.
+- Los tres necesitan la plataforma en marcha, y eso no lo decía nada.
+
+También se corrigen tres datos de `dev/test/README.md` que 13.11.17 a 13.11.19 dejaron
+desfasados: las suites registradas pasan de 37 a 41, los ficheros que no son suites de 17 a
+13, y `system_test.js` ya no está en rojo.
+
+Nada de esto cambia el comportamiento de nada. Lo que cambia es que un fichero que puede
+parecer una suite y no lo es lo dice en su primera línea, y que su nombre ya no promete lo que
+no hace.
+
 ## [13.11.19] - 2026-09-27
 
 ### Fixed

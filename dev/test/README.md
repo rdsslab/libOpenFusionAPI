@@ -15,7 +15,7 @@ its own process, prints a summary, and stops the server.
 is the `testRuns` array in [`index.js`](./index.js), and a file that is not in it is never
 run by `npm test` and no regression in it is ever caught.
 
-37 suites are registered as of 13.11.15.
+41 suites are registered as of 13.11.18.
 
 ## What the runner does
 
@@ -125,39 +125,39 @@ database was seeded with.
 
 ## Files here that are not in the packet
 
-Six files in this directory look like tests and are **not registered**. `npm test` does not
+Two files in this directory look like tests and are **not registered**. `npm test` does not
 run them and nothing catches a regression in them.
 
 | file | state |
 |---|---|
-| `code_validator_callback_chain_test.js` | passes standalone, no connection |
-| `interval_task_schedule_test.js` | passes standalone, no connection |
-| `interval_task_response_outcome_test.js` | passes standalone, no connection |
-| `tasks_interval_supervisor_test.js` | passes standalone, no connection |
 | `exception_payload_test.js` | needs a live server on `:3000`; passes |
-| `system_test.js` | needs a live server on `:3000`; **fails** at the MCP `tools/list` step |
+| `system_test.js` | needs a live server on `:3000`; passes since 13.11.17 |
 
-The first four are pure, fast and green — they could be registered today. They are not
-because nobody has done it, not because they were considered and excluded.
+Four more sat here until 13.11.18 and are registered now: `interval_task_schedule_test.js`,
+`interval_task_response_outcome_test.js`, `tasks_interval_supervisor_test.js` and
+`code_validator_callback_chain_test.js`. All four are pure, fast and green, and nobody had
+registered them — which is not the same as having considered and excluded them.
 
-`system_test.js` has two problems, both in the test:
+`system_test.js` is unregistered on purpose, and the reason holds up: it creates and deletes
+an endpoint in the shared `demo` app, so putting it in the packet would make every run create
+and delete a shared endpoint, and its own failures would be one more thing that can spoil the
+suites after it. One problem is left in it: it hardcodes `http://localhost:3000` with no
+environment override, so it cannot be pointed at another instance.
 
-1. It hardcodes `http://localhost:3000` with no environment override, so it cannot be
-   pointed at another instance.
-2. The MCP endpoint answers in **SSE** — `content-type: text/event-stream`, body
-   `event: message\ndata: {...}` — and the test reads `res.data.result.tools` as if it
-   were JSON. It therefore throws on `null` at the discovery step. Parsing the `data:`
-   line is the whole fix.
-
-It was already broken before the current work: up to `1f075a9` it hardcoded
+It was broken for a long time, for two reasons in a row. Up to `1f075a9` it hardcoded
 `admin:admin@admin`, which the seed has never created, so it never got past login. An
 earlier, unrelated commit (`a67e99a`, the MCP-harness work) swapped that for
-`basicAuthHeader()`, which fixed the login as a side effect. The SSE mismatch is what is
-left, and it is why the suite is still red.
+`basicAuthHeader()`, which fixed the login as a side effect — and that is what exposed the
+second reason. The MCP endpoint answers in **SSE** — `content-type: text/event-stream`, body
+`event: message\ndata: {...}` — and the test read `res.data.result.tools` as if it were
+JSON, so it threw on `null` at the discovery step, with a `TypeError` that named neither the
+transport nor the MCP. 13.11.17 fixed that by parsing the `data:` lines. 13.11.19 moved the
+endpoint deletion into a `finally`, which the `process.exit()` calls inside the suite would
+otherwise have skipped, leaving `/test_ping_js` in `demo` on every failed run.
 
 ## The rest of the files here
 
-17 of the 53 files in this directory are not suites. Knowing which is which saves
+13 of the 53 files in this directory are not suites. Knowing which is which saves
 reading each one:
 
 - **helpers**, imported by suites rather than run as one — `close_db.js` (close the
@@ -173,8 +173,12 @@ reading each one:
   `check_mcp_name_uniqueness.js` is the odd one: it has a `test:mcp-names` script **and**
   is a suite, registered twice, against `prd` and against the `demo` app
 - **orphans** — `mcp_live_validation.js`, `mcp_exhaustive_validation.js` and
-  `mcp_schema_conversion.js` are neither registered nor wired to any npm script. They
-  only run if you type the filename. Treat their passing as unknown.
+  `mcp_schema_conversion.js` are neither registered nor wired to any npm script; they only
+  run if you type the filename, and all three need a live server. Each says so in its own
+  header now (13.11.20). `mcp_exhaustive_validation.js` is the one that must never become a
+  suite: it creates users, `api_clients` and password-recovery rows, so it would dirty the
+  state the other suites check. The other two only read, so they could be registered — which
+  is why their headers say exactly what they do instead of just complaining.
 
 ## The three-engine matrix
 
