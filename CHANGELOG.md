@@ -1008,6 +1008,30 @@ esta reutilización.
 
 ---
 
+## [13.11.8] - 2026-09-26
+
+**La matriz de handlers contra motores reales entra en el repo, sin contraseñas dentro.**
+
+`dev/test/handler_db_matrix.mjs` crea endpoints efímeros en la app `demo` y los llama por HTTP, que
+es el mismo camino que usa un cliente, y los recorre contra PostgreSQL, MSSQL y SAP HANA: 52
+comprobaciones que cubren el handler `SQL`, el `SQL_BULK_I` y el de HANA, con sus diferencias
+reales de dialecto. Vive fuera del packet a propósito —`dev/test/index.js` es una lista explícita y
+corre contra el motor del `.env`, que es uno solo—, y ahora se puede además mover de sitio sin tocar
+el código: destino, puerto, base, usuario y contraseña de cada motor salen del entorno.
+
+**La contraseña es lo único que no tiene valor por defecto**, y el motivo es que una clave de
+conexión escrita en un repositorio está copiada en todos los clones y en todos los CI, y no se
+puede revocar. Un motor sin su contraseña se salta con un aviso que dice qué variable falta, en vez
+de fallar con un error de autenticación que en el informe de salida es indistinguible de un defecto
+del handler. Un `SKIP` declarado y un `FAIL` que se confunde con un bug no son el mismo resultado,
+y quien lee la salida de una prueba necesita poder distinguirlos.
+
+La cabecera del script documenta los requisitos (plataforma en marcha con la app `demo` sembrada, un
+contenedor por motor) y cómo sembrar HANA, que es el motor donde crear el esquema a mano fue lo más
+rápido. En PostgreSQL y MSSQL las tablas las crea el propio script.
+
+---
+
 ## Referencia
 
 - Versionado: `package.json`
