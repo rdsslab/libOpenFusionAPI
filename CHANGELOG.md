@@ -18,6 +18,50 @@ proyecto, ver [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [13.11.16] - 2026-09-27
+
+### Changed
+
+**El README de `dev/test` describía un directorio de pruebas que no existe.**
+
+El fichero llevaba 38 líneas y no era README de este directorio: describía una carpeta
+`test/` que no está en el repo, unos ficheros `.cjs` que no existen, y un `npm run test`
+que no existe. Quien lo abría para entender cómo validar un cambio se iba con una
+imagen falsa del mecanismo, y lo peor es que una imagen falsa de un mecanismo de pruebas
+no falla nunca a la vista: no hay ningún síntoma.
+
+El fichero ahora describe lo que hay, que es lo que se comprobó leyendo y ejecutando:
+
+- **Las 37 suites se registran a mano** en el array `testRuns` de `dev/test/index.js`.
+  Dejar un fichero en el directorio no lo registra: no lo corre `npm test` y ninguna
+  regresión suya la detecta nadie.
+- **El runner arranca la plataforma real** desde la raíz del proyecto, no desde
+  `dev/test`, con `PORT=3000`, `BUILD_DB=true` y `AUTH_MAX_FAILURES=1000`; espera hasta
+  180 s a que responda y luego lanza cada suite en su propio proceso, con 300 s de
+  límite por suite, `SIGTERM` y `SIGKILL` 10 s después.
+- **`JWT_KEY` es la trampa que más cuesta tiempo**, y no se documentaba en ninguna parte.
+  Los hashes de contraseña son `HMAC-SHA256(contraseña, JWT_KEY)`, así que **una base
+  sembrada con una `JWT_KEY` no autentica con otra**: todos los usuarios responden
+  `401 Invalid credentials`, idéntico a una contraseña equivocada y sin nada en la
+  respuesta ni en el log que apunte a la clave.
+- **Dos trampas de residuos**: la limpieza de `backup_restore_test.js` está al final del
+  camino feliz y **sin `finally`**, así que si la suite falla deja las filas que creó; y
+  las credenciales sembradas **sí sobreviven** a un packet completo, siempre que la
+  `JWT_KEY` sea la misma con la que se sembró.
+- **Seis ficheros con aspecto de test que no están en el packet** — cuatro puros que
+  pasan y podrían registrarse hoy, `exception_payload_test.js` que necesita un servidor
+  vivo, y `system_test.js` que **falla**: parsea como JSON una respuesta MCP que llega en
+  SSE, y ya fallaba antes de este trabajo.
+- Los 17 ficheros que no son suites, clasificados: helpers, runner, scripts con npm
+  script propio y **tres huérfanos** (`mcp_live_validation.js`,
+  `mcp_exhaustive_validation.js`, `mcp_schema_conversion.js`) que no están registrados ni
+  tienen script y solo se ejecutan escribiendo el nombre.
+
+Nada de esto cambia el comportamiento de la plataforma. Lo que cambia es que un
+documento que era falso pasa a ser cierto, que es la única forma de que sirva para lo
+único que puede servir un README: que alguien que no escribió el código sepa qué hacer
+con él.
+
 ## [13.11.15] - 2026-09-27
 
 ### Changed
