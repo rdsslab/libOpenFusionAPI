@@ -1,6 +1,7 @@
 import { mergeObjects } from "../server/utils.js";
 import {
   applyConnectionOverride,
+  buildConnectionCacheKey,
   getAppVarContext,
   getHandlerExecutionContext,
   parseConnectionOverrideAllowlist,
@@ -223,7 +224,15 @@ export const sqlHana = async (context) => {
       //      console.log(paramsSQL);
 
       if (paramsSQL.config) {
-        const configHash = JSON.stringify(paramsSQL.config);
+        // La misma clave que usan los handlers de Sequelize, y por el mismo motivo:
+        // decidir si dos peticiones comparten la conexión es una decisión de una
+        // sola función, en un solo sitio. Aquí la clave anterior era
+        // `JSON.stringify(config)`, que tenía los dos fallos que esto arregla: la
+        // contraseña en claro dentro de una cadena que se imprime en los logs
+        // (`HANA Pool expired`, `Closing idle HANA pool`, `Error invalidating`), y
+        // el orden de las claves decidiendo si dos configs idénticas compartían
+        // entrada.
+        const configHash = buildConnectionCacheKey(paramsSQL.config, environment);
         const pool = await getConnection(configHash, paramsSQL);
 
         // Obtener parámetros de bind o replacements (ambos válidos)

@@ -172,8 +172,10 @@ async function runAllTests() {
         args: ["db_bigint_normalization_test.js"],
       },
       {
-        // Puro: la clave de caché del pool tiene que cubrir TODAS las options.
-        // Lo que se le escapaba no daba error, devolvía la respuesta de otra base.
+        // Puro: la clave de caché del pool tiene que cubrir TODO lo que distingue una
+        // conexión de otra —las options, la forma de config de cada motor y la
+        // credencial, hasheada—. Lo que se le escapaba no daba error, devolvía la
+        // respuesta de otra base, con las credenciales de otro.
         label: "sql_connection_cache_key_test.js",
         command: "node",
         args: ["sql_connection_cache_key_test.js"],

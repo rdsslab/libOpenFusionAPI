@@ -874,6 +874,140 @@ nunca se nota.
 
 ---
 
+## [13.11.7] - 2026-09-26
+
+**Un endpoint con la contraseña caducada leía los datos de otro, y la contraseña de la base de
+datos estaba escrita en los logs.** Las dos cosas son la misma línea de código: la clave con la
+que el pool decide si dos peticiones comparten conexión.
+
+#### El fallo
+
+`buildConnectionCacheKey` serializaba `environment`, `database`, `username`, `parse_bigint` y el
+`options` entero. La contraseña no estaba. Dos endpoints sobre la misma base y el mismo usuario
+con distinta contraseña producían la misma clave, así que el segundo **heredaba la conexión que
+abrió el primero** y se ejecutaba con sus credenciales sin saberlo. Medido sobre la plataforma en
+marcha, contra PostgreSQL:
+
+```
+INFO  postgres: password erronea -> HTTP 200
+FAIL  postgres: credencial invalida no entrega datos
+      :: HTTP 200 devolvio filas con una password incorrecta
+```
+
+El síntoma no es un error de autenticación, y esa es la parte incómoda: es una respuesta. El
+endpoint con la contraseña vencida lee los datos del que sí la tenía, y el endpoint con la
+contraseña equivocada contesta con lo que el otro tenía. En MSSQL se notaba menos porque
+`tedious` reautentica al tomar la conexión de la pool; en PostgreSQL la sesión reutilizada
+respondía 200 y no decía nada.
+
+#### La misma línea, en los logs
+
+La clave se imprime entera en el pool cuando una conexión caduca, cuando el pool está lleno y
+cuando una entrada vieja se recicla. Y en HANA era mucho peor: su clave era
+`JSON.stringify(paramsSQL.config)`, es decir **la config entera, con la contraseña dentro**, y esa
+cadena se imprimía tal cual:
+
+```js
+console.log(`HANA Pool expired: ${configHash}`);        // sqlHana.js:41
+console.log(`Closing idle HANA pool: ${oldestHash}`);   // sqlHana.js:68
+```
+
+Con el código anterior, esa línea en un servidor con un endpoint de HANA contiene la contraseña
+de la base de datos del cliente, en claro. No hace falta que nadie la lea: basta con que el log
+llegue a donde llega un log. Reproducido sobre la plataforma en marcha, esperando a que la
+entrada del pool superara su TTL de 10 minutos:
+
+```
+HANA Pool expired: {"databaseName":"HXE","user":"SYSTEM","password":"Hana#Exp2026!x",
+                    "host":"127.0.0.1","port":39141,"encrypt":true,
+                    "sslValidateCertificate":false}
+```
+
+Con el arreglo, la misma línea sale así, y la contraseña no aparece en ninguna parte del log del
+proceso:
+
+```
+HANA Pool expired: {"database":"HXE","databaseName":"HXE","encrypt":true,"environment":"dev",
+                    "host":"127.0.0.1","parse_bigint":false,
+                    "password":"sha256:f3d62d29b9225f9…","port":39141,
+                    "sslValidateCertificate":false,"user":"SYSTEM","username":"SYSTEM"}
+```
+
+(`sha256("Hana#Exp2026!x")` es `f3d62d29b9225f9…`: la huella es la del secreto, verificada contra
+la contraseña real del contenedor de prueba.)
+
+La corrección es que en la clave la credencial va **hasheada** (`sha256`, en hexadecimal), con
+prefijo `sha256:` para que se distinga de un valor de verdad. La regla se aplica por nombre de
+clave —`password` y `pwd`— y a cualquier nivel, porque la credencial también puede venir anidada
+en `options` (`dialectOptions.password`), que es donde se cuelan las que nadie mira.
+
+`SHA-256` sin sal, y es deliberado: la huella tiene que ser estable, porque es la que decide si
+dos peticiones comparten el pool, y porque una clave de caché que cambiara en cada arranque
+haría imposible correlacionar dos entradas del mismo log. El residuo se dice aquí y no se disfraza:
+el `sha256` de una contraseña corta se adivina por fuerza bruta, así que una clave filtrada no
+equivale a una contraseña filtrada, pero tampoco es inocua. **El log sigue siendo un sitio
+sensible**, y ahora es sensible por una razón que se puede explicar.
+
+#### HANA tenía su propia clave
+
+El handler de HANA no usaba `buildConnectionCacheKey`: construía la suya con `JSON.stringify`. Es
+la segunda implementación de una decisión que tiene que vivir en un solo sitio, y la divergencia
+ya se había pagado una vez: la clave de los handlers SQL dejó de llevar la contraseña y la de
+HANA ni se enteró. Ahora usa la función común.
+
+Para que eso no rompiera HANA, la función tuvo que aprender a leer su forma, que no es la de
+Sequelize: la conexión está descrita **en la raíz, sin `options`**, y con otros nombres —
+`serverNode`, `databaseName`, `user` o `uid`, `encrypt`, `sslValidateCertificate`. Una función que
+solo leyera `database`, `username` y `password` devolvería `undefined` en los tres casos, y dos
+tenants de HANA con el mismo usuario y la misma contraseña compartirían entrada. Para esa forma el
+config entero se despliega en la clave, igual que ya se hacía con `options` en el camino de
+Sequelize: es lo que evita mantener una lista de campos a mano que se queda corta en el siguiente
+campo nuevo.
+
+El despliegue se hace **solo cuando no hay `options`**, y se quitan antes `query_type`,
+`parse_bigint` y `connection_override_allow`. Ahí la lista es de exclusión, al revés que en el
+camino de Sequelize, y la asimetría es intencionada: olvidarse de una clave de esa lista cuesta
+una entrada de pool de más, mientras que olvidarse de un campo de conexión reparte los datos de un
+tenant entre endpoints que no lo comparten. El entorno también entra ahora en la clave de HANA, que
+antes no lo tenía.
+
+#### Verificación
+
+El caso de credenciales inválidas es el que estaba en rojo, y pasa en los tres motores:
+
+| | antes | ahora |
+|---|---|---|
+| postgres | **FAIL** — HTTP 200 con filas | PASS — HTTP 500 |
+| mssql | PASS — HTTP 500 | PASS — HTTP 500 |
+| hana | PASS — HTTP 500 | PASS — HTTP 500 |
+
+Matriz completa de handlers contra los tres motores (SQL, SQL_BULK_I y HANA): **50 pass / 1 fail →
+52 pass / 0 fail**. El caso nuevo es de HANA: dos endpoints con el mismo usuario y contraseña y
+`databaseName` distintos, donde el segundo apunta a una base que no existe. Si compartieran
+entrada, respondería con las filas de la otra. No es un fallo que se viera antes —la clave
+vieja de HANA era el config entero, que sí incluía el `databaseName`— sino el que habría
+introducido el mover esa clave a la función común sin enseñarle antes la forma de HANA, que es
+justo el orden en que se rompen estas cosas. Queda como guarda de esa decisión.
+
+`sql_connection_cache_key_test.js` (puro, sin abrir conexiones) pasa de 14 comprobaciones en 5
+bloques a 26 en 9: contraseña raíz y anidada, huella presente y contraseña ausente de la clave, y
+los siete campos que distinguen una conexión de HANA de otra. Se comprobó que **falla sin el
+arreglo** por las dos vías —la de Sequelize y la de HANA—, porque una prueba que solo pasa con el
+arreglo puesto no distingue nada.
+
+#### Lo que esto cuesta
+
+Un pool por combinación real de conexión. Un endpoint multi-tenant que cambia la contraseña en
+cada petición —el patrón que documenta el override de conexión— ahora abre una entrada por
+contraseña distinta, donde antes compartía una. **No es un defecto que se pueda evitar**: dos
+peticiones con credenciales distintas no pueden usar la misma conexión, y el motivo por el que
+antes sí lo hacían era precisamente el que se arregla aquí. Lo que cambia es cuándo se nota: el
+pool avisa al llenarse con un mensaje que dice qué hacer (`OFAPI_SQL_POOL_MAX_CONNECTIONS` o
+consolidar los overrides), y ese aviso ahora aparece antes en las implantaciones que viven de
+esta reutilización.
+
+---
+
 ## Referencia
 
 - Versionado: `package.json`

@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { buildErrorPayload } from "../server/errorPayload.js";
 
 export const setCacheReply = (reply, data, headers) => {
@@ -581,6 +582,49 @@ export const isParseBigintEnabled = (value) => {
 };
 
 /**
+ * Nombres con los que el driver de HANA (`@sap/hana-client`) acepta la contraseña.
+ * El de Sequelize es `password`, y aparece suelto en la raíz de la config y también
+ * anidado dentro de `options` (`dialectOptions.password`), que es donde algunos
+ * drivers la leen. La regla se aplica por nombre de clave y a cualquier nivel: una
+ * lista de rutas concretas se queda corta en cuanto alguien anida la credencial un
+ * nivel más.
+ */
+const CREDENTIAL_KEYS = new Set(["password", "pwd"]);
+
+/**
+ * Huella de un secreto, para poder compararlo sin escribirlo.
+ *
+ * Se usa `sha256` sin sal y en hexadecimal, y la razón de que sea sin sal es que la
+ * huella tiene que ser estable: es la que decide si dos peticiones comparten el pool
+ * de conexiones, y dos procesos —o el mismo proceso tras un reinicio— tienen que
+ * llegar a la misma conclusión con la misma configuración. Una sal aleatoria por
+ * proceso cumpliría eso, pero una sal fija en el código no protege nada, así que
+ * fingiría una garantía que no existe.
+ *
+ * El residuo honesto de esto: `sha256` de una contraseña corta se puede adivinar por
+ * fuerza bruta, así que una clave de caché filtrada no equivale a una contraseña
+ * filtrada, pero tampoco es inocua. Quien tenga el log sigue necesitando el log.
+ *
+ * @param {unknown} value
+ * @returns {string}
+ */
+const fingerprintCredential = (value) =>
+  `sha256:${crypto.createHash("sha256").update(String(value)).digest("hex")}`;
+
+/** Un objeto plano: lo único que describe una configuración. */
+const isPlainConfigObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+
+/**
+ * Claves que la plataforma lee de la config pero que no cambian a qué servidor se
+ * conecta. Se documentan en los AI_SKILL de SQL, SQL_BULK_I y HANA.
+ */
+const PLATFORM_CONFIG_KEYS = new Set([
+  "query_type",
+  "parse_bigint",
+  "connection_override_allow",
+]);
+
+/**
  * Build a deterministic cache key for database connections.
  * Includes the resolved environment so production and test connections cannot share a pool entry.
  */
@@ -597,6 +641,14 @@ export const isParseBigintEnabled = (value) => {
  * indistinguibles de "no estaba", y distinguirlos produce claves distintas para
  * configs que se comportan igual. Dentro de un array sí se conservan, porque ahí la
  * posición significa algo.
+ *
+ * Una excepción a "se serializa tal cual": las claves de credencial no van en claro,
+ * van su huella. La clave de caché se imprime en los logs (pool lleno, conexión
+ * caduca, entrada vieja) y también viaja dentro de mensajes de error que se guardan
+ * fuera, así que serializarla tal cual convierte cada uno de esos logs en una copia
+ * de la contraseña de la base de datos. La huella cumple las dos funciones que
+ * necesita: sigue distinguiendo una contraseña de otra —que es lo que la clave tiene
+ * que hacer— y no se puede leer de vuelta.
  */
 const canonicalize = (value) => {
   if (Array.isArray(value)) return value.map(canonicalize);
@@ -604,7 +656,10 @@ const canonicalize = (value) => {
 
   const out = {};
   for (const key of Object.keys(value).sort()) {
-    const v = canonicalize(value[key]);
+    let v = canonicalize(value[key]);
+    if (CREDENTIAL_KEYS.has(key) && v !== undefined && v !== null) {
+      v = fingerprintCredential(v);
+    }
     if (v !== undefined && v !== null) out[key] = v;
   }
   return out;
@@ -876,22 +931,66 @@ export const applyConnectionOverride = (config = {}, override, allowlist = null)
  * El efecto secundario es que dos configs que difieren en una opción irrelevante
  * ya no comparten conexión. Es el coste correcto: o son la misma conexión o son
  * conexiones distintas de verdad, y el pool está acotado y avisa cuando se llena.
+ *
+ * ## Contraseña
+ *
+ * La clave incluye la huella de la contraseña y no la contraseña. Sin ella, dos
+ * endpoints sobre la misma base y el mismo usuario pero con distinta contraseña
+ * compartían entrada: el segundo heredaba la conexión que abrió el primero y se
+ * ejecutaba con sus credenciales sin saberlo. Un tenant con la contraseña
+ * caducada no recibía un error de autenticación, leía los datos de otro. Y al revés:
+ * un endpoint con la contraseña equivocada contestaba con los datos de quien sí
+ * tenía razón. El fallo no es un error, es una respuesta de otro.
+ *
+ * ## Configs que no son de Sequelize
+ *
+ * HANA no pasa por Sequelize: su config no trae `options` y describe la conexión en
+ * la raíz con otros nombres —`serverNode`, `databaseName`, `user`/`uid`,
+ * `encrypt`, `sslValidateCertificate`—, así que ni `database` ni `username` ni
+ * `password` dicen nada de ella. Ahora que el handler de HANA usa esta función, la
+ * función tiene que saber leer esa forma: si no, todos esos campos entrarían como
+ * `undefined` y dos tenants distintos compartirían entrada.
+ *
+ * Para esa forma el config entero se despliega en la clave, que es lo mismo que ya
+ * se hace con `options` en el camino de Sequelize y evita mantener una lista de
+ * campos a mano que se queda corta en el siguiente campo nuevo. El despliegue se
+ * hace solo cuando NO hay `options`: en la forma de Sequelize, el resto de la raíz
+ * son campos que la conexión no lee, y separarlos crearía entradas de pool que no
+ * corresponden a conexiones distintas.
  */
 export const buildConnectionCacheKey = (config = {}, environment = 'dev') => {
   // Solo un objeto plano describe opciones. `ConnectionPool` las consume con
   // `{...config.options}`, así que un array se extiende a `{}` y un `null` se
   // extiende a `{}`: ninguno de los dos es una configuración distinta, y
   // diferenciarlos haría que dos usos idénticos ocuparan dos entradas del pool.
-  const options =
-    config?.options && typeof config.options === "object" && !Array.isArray(config.options)
-      ? config.options
-      : undefined;
+  const options = isPlainConfigObject(config?.options) ? config.options : undefined;
+
+  // Config sin `options`: la conexión entera está en la raíz y se serializa entera,
+  // menos las tres claves que la plataforma usa para sí misma y que no cambian a qué
+  // servidor se conecta. Aquí la lista es de EXCLUSIÓN, al revés que en el camino de
+  // Sequelize, y la asimetría es deliberada: olvidarse de una clave de esta lista
+  // cuesta una entrada de pool de más, mientras que olvidarse de un campo de
+  // conexión —justo lo que se arregla aquí— reparte los datos de un tenant entre
+  // endpoints que no lo comparten.
+  let raiz;
+  if (options === undefined && isPlainConfigObject(config)) {
+    raiz = {};
+    for (const [campo, valor] of Object.entries(config)) {
+      if (!PLATFORM_CONFIG_KEYS.has(campo)) raiz[campo] = valor;
+    }
+  }
 
   return JSON.stringify(
     canonicalize({
+      ...raiz,
       environment,
-      database: config?.database,
-      username: config?.username,
+      // Los tres siguientes aceptan el nombre de cada motor: Sequelize usa
+      // `database`/`username`/`password` y HANA `databaseName`/`user`/`password` o
+      // sus alias `uid`/`pwd`. Con un solo nombre, una config de HANA describía su
+      // destino con campos que la clave no leía.
+      database: config?.database ?? config?.databaseName,
+      username: config?.username ?? config?.user ?? config?.uid,
+      password: config?.password ?? config?.pwd,
       // Dos endpoints sobre la MISMA base pueden discrepar en `parse_bigint` y por
       // tanto entregar `int8` como número o como string. Sin esto en la clave, el
       // segundo hereda la conexión que creó el primero y recibe el tipo que no
