@@ -171,18 +171,24 @@ reading each one:
   the other 2 are the unregistered ones below) and exports `TEST_BASE_URL`. All three values
   are overridable — `OFAPI_BASE_URL`, `OFAPI_TEST_USER`, `OFAPI_TEST_PASS` — which is how you
   point a suite at a different instance without editing it.
-- **base URL: three conventions, none of them complete** — of the fourteen files here that
-  name a server, **four read `OFAPI_BASE_URL`**: `test_credentials.js`, `handler_db_matrix.mjs`,
-  and since 13.11.21 `system_test.js` and `exception_payload_test.js` (the latter had invented
-  `OFAPI_TEST_URL`, which survives only as a silent fallback). **Six hardcode
-  `http://localhost:3000` with no override at all** — `bot_backup_test.js`,
-  `bot_crud_test.js`, `bot_resilience_test.js`, `fetch_timeout_test.js`, `integration_test.js`
-  and `mcp_exhaustive_validation.js` — and **three invented a private variable**:
-  `CACHE_TEST_BASE_URL` in `cache_validation.js`, `OWASP_BASE_URL` in `owasp_top10.js`,
-  `WS_CACHE_TEST_BASE_URL` in `ws_cache_events.js`. Eight of those nine are registered in the
-  packet, so setting `OFAPI_BASE_URL` and running `npm test` still goes to `localhost:3000`
-  where it matters. `index.js` ignores it on purpose — it starts the server on `:3000` and
-  polls `:3000` — which is why the packet as a whole cannot be pointed at another instance.
+- **base URL: one convention, and one exception** — of the fourteen files here that name a
+  server, **thirteen read `OFAPI_BASE_URL`**, through `TEST_BASE_URL` from
+  `test_credentials.js`. It took three commits to get there, because it was three conventions
+  and none of them complete: six files hardcoded `http://localhost:3000` with no override, and
+  three had invented a private variable — `CACHE_TEST_BASE_URL`, `OWASP_BASE_URL` and
+  `WS_CACHE_TEST_BASE_URL`. All six and all three are fixed as of 13.11.23, and the private
+  names survive as silent fallbacks rather than being removed. The fourteenth file is
+  `index.js`, which ignores the variable on purpose: it starts the server on `:3000` and polls
+  `:3000`, so **the packet as a whole cannot be pointed at another instance** — every suite can,
+  the runner that hosts them cannot.
+- **three suites start their own platform** — `cache_validation.js`, `owasp_top10.js` and
+  `ws_cache_events.js` probe `BASE_URL` for two attempts and, finding nothing, `spawn`
+  `src/server.js` with `PORT` taken from that same URL. That is why they each had a variable of
+  their own, and it is worth knowing when you test an override: **pointing them at a free port
+  does not break them**, they just come up on it. To see whether an override is honoured, put
+  something that answers on that port and count who talks to it. It is also why
+  `ws_cache_events.js` derives its `ws://` URL from `BASE_URL`: the path is fixed and known, and
+  host and port are what change with the instance.
 - **the runner** — `index.js`, the thing `npm test` invokes
 - **runnable on their own, with their own npm script** — `mcp_contract_audit.js`
   (`npm run test:mcp-contract`), `mcp_schema_smoke.mjs` (`test:mcp-schemas`),

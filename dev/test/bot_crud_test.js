@@ -1,8 +1,9 @@
 import assert from "node:assert";
-import { basicAuthHeader } from "./test_credentials.js";
+import { TEST_BASE_URL, basicAuthHeader } from "./test_credentials.js";
 
 async function runTests() {
-  const baseUrl = "http://localhost:3000";
+  // Antes escrita a pelo, que hacia que `OFAPI_BASE_URL` se ignorase en silencio.
+  const baseUrl = TEST_BASE_URL;
   const authHeader = basicAuthHeader();
 
   console.log("--- Starting Bot CRUD Tests ---");

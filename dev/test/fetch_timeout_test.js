@@ -1,8 +1,9 @@
 import assert from "node:assert";
 import { fetchFunction } from "../../src/lib/handler/fetchFunction.js";
-import { basicAuthHeader } from "./test_credentials.js";
+import { TEST_BASE_URL, basicAuthHeader } from "./test_credentials.js";
 
-const baseUrl = "http://localhost:3000";
+// Antes escrita a pelo, que hacia que `OFAPI_BASE_URL` se ignorase en silencio.
+const baseUrl = TEST_BASE_URL;
 const authHeader = basicAuthHeader();
 
 const call = async (url, options = {}) => {

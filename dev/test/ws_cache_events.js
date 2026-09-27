@@ -3,12 +3,24 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import WebSocket from "ws";
-import { basicAuthHeader } from "./test_credentials.js";
+import { TEST_BASE_URL, basicAuthHeader } from "./test_credentials.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(__dirname, "../..");
-const BASE_URL = process.env.WS_CACHE_TEST_BASE_URL || "http://localhost:3000";
-const WS_URL = process.env.WS_CACHE_TEST_WS_URL || "ws://localhost:3000/ws/system/websocket/server/prd";
+// `OFAPI_BASE_URL` es la convencion de este directorio. El nombre propio se conserva
+// como repliegue y no como alternativa: hoy funciona, y quitarlo sin avisar costaria
+// una hora a quien lo tenga puesto.
+const BASE_URL = process.env.OFAPI_BASE_URL || process.env.WS_CACHE_TEST_BASE_URL || TEST_BASE_URL;
+// El websocket SI se deriva del base. Primero se escribio que no,
+// porque montar la URL del protocolo a mano parece inventarse una ruta que puede no
+// ser la real. Medido: con la base en otro puerto y el websocket en el de por
+// defecto, esta suite fallaba sin `ECONNREFUSED`, que es la forma mas dificil de
+// leer. La ruta del protocolo es la parte que no se inventa --es fija y se conoce
+// --, y lo que cambia con la instancia es el host y el puerto, que es justo lo que
+// trae la URL base. De ahi que se derive la parte que se sabe y no la que no.
+const WS_URL =
+  process.env.WS_CACHE_TEST_WS_URL ||
+  `${BASE_URL.replace(/^http/, "ws")}/ws/system/websocket/server/prd`;
 
 const DEMO_IDAPP = "c4ca4238-a0b9-2382-0dcc-509a6f75849b";
 const SYSTEM_LOGIN_PATH = "/api/system/system/login/prd";

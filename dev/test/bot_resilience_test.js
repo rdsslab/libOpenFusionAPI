@@ -1,7 +1,8 @@
 /**
  * @file bot_resilience_test.js
  * @description Prueba de extremo a extremo de la política de resiliencia de bots contra
- * un servidor real. Requiere el servidor en http://localhost:3000 (lo arranca dev/test/index.js).
+ * un servidor real. Requiere el servidor en marcha (lo arranca dev/test/index.js); la
+ * URL sale de `OFAPI_BASE_URL`.
  *
  * Cubre las dos rutas que el diseño separa:
  *
@@ -16,9 +17,10 @@
  */
 
 import assert from "node:assert/strict";
-import { basicAuthHeader } from "./test_credentials.js";
+import { TEST_BASE_URL, basicAuthHeader } from "./test_credentials.js";
 
-const BASE_URL = "http://localhost:3000";
+// Antes escrita a pelo, que hacia que `OFAPI_BASE_URL` se ignorase en silencio.
+const BASE_URL = TEST_BASE_URL;
 const BASIC_AUTH = basicAuthHeader();
 
 let passed = 0;

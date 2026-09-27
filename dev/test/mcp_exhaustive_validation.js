@@ -33,13 +33,15 @@ import { fileURLToPath } from "node:url";
 import { createHmac, randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import jwt from "jsonwebtoken";
+import { TEST_BASE_URL } from "./test_credentials.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..", "..");
 const DB_PATH = path.join(REPO_ROOT, "temporales", "ofapi12.sqlite");
 const MCP_CONFIG_PATH = path.join(REPO_ROOT, ".mcp.json");
 
-const BASE = "http://localhost:3000";
+// Antes escrita a pelo, que hacia que `OFAPI_BASE_URL` se ignorase en silencio.
+const BASE = TEST_BASE_URL;
 const DEMO_IDAPP = "c4ca4238-a0b9-2382-0dcc-509a6f75849b";
 const SYSTEM_IDAPP = "cfcd2084-95d5-65ef-66e7-dff9f98764da";
 const DEMO_JWT_KEY = "f30ce432-7b32-4267-8af3-3dfd7c0f7ed6";

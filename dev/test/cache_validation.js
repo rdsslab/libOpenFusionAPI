@@ -2,11 +2,14 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { basicAuthHeader } from "./test_credentials.js";
+import { TEST_BASE_URL, basicAuthHeader } from "./test_credentials.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(__dirname, "../..");
-const BASE_URL = process.env.CACHE_TEST_BASE_URL || "http://localhost:3000";
+// `OFAPI_BASE_URL` es la convencion de este directorio. El nombre propio se conserva
+// como repliegue y no como alternativa: hoy funciona, y quitarlo sin avisar costaria
+// una hora a quien lo tenga puesto.
+const BASE_URL = process.env.OFAPI_BASE_URL || process.env.CACHE_TEST_BASE_URL || TEST_BASE_URL;
 const DEMO_IDAPP = "c4ca4238-a0b9-2382-0dcc-509a6f75849b";
 const SYSTEM_LOGIN_PATH = "/api/system/system/login/prd";
 const SYSTEM_CACHE_STATUS_PATH = "/api/system/cache/status/prd";

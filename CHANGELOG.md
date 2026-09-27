@@ -18,6 +18,80 @@ proyecto, ver [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [13.11.23] - 2026-09-27
+
+### Fixed
+
+**Nueve ficheros más de `dev/test` leían mal la URL base. Ocho son suites del packet, así que
+esto estaba en el camino de cada `npm test`.**
+
+Cierra el punto 5 que 13.11.21 abrió y 13.11.22 contaba con las cifras exactas. De los
+catorce ficheros que nombran un servidor, **los nueve que lo hacían mal lo hacen bien ahora**:
+trece leen `OFAPI_BASE_URL` y el único que no, el runner, es porque no debe.
+
+| fichero | antes | ahora |
+|---|---|---|
+| `bot_backup_test.js`, `bot_crud_test.js`, `bot_resilience_test.js`, `fetch_timeout_test.js`, `integration_test.js`, `mcp_exhaustive_validation.js` | `localhost:3000` escrito a pelo, sin override | `TEST_BASE_URL` |
+| `cache_validation.js` | `CACHE_TEST_BASE_URL` | `OFAPI_BASE_URL`, con el nombre viejo de repliegue |
+| `owasp_top10.js` | `OWASP_BASE_URL` | ídem |
+| `ws_cache_events.js` | `WS_CACHE_TEST_BASE_URL` | ídem |
+
+Los tres nombres privados se quedan como repliegue en vez de desaparecer: hoy funcionan, y
+tirarlos sin avisar costaría una hora a quien los tenga puestos.
+
+**La comprobación de las seis primeras no era la que parecía.** Con `OFAPI_BASE_URL` apuntando a
+un puerto cerrado, cinco de las seis fallan con `ECONNREFUSED` y
+`mcp_exhaustive_validation.js` falla por otra cosa. Y las tres del segundo grupo **no fallan en
+absoluto**: `cache_validation.js`, `owasp_top10.js` y `ws_cache_events.js` arrancan su propio
+servidor. No es un detalle: si la sonda de readiness no encuentra nada en el puerto de la URL,
+hacen `spawn` de `src/server.js` con `PORT` tomado de esa misma URL, así que apuntar a un puerto
+vacío no las rompe: se levantan ahí y probando lo de siempre, contra su propio servidor. Esa
+razón es justo la que explica que tuvieran una variable con nombre propio.
+
+Por eso el rojo hubo que medirse con otro instrumento. Se puso un servidor **falso** en el 3999
+que contesta 200 a todo y **cuenta quién le habla**, y se comparó el código viejo con el nuevo
+sobre la misma corrida:
+
+| suite | código viejo, `OFAPI_BASE_URL=:3999` | código nuevo, `OFAPI_BASE_URL=:3999` | código nuevo, sin variable |
+|---|---|---|---|
+| `cache_validation.js` | salida 0, **0 peticiones** al falso | salida 1, **7 peticiones** | salida 0, 0 al falso |
+| `owasp_top10.js` | salida 0, **0 peticiones** | salida 1, **3 peticiones** | salida 0, 0 al falso |
+| `ws_cache_events.js` | salida 0, **0 peticiones** | salida 1, **3 peticiones** | salida 0, 0 al falso |
+
+Cero peticiones con el código viejo es la prueba: se fueron a `localhost:3000` con la variable
+puesta a otra cosa. Y que sin variable sigan en verde, con cero peticiones al falso, es lo que
+confirma que el caso normal no se ha roto.
+
+**Una decisión mía que estaba mal, corregida por medición.** Al derivar la URL base de
+`ws_cache_events.js` escribí que su websocket **no** debía derivarse, porque montar a mano la URL
+del protocolo parece inventarse una ruta que puede no ser la real. Al probar se vio que era
+justo al revés: con la base en otro puerto y el websocket en el de por defecto, la suite fallaba
+**sin `ECONNREFUSED`**, que es la forma más difícil de leer que hay. Lo que cambia con la
+instancia es el host y el puerto, que es justo lo que trae la URL base; lo único que no se
+inventa es la ruta del protocolo, que es fija y se conoce. Así que ahora se deriva la parte que
+se sabe:
+
+```js
+const WS_URL =
+  process.env.WS_CACHE_TEST_WS_URL ||
+  `${BASE_URL.replace(/^http/, "ws")}/ws/system/websocket/server/prd`;
+```
+
+Con la base por defecto el valor es **byte a byte el mismo** que el de antes
+(`ws://localhost:3000/ws/system/websocket/server/prd`), y `https` produce `wss`. El nombre
+propio se respeta si está puesto: con `WS_CACHE_TEST_WS_URL` apuntando al falso, el handshake
+llega al falso.
+
+**Regresión:** el packet pasa de 41/41 a **41/41** con los nueve ficheros cambiados dentro,
+0 fallos y 0 saltadas. Ocho de ellos se ejecutan en cada pasada del packet, así que el verde de
+41/41 es la prueba de que el cambio no rompió ninguna.
+
+**Un defecto que se ha visto de paso y que no se arregla aquí:** `mcp_exhaustive_validation.js`
+lee la base por una ruta escrita a pelo, `temporales/ofapi12.sqlite`, y con la base actual del
+packet eso le da `no such table: ofapi_password_recovery`. Es la misma familia de fallo que
+este commit —una ruta fija en vez de configurable— pero arreglarlo pide decidir de dónde lee,
+que no es una decisión de una línea.
+
 ## [13.11.22] - 2026-09-27
 
 ### Fixed

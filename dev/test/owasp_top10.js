@@ -3,11 +3,14 @@ import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { basicAuthHeader } from "./test_credentials.js";
+import { TEST_BASE_URL, basicAuthHeader } from "./test_credentials.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(__dirname, "../..");
-const BASE_URL = process.env.OWASP_BASE_URL || "http://localhost:3000";
+// `OFAPI_BASE_URL` es la convencion de este directorio. El nombre propio se conserva
+// como repliegue y no como alternativa: hoy funciona, y quitarlo sin avisar costaria
+// una hora a quien lo tenga puesto.
+const BASE_URL = process.env.OFAPI_BASE_URL || process.env.OWASP_BASE_URL || TEST_BASE_URL;
 const SERVER_PATH = path.resolve(__dirname, "../../src/server.js");
 const SYSTEM_LOGIN_PATH = "/api/system/system/login/prd";
 const SYSTEM_ENDPOINT_PATH = "/api/system/api/endpoint/prd";
