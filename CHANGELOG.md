@@ -18,6 +18,50 @@ proyecto, ver [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [13.11.17] - 2026-09-27
+
+### Fixed
+
+**`system_test.js` no pasaba desde antes de la serie H23-H38, y el motivo no era el MCP.**
+
+El endpoint `/api/system/mcp/server/:environment` no contesta JSON: contesta SSE
+(`content-type: text/event-stream`), con un bloque `event: message` y el JSON-RPC entero en
+la línea `data:`. El helper `call()` de la suite lo leía con `res.json()`, que revienta; el
+helper se tragaba el error y devolvía `data: null`, así que la suite moría en la línea
+siguiente con
+
+```
+TypeError: Cannot read properties of null (reading 'result')
+```
+
+que es el síntoma más caro de los posibles, porque parece un servidor MCP roto y es un test
+roto. Peor: la línea que reventaba estaba a mitad del fichero, muy lejos del helper que había
+fallado, así que el mensaje no señalaba el paso 5 sino el principio.
+
+Con `admin:admin@admin` fijo, que el seed nunca creó, la suite no llegaba ni al paso 5; el
+commit `a67e99a` lo cambió por `basicAuthHeader()` y arregló el login de paso, que es lo que
+dejó al descubierto este fallo.
+
+El arreglo son 25 líneas y ninguna toca la plataforma. El helper decide por `content-type` y,
+cuando es SSE, lee el texto y saca el payload de las líneas `data:`. Se añade una aserción
+antes de la existente para que un payload ilegible se distinga de un MCP que contesta sin
+`result`: los dos casos caían en el mismo `TypeError`.
+
+Verificado en rojo antes que en verde, y por las dos vías:
+
+- **En rojo**, con la suite sin tocar: `TypeError` en `system_test.js:118`, en el paso 5, con
+  los cuatro pasos anteriores en verde.
+- **En verde**, contra la plataforma real: `MCP Discovery OK. Found 79 tools`, salida 0, y el
+  endpoint que crea la suite se borra al final.
+- **El helper muerde**, con siete entradas comprobadas una a una: SSE bien formado, `data:`
+  con espacios de sobra, varios eventos (gana el último), payload truncado, cuerpo sin
+  `data:`, cuerpo vacío y HTML donde se esperaba SSE. Las cuatro últimas devuelven `null` sin
+  reventar, que es justo lo que convierte el `TypeError` en un mensaje que dice qué pasó.
+
+La suite **sigue fuera del packet**: pedir tres motores a propósito la deja fuera, y esto no
+cambia eso. Lo que cambia es que ahora pasa cuando se ejecuta a mano, que es lo que se le
+reprochaba.
+
 ## [13.11.16] - 2026-09-27
 
 ### Changed
