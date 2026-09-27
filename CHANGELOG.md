@@ -18,6 +18,38 @@ proyecto, ver [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [13.11.22] - 2026-09-27
+
+### Fixed
+
+**Las cifras del punto 5 de 13.11.21 eran falsas, y se corrigen a contadas.**
+
+13.11.21 afirmaba «son 2 de 10 ficheros con la convención correcta, y 8 con la suya propia
+o ninguna». Recuento de ficheros de uno en uno, son **catorce ficheros los que nombran un
+servidor**: cuatro lo hacen bien, nueve lo hacen mal y uno lo hace a propósito. El error no
+era de criterio sino de recuento, y venía de contar mal la primera vez: la búsqueda inicial no
+pillaba ni `const BASE = "http://localhost:3000"` ni el `fetch` suelto del runner, así que
+salieron dos ficheros menos y el total se quedó en diez.
+
+Lo que se corrige:
+
+| | decía 13.11.21 | son |
+|---|---|---|
+| Ficheros que nombran un servidor | 10 | **14** |
+| Con la convención correcta | 2 | **4** |
+| Sin override, URL a pelo | 5 | **6** |
+| Con variable privada propia | — | **3** |
+| El runner, a propósito | — | **1** |
+| De los que la hacen mal, registrados en el packet | 8 | **8**, pero ahora se sabe que de nueve, no de ocho |
+
+La conclusión de 13.11.21 se sostiene y es la que importa: poner `OFAPI_BASE_URL` y lanzar
+`npm test` sigue apuntando a `localhost:3000` en ocho de las suites que el packet ejecuta. Lo
+que se cae es el recuento, no la conclusión.
+
+Ninguna de estas correcciones toca código: solo los números y la tabla que los acompaña, en el
+CHANGELOG y en el README de `dev/test`. La versión sube porque en esta serie cada commit la
+sube, no porque el comportamiento cambie.
+
 ## [13.11.21] - 2026-09-27
 
 ### Fixed
@@ -64,15 +96,22 @@ Ninguna de las dos suites está en el packet, y `OFAPI_BASE_URL` no toca la plat
 afecta a estos dos scripts de prueba.
 
 **Lo que este arreglo no arregla, y conviene no dejarlo en un rincon:** este directorio no
-tiene una convención de URL base, tiene tres, y ninguna está completa. `OFAPI_BASE_URL` la
-leen ahora los cuatro ficheros que la leen bien, pero **cinco suites registradas siguen con
-`http://localhost:3000` escrito a pelo y sin override** — `bot_backup_test.js`,
-`bot_crud_test.js`, `bot_resilience_test.js`, `fetch_timeout_test.js` e `integration_test.js`—,
-y otras tres registradas se inventaron una variable privada: `CACHE_TEST_BASE_URL`,
-`OWASP_BASE_URL` y `WS_CACHE_TEST_BASE_URL`. Poner `OFAPI_BASE_URL` y la mayor parte del
-directorio lo ignora. `index.js` también, y ese a propósito: arranca el servidor en `:3000` y
-sondea `:3000`, así que el packet entero no se puede apuntar a otra instancia. Con esto son 2
-de 10 ficheros con la convención correcta, y 8 con la suya propia o ninguna.
+tiene una convención de URL base, tiene tres, y ninguna está completa. De los catorce
+ficheros que nombran un servidor, **cuatro la leen bien** —los dos de este commit,
+`test_credentials.js` y `handler_db_matrix.mjs`—, **nueve la hacen mal** y uno la ignora a
+propósito. De los nueve:
+
+- **Seis la tienen escrita a pelo**, sin override: `bot_backup_test.js`, `bot_crud_test.js`,
+  `bot_resilience_test.js`, `fetch_timeout_test.js`, `integration_test.js` y
+  `mcp_exhaustive_validation.js`. Cinco de esos seis son suites del packet.
+- **Tres se inventaron una variable privada**: `CACHE_TEST_BASE_URL` en `cache_validation.js`,
+  `OWASP_BASE_URL` en `owasp_top10.js`, y `WS_CACHE_TEST_BASE_URL` más
+  `WS_CACHE_TEST_WS_URL` en `ws_cache_events.js`. Las tres son suites del packet.
+
+El décimo fichero es `index.js`, que arranca el servidor en `:3000` y sondea `:3000`: ahí
+ignorar la variable es lo correcto, con la consecuencia de que **el packet entero no se puede
+apuntar a otra instancia**. Poner `OFAPI_BASE_URL` y lanzar `npm test` sigue yendo a
+`localhost:3000` en ocho de las suites que lo ejecutan.
 
 ## [13.11.20] - 2026-09-27
 

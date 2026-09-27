@@ -171,17 +171,18 @@ reading each one:
   the other 2 are the unregistered ones below) and exports `TEST_BASE_URL`. All three values
   are overridable — `OFAPI_BASE_URL`, `OFAPI_TEST_USER`, `OFAPI_TEST_PASS` — which is how you
   point a suite at a different instance without editing it.
-- **base URL, three different conventions, none of them complete** — `OFAPI_BASE_URL` is the
-  one `test_credentials.js` and `handler_db_matrix.mjs` read, and as of 13.11.21 also
-  `system_test.js` and `exception_payload_test.js` (the latter had invented `OFAPI_TEST_URL`,
-  which survives only as a silent fallback). Against that, **five registered suites still
-  hardcode `http://localhost:3000` with no override at all** — `bot_backup_test.js`,
-  `bot_crud_test.js`, `bot_resilience_test.js`, `fetch_timeout_test.js` and
-  `integration_test.js` — and three more registered ones invented a private variable:
-  `CACHE_TEST_BASE_URL` in `cache_validation.js`, `OWASP_BASE_URL` in `owasp_top10.js` and
-  `WS_CACHE_TEST_BASE_URL` in `ws_cache_events.js`. Set `OFAPI_BASE_URL` and most of this
-  directory ignores it. `index.js` ignores it too, on purpose: it starts the server on `:3000`
-  and polls `:3000`, so the packet as a whole cannot be pointed at another instance.
+- **base URL: three conventions, none of them complete** — of the fourteen files here that
+  name a server, **four read `OFAPI_BASE_URL`**: `test_credentials.js`, `handler_db_matrix.mjs`,
+  and since 13.11.21 `system_test.js` and `exception_payload_test.js` (the latter had invented
+  `OFAPI_TEST_URL`, which survives only as a silent fallback). **Six hardcode
+  `http://localhost:3000` with no override at all** — `bot_backup_test.js`,
+  `bot_crud_test.js`, `bot_resilience_test.js`, `fetch_timeout_test.js`, `integration_test.js`
+  and `mcp_exhaustive_validation.js` — and **three invented a private variable**:
+  `CACHE_TEST_BASE_URL` in `cache_validation.js`, `OWASP_BASE_URL` in `owasp_top10.js`,
+  `WS_CACHE_TEST_BASE_URL` in `ws_cache_events.js`. Eight of those nine are registered in the
+  packet, so setting `OFAPI_BASE_URL` and running `npm test` still goes to `localhost:3000`
+  where it matters. `index.js` ignores it on purpose — it starts the server on `:3000` and
+  polls `:3000` — which is why the packet as a whole cannot be pointed at another instance.
 - **the runner** — `index.js`, the thing `npm test` invokes
 - **runnable on their own, with their own npm script** — `mcp_contract_audit.js`
   (`npm run test:mcp-contract`), `mcp_schema_smoke.mjs` (`test:mcp-schemas`),
