@@ -806,6 +806,74 @@ y queda como pendiente, no como algo resuelto.
 
 ---
 
+## [13.11.6] - 2026-09-26
+
+**MSSQL ya arranca.** Cierra el pendiente que dejó 13.11.5, y son dos defectos distintos. El
+segundo no lo buscaba nadie: estaba debajo del primero y llevaba tiempo dormido.
+
+#### Un alta no es un `upsert`
+
+`upsertIntervalTask` usaba `IntervalTask.upsert()` tanto para actualizar una tarea existente
+como para crear una nueva. La diferencia se decide por la presencia de `idtask`: si viene, se
+fusiona con la fila guardada y se actualiza; si no viene, lo que se pide es un alta y que la
+base asigne el id. Lo segundo no es un `upsert`, y en MSSQL no se puede expresar:
+
+```
+Error: Primary Key or Unique key should be passed to upsert query
+    at MSSQLQueryGenerator.upsertQuery (...)
+    at upsertIntervalTask (src/lib/db/interval_task.js:115)
+```
+
+`upsertQuery` de MSSQL construye un `MERGE`, así que necesita un punto de unión, y exige que la
+carga útil traiga la clave primaria o alguna única. Sin `idtask` —que es justo el caso del alta—
+no encuentra ninguna y lanza. En PostgreSQL y SQLite no fallaba, **pero por casualidad**:
+`upsertKeys` cae a la PK, el conflicto nunca llega a producirse porque `idtask` lo asigna la
+secuencia, y el resultado es un `INSERT` con otro nombre. El mismo código, tres resultados
+distintos, y el equivocado es el que no se ve.
+
+Ahora el alta va por `IntervalTask.create()`, que dice lo mismo en los tres motores. Y
+`restoreIntervalTasks` sigue haciendo lo que ya hacía: borrar `idtask` para que la base lo
+asigne, en vez de inventarse un id.
+
+#### El rechazo sin manejador tumbaba la plataforma entera
+
+Este es el que no buscaba nadie, y merece explicación porque parece que el código ya lo tenía
+resuelto. `restoreIntervalTasks` empuja cada tarea a un array y las espera al final:
+
+```js
+pending.push(upsertIntervalTask(data));   // línea 219
+...
+const results = await Promise.allSettled(pending);   // línea 236
+```
+
+`allSettled` está ahí y además se avisa de cada fallo por `console.error`, así que a primera
+vista el error está contenido. No lo está. Entre el `push` y el `allSettled` el bucle sigue
+iterando y se hace `await` en consultas a la base, y **Node da por perdido un rechazo en el
+turno en que ocurre si no hay manejador en ese momento**. La promesa ya rechazada atraviesa
+varios turnos del bucle de eventos sin que nadie la enganche, saltan `unhandledRejection` y
+—desde Node 15, con el valor por defecto— el proceso muere. `allSettled` llega demasiado tarde
+para recogerlo.
+
+La corrección es una línea y no cambia el resultado: se engancha un `catch` vacío en el momento
+del `push`. El rechazo sigue siendo el mismo y `allSettled` sigue informando igual, pero ya
+nunca hay una promesa rechazada sin manejar. Se hace lo mismo en `restoreBots`, que tenía el
+mismo patrón y habría caído igual ante cualquier error de base de datos.
+
+#### Verificación
+
+Arranque en MSSQL desde base limpia: esquema completo, **escucha en el puerto**, sin excepción no
+capturada, 209 endpoints, 2 aplicaciones, 4 usuarios y **5 interval tasks** sembradas — que es
+justo el camino del alta. Y el **segundo arranque** sobre la misma base también levanta, que es
+el caso que se caía antes, y sin duplicar tareas: siguen siendo 5.
+
+El paso nuevo del test (`interval_task_upsert_test.js`, paso 10) sabotea `IntervalTask.upsert` y
+comprueba que el alta no pasa por ahí. Se comprobó que **falla sin el arreglo** y pasa con él.
+Se hace así, y no contra la base de datos, porque en PostgreSQL el comportamiento antiguo es
+idéntico: sin la comprobación, esta regresión volvería a pasar inadvertida en el dialecto donde
+nunca se nota.
+
+---
+
 ## Referencia
 
 - Versionado: `package.json`

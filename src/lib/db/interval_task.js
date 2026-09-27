@@ -112,6 +112,19 @@ export const upsertIntervalTask = async (data) => {
       }
     }
 
+    // Sin `idtask` el pedido es explícito: una tarea nueva, con el id que asigne la
+    // base. Eso no es un `upsert`, es un alta, y `upsert()` no lo expresa en MSSQL:
+    // su `upsertQuery` exige que la carga útil traiga la clave primaria o alguna
+    // única, y si no encuentra ninguna responde "Primary Key or Unique key should
+    // be passed to upsert query". En PostgreSQL y SQLite no fallaba, pero por
+    // casualidad: `upsertKeys` cae a la PK, el conflicto nunca llega a producirse
+    // porque `idtask` lo asigna la secuencia, y el resultado era un INSERT con
+    // otro nombre. `create()` dice exactamente lo mismo en los tres motores.
+    if (payload.idtask === undefined || payload.idtask === null) {
+      const creada = await IntervalTask.create(payload);
+      return { result: creada, created: true, previous: null };
+    }
+
     const [result, created] = await IntervalTask.upsert(payload, {
       returning: true,
     });

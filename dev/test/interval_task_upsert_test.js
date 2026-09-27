@@ -242,6 +242,45 @@ async function runTests() {
       );
     }
 
+    // 10. Un alta NO puede pasar por `upsert()`.
+    //
+    // Sin `idtask` lo que se pide es una tarea nueva, y en MSSQL el `upsertQuery`
+    // lanza "Primary Key or Unique key should be passed to upsert query" porque la
+    // carga útil no trae ni la PK ni ninguna única. En PostgreSQL y SQLite pasaba
+    // sin quejarse, de forma accidental: `upsertKeys` cae a la PK, el conflicto no
+    // llega a producirse porque `idtask` lo asigna la secuencia y el resultado es
+    // un INSERT. Por eso esto se comprueba con `upsert` saboteado y no con la
+    // base de datos: si el alta volviera a pasar por `upsert`, esta prueba falla
+    // en los tres motores, no solo en el que sufria el crash.
+    console.log("[STEP 10/10] A new task is created without going through upsert...");
+    const upsertReal = IntervalTask.upsert;
+    const createReal = IntervalTask.create;
+    let upsertTocado = false;
+
+    IntervalTask.upsert = () => {
+      upsertTocado = true;
+      return Promise.reject(
+        new Error("upsert() no debe usarse para un alta: MSSQL exige clave primaria o unica")
+      );
+    };
+
+    let alta;
+    try {
+      alta = await upsertIntervalTask({
+        idendpoint: endpointId,
+        note: "sonda de alta sin idtask",
+      });
+    } finally {
+      IntervalTask.upsert = upsertReal;
+      IntervalTask.create = createReal;
+    }
+
+    assert.strictEqual(upsertTocado, false, "el alta sin idtask no debe llamar a upsert()");
+    assert.strictEqual(alta.created, true, "un alta sin idtask debe informar created: true");
+    assert.strictEqual(alta.previous, null, "un alta no tiene una version previa");
+    assert.ok(alta.result?.idtask, "el alta debe traer el id que asigno la base");
+    created_idtask = alta.result.idtask;
+
     console.log("--- All Interval Task Upsert Tests Passed Successfully! ---");
   } finally {
     if (created_idtask) await deleteIntervalTask(created_idtask);

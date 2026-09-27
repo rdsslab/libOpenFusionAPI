@@ -216,7 +216,14 @@ async function restoreIntervalTasks(tasks, idendpoint_map, idkey_map = new Map()
       delete data.idtask;
     }
 
-    pending.push(upsertIntervalTask(data));
+    // El rechazo se informa en el `allSettled` del final. Este `catch` no cambia
+    // el resultado: solo evita que Node vea la promesa sin manejador en el turno
+    // en que rechaza, que es lo que tumba el proceso. Sin él, el fallo de una
+    // tarea cualquiera mataba la plataforma entera, y el `allSettled` de más
+    // abajo llega demasiado tarde para recogerlo.
+    const promesa = upsertIntervalTask(data);
+    promesa.catch(() => {});
+    pending.push(promesa);
   }
 
   if (orphan_keys.length > 0) {
@@ -293,7 +300,12 @@ async function restoreBots(bots, idapp) {
       }
     }
 
-    pending.push(upsertBot(data));
+    // Mismo motivo que en `restoreIntervalTasks`: el rechazo se recoge en el
+    // `allSettled`, pero hay que engancharlo en el turno en que ocurre. La
+    // variable no puede llamarse `bot`: ese nombre ya es el del `for`.
+    const promesa = upsertBot(data);
+    promesa.catch(() => {});
+    pending.push(promesa);
   }
 
   const results = await Promise.allSettled(pending);
