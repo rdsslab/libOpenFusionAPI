@@ -7,6 +7,7 @@ import {
   updateIntervalTaskStatus,
   reapStaleRunningTasks,
   rescheduleIntervalTask,
+  LOTE_TAREAS_POR_DEFECTO,
 } from "../db/interval_task.js";
 import {
   createIntervalTaskRun,
@@ -17,8 +18,10 @@ import {
   TASK_STATUS,
   computeSchedulerDelay,
   isWithinWindow,
+  debeDrenarLote,
 } from "./schedule.js";
 import { getResponseOutcome } from "./responseOutcome.js";
+import { limiteDesdeEntorno } from "../db/concurrency.js";
 
 import { performance } from "perf_hooks";
 import { getSystemToken } from "../server/auth.js";
@@ -41,6 +44,37 @@ let tickInProgress = false;
 let tickTimer = null;
 let wakePending = false;
 let shuttingDown = false;
+
+/**
+ * Cuántas tareas vencidas se traen en un viaje.
+ *
+ * **No es un tope de ejecuciones.** El worker lanza todas las que le traiga: cada tarea
+ * va a su propio destino y muchas veces a una base de datos distinta, así que acotar
+ * cuántas arrancan a la vez las retrasaría, que es justo lo que no se quiere. Lo acotado
+ * es el trabajo por ciclo, y lo que no cabe entra en el siguiente, que sale de
+ * inmediato en vez de al sonar el próximo vencimiento (`debeDrenarLote`).
+ *
+ * El valor se lee del entorno porque depende del despliegue: con 200 tareas vencidas a
+ * la vez el lote rara vez se llena, y con miles el drenaje encadena ciclos seguidos.
+ */
+const LOTE_TAREAS = limiteDesdeEntorno("OFAPI_TASK_BATCH_SIZE", LOTE_TAREAS_POR_DEFECTO);
+
+/**
+ * Cuántos ciclos seguidos pueden encadenarse sin dormir.
+ *
+ * El drenaje ya se detiene solo cuando un ciclo no avanza —`debeDrenarLote`— y cada
+ * lanzamiento saca una tarea del conjunto elegible. Este tope está para el caso que eso
+ * no cubre: un lote que se llena **solo** de tareas cuya transición de estado falla una
+ * y otra vez, que se releen igual porque su `next_run` no se movió. Sin tope, ese
+ * ciclo pediría las mismas 200 tareas sin parar, y no por tener muchas sino por no
+ * avanzar con ninguna.
+ *
+ * Con 200 y lotes de 200 son 40 000 lanzamientos antes de parar, muy por encima de lo
+ * que necesita un drenaje legítimo, y por debajo de lo que se nota como un bucle.
+ */
+const MAX_DRENAJES_CONSECUTIVOS = 200;
+
+let drenajesConsecutivos = 0;
 
 /** Cache de ApiKeys por idkey: evita una consulta por ejecución. */
 const API_KEY_CACHE_TTL_MS = 60000;
@@ -393,11 +427,17 @@ async function tick() {
     return;
   }
   tickInProgress = true;
+  // Para el drenaje. `lanzadas` se cuenta al arrancar, de forma síncrona: contarlas en el
+  // `then` de la transición no serviría, porque su `.then` corre después de que termine
+  // el bucle y la decisión de drenar se toma ahí mismo.
+  let lanzadas = 0;
+  let reprogramadas = 0;
+  let drena = false;
 
   try {
     await reapStaleRunningTasks();
 
-    const app_tasks = await getIntervalTaskProcess();
+    const app_tasks = await getIntervalTaskProcess({ limite: LOTE_TAREAS });
     const now = new Date();
 
     for (const task of app_tasks) {
@@ -408,15 +448,19 @@ async function tick() {
         // siguiente hueco válido en lugar de reevaluarla cada 10 s. No se toca el estado
         // ni el contador de fallos, que no tienen nada que ver con el horario.
         if (decision.reason === "outside execution window") {
-          await rescheduleIntervalTask(task);
+          if (await rescheduleIntervalTask(task)) reprogramadas++;
         }
         continue;
       }
 
       const key = String(task.idtask);
       running.add(key);
+      lanzadas++;
 
-      updateIntervalTaskStatus(task.idtask, TASK_STATUS.RUNNING)
+      // La fila se pasa tal cual: el ciclo se la acaba de traer con el endpoint y la app
+      // para decidir esto mismo, y releerla aquí era un viaje entero en el camino que
+      // retarda el arranque de cada ejecución. Ver `updateIntervalTaskStatus`.
+      updateIntervalTaskStatus(task.idtask, TASK_STATUS.RUNNING, undefined, undefined, task)
         .then((transition) => runFetchTask(task, transition?.runtime))
         .catch((error) => {
           console.error("Error running interval task", task.idtask, error);
@@ -425,8 +469,27 @@ async function tick() {
           running.delete(key);
         });
     }
+
+    drena =
+      debeDrenarLote({
+        llevo: app_tasks.length,
+        limite: LOTE_TAREAS,
+        lanzadas,
+        reprogramadas,
+      }) && drenajesConsecutivos < MAX_DRENAJES_CONSECUTIVOS;
+
+    if (drenajesConsecutivos >= MAX_DRENAJES_CONSECUTIVOS) {
+      console.warn(
+        `[interval-tasks] se alcanzó el tope de ${MAX_DRENAJES_CONSECUTIVOS} drenajes seguidos sin ` +
+          "dormir; el próximo ciclo esperará al vencimiento. Suele significar que el lote se llena " +
+          "siempre de tareas que no avanzan, no que haya muchas tareas.",
+      );
+    }
+
+    drenajesConsecutivos = drena ? drenajesConsecutivos + 1 : 0;
   } catch (error) {
     console.error("Error en el ciclo de interval tasks:", error);
+    drenajesConsecutivos = 0;
   } finally {
     let nextDelay;
     try {
@@ -440,6 +503,10 @@ async function tick() {
     tickInProgress = false;
     if (wakePending) {
       wakePending = false;
+      scheduleTick(0);
+    } else if (drena) {
+      // Quedaban tareas y este ciclo avanzó: hay más, así que no se duerme. Las tareas
+      // que no cupieron salen en este mismo instante, no al siguiente vencimiento.
       scheduleTick(0);
     } else {
       scheduleTick(nextDelay);

@@ -13,6 +13,10 @@ import {
   isExposureConfigured,
   MANAGED_ENVIRONMENTS,
 } from "../server/envExposure.js";
+// Se reutiliza el saneo de `concurrency.js` en vez de duplicarlo: la regla es la misma
+// —un entero >= 1, y un valor que no vale cae al de por defecto y no a 1— y dos
+// interpretaciones distintas de "el limite" en el mismo repo es como se cuelan.
+import { normalizarLimite } from "./concurrency.js";
 
 /**
  * Columnas de estado observado del scheduler. Las escribe el worker, nunca el usuario:
@@ -187,8 +191,26 @@ export const getAllIntervalTasks = async () => {
   }
 };
 
-export const getIntervalTask = async (filter = {}) => {
+/**
+ * Tareas de intervalo con los datos de su endpoint y su app.
+ *
+ * `opciones.limite` acota cuantas filas se traen y `opciones.orden` fija en que orden.
+ * Los dos van juntos a proposito: un `LIMIT` sin `ORDER BY` devuelve un subconjunto
+ * arbitrario, y como el worker drena lotes seguidos (ver `debeDrenarLote`), dos lecturas
+ * arbitrarias del mismo conjunto pueden devolver subconjuntos distintos y solapados. Sin
+ * un orden fijo, el drenaje puede no terminar nunca.
+ *
+ * El listado de la API llama a esta funcion sin `opciones` y sigue devolviendo todo: el
+ * limite es del planificador, no del contrato del endpoint.
+ *
+ * @param {object} [filter] subconjunto de tareas, endpoints y apps
+ * @param {{limite?: number, orden?: Array}} [opciones]
+ * @returns {Promise<object[]>}
+ */
+export const getIntervalTask = async (filter = {}, opciones = {}) => {
   try {
+    const { limite, orden } = opciones;
+
     let results = await IntervalTask.findAll({
       attributes: [
         "idtask",
@@ -221,6 +243,10 @@ export const getIntervalTask = async (filter = {}) => {
         "history_limit",
       ],
       where: filter.tasks, // 🔹 Agregado el filtro aquí
+      // El limite y el orden se anaden solo si los hay, para que la llamada sin
+      // `opciones` genere exactamente la consulta de siempre.
+      ...(Number.isInteger(limite) && limite > 0 ? { limit: limite } : {}),
+      ...(Array.isArray(orden) && orden.length > 0 ? { order: orden } : {}),
       include: [
         {
           model: Endpoint,
@@ -330,8 +356,32 @@ function buildTaskEnvironmentFilter() {
   };
 }
 
-export const getIntervalTaskProcess = async () => {
+/**
+ * Cuantas tareas vencidas se traen en un viaje.
+ *
+ * No es un tope de ejecucion: el worker lanza todas las que le traiga. Es un tope de
+ * trabajo por ciclo, para que un despliegue con cientos de tareas vencidas a la vez no
+ * se traiga el conjunto entero —con dos `JOIN` y 29 columnas de la tarea mas las del
+ * endpoint y su app— en memoria, y no repita esa consulta cada 250 ms. Lo que no cabe en
+ * el lote entra en el ciclo siguiente, que sale de inmediato: ninguna tarea espera (ver
+ * `debeDrenarLote`).
+ */
+export const LOTE_TAREAS_POR_DEFECTO = 200;
+
+/**
+ * Tareas vencidas y elegibles, en el orden en que hay que tomarlas.
+ *
+ * El orden es `next_run` ascendente, con `idtask` como segundo criterio. La primera
+ * parte es la que toca: la mas vencida primero. La segunda es la que hace el conjunto
+ * **estable**, y sin ella el `LIMIT` devuelve filas distintas en cada lectura aunque no
+ * haya cambiado nada, que es lo que dejaria el drenaje sin fin.
+ *
+ * @param {{limite?: number}} [opciones]
+ * @returns {Promise<object[]>}
+ */
+export const getIntervalTaskProcess = async (opciones = {}) => {
   const now = new Date();
+  const limite = normalizarLimite(opciones.limite, LOTE_TAREAS_POR_DEFECTO);
 
   let filter = {
     endpoint: buildTaskEnvironmentFilter(),
@@ -384,7 +434,13 @@ export const getIntervalTaskProcess = async () => {
     },
   };
 
-  return await getIntervalTask(filter);
+  return await getIntervalTask(filter, {
+    limite,
+    orden: [
+      ["next_run", "ASC"],
+      ["idtask", "ASC"],
+    ],
+  });
 };
 
 /**
@@ -507,11 +563,139 @@ export const updateIntervalTaskRun = async (idtask, status) => {
   }
 };
 
+/**
+ * Calcula los campos a escribir para una transición de estado.
+ *
+ * @param {object} task la fila, ya leída
+ * @param {number} new_status
+ * @param {unknown} result
+ * @param {number} exec_ms
+ * @param {Date} now
+ * @returns {object|null} `null` si el estado no significa nada que escribir
+ */
+const camposDeTransicion = (task, new_status, result, exec_ms, now) => {
+  let data_update = {};
+
+  switch (new_status) {
+    case TASK_STATUS.WAITING:
+      // En espera
+      data_update = {
+        last_run: now,
+        next_run: computeNextRun(task, { from: now }),
+        status: new_status,
+        failed_attempts: 0,
+        last_response: null,
+      };
+
+      break;
+    case TASK_STATUS.RUNNING:
+      // En ejecución. `next_run` se ancla al horario previsto (ver schedule.js), de
+      // modo que la duración de esta corrida no desplace toda la serie.
+      data_update = {
+        last_run: now,
+        next_run: computeNextRun(task, { from: now }),
+        status: new_status,
+      };
+
+      break;
+    case TASK_STATUS.DONE:
+      // Completado
+      data_update = {
+        last_response: result,
+        failed_attempts: 0,
+        last_exec_time: exec_ms,
+        status: new_status,
+      };
+
+      // Si la ejecución duró más que el propio intervalo, el `next_run` calculado al
+      // arrancar ya quedó en el pasado: se avanza al siguiente hueco futuro.
+      if (task.next_run && new Date(task.next_run) <= now) {
+        data_update.next_run = computeNextRun(task, { from: now });
+      }
+
+      break;
+    case TASK_STATUS.ERROR:
+    case TASK_STATUS.TIMEOUT: {
+      // Error o timeout: reintento con espera creciente en vez de morir al tercer fallo.
+      const failed_attempts = task.failed_attempts + 1;
+
+      data_update = {
+        last_response: result,
+        failed_attempts,
+        status: new_status,
+        last_exec_time: exec_ms,
+        next_run: computeBackoffNextRun(task, failed_attempts, { from: now }),
+      };
+
+      if (shouldDisableForFailures(task, failed_attempts)) {
+        data_update.enabled = false;
+        data_update.last_response = {
+          ...(result && typeof result === "object" ? result : { error: result }),
+          disabled_reason: `Deshabilitada tras ${failed_attempts} fallos consecutivos`,
+        };
+      }
+
+      break;
+    }
+    default:
+      // Un estado que no existe no significa ningún cambio. Antes caía en un
+      // `IntervalTask.update({}, ...)`, que es un UPDATE sin nada que poner.
+      return null;
+  }
+
+  return data_update;
+};
+
+/**
+ * Aplica una transición de estado de una tarea.
+ *
+ * ## Por qué el quinto argumento
+ *
+ * El worker leía aquí la fila entera de la tarea, y la tenía **en la mano desde un
+ * momento antes**: el ciclo se la había traído con dos `JOIN` para decidir si la lanzaba.
+ * Volver a pedirla era un viaje entero para releer lo que ya estaba en memoria, y estaba
+ * en el camino que retarda el arranque de cada ejecución. Con cientos de tareas
+ * venciendo a la vez, esa lectura duplicada es la mitad de las sentencias del worker.
+ *
+ * Cuando quien llama pasa la fila, esta función hace **un** `UPDATE` y ni una lectura
+ * más. Un `UPDATE` con sus propios valores ya es atómico, así que no hay nada que una
+ * transacción aportaría ahí.
+ *
+ * ## Por qué el resto sí va en transacción
+ *
+ * Sin la fila, hay que leer para decidir: sobre todo en `ERROR` y `TIMEOUT`, donde se
+ * incrementa `failed_attempts`. Leer y escribir son dos sentencias, y entre medias otra
+ * puede cambiar la fila. Por eso van en una transacción, pidiendo el bloqueo de fila.
+ *
+ * El bloqueo solo es real donde el motor lo acepta: **Sequelize 6.37.8 declara
+ * `supports.lock = false` en MSSQL**, así que allí la transacción sale sin pista de
+ * bloqueo y el `SELECT` va pelado. En PostgreSQL se traduce a `FOR UPDATE`, y en SQLite
+ * se ignora —que es lo correcto: hay un solo escritor. No se puede prometer el bloqueo
+ * en MSSQL sin escribir SQL a mano con `WITH (UPDLOCK, ROWLOCK)`, y no compensa por una
+ * fila que solo escribe su propia tarea.
+ *
+ * ## Lo que la transacción no arregla
+ *
+ * El reintento por bloqueo de `lock_retry.js` no actúa dentro de una transacción
+ * explícita, a propósito: repetir una sentencia sobre una transacción ya abortada
+ * falla por un motivo más raro que el original. Como cada tarea escribe su propia fila,
+ * dos tareas no se pelean por ella, así que un 1205 aquí sería raro. Si se ve, el
+ * `catch` lo devuelve como `success: false` y la tarea se reintenta en el ciclo
+ * siguiente, que es lo correcto.
+ *
+ * @param {number|string} idtask
+ * @param {number} new_status
+ * @param {unknown} [result]
+ * @param {number} [time_execution_ms]
+ * @param {object|null} [tareaConocida] la fila, si quien llama ya la tiene
+ * @returns {Promise<{success: boolean, message: string, runtime?: object}>}
+ */
 export const updateIntervalTaskStatus = async (
   idtask,
   new_status,
   result,
-  time_execution_ms
+  time_execution_ms,
+  tareaConocida = null
 ) => {
   try {
     // Se llama sin este argumento al marcar "en ejecución"; sin la guarda quedaba NaN.
@@ -519,90 +703,45 @@ export const updateIntervalTaskStatus = async (
       ? Math.floor(Number(time_execution_ms))
       : 0;
 
-    const task = await IntervalTask.findOne({
-      where: { idtask: idtask },
-    });
-
-    if (!task) {
-      throw new Error(`No se encontró la tarea con idtask: ${idtask}`);
-    }
-
-    let data_update = {};
-
     const now = new Date();
-
-    switch (new_status) {
-      case TASK_STATUS.WAITING:
-        // En espera
-        data_update = {
-          last_run: now,
-          next_run: computeNextRun(task, { from: now }),
-          status: new_status,
-          failed_attempts: 0,
-          last_response: null,
-        };
-
-        break;
-      case TASK_STATUS.RUNNING:
-        // En ejecución. `next_run` se ancla al horario previsto (ver schedule.js), de
-        // modo que la duración de esta corrida no desplace toda la serie.
-        data_update = {
-          last_run: now,
-          next_run: computeNextRun(task, { from: now }),
-          status: new_status,
-        };
-
-        break;
-      case TASK_STATUS.DONE:
-        // Completado
-        data_update = {
-          last_response: result,
-          failed_attempts: 0,
-          last_exec_time: exec_ms,
-          status: new_status,
-        };
-
-        // Si la ejecución duró más que el propio intervalo, el `next_run` calculado al
-        // arrancar ya quedó en el pasado: se avanza al siguiente hueco futuro.
-        if (task.next_run && new Date(task.next_run) <= now) {
-          data_update.next_run = computeNextRun(task, { from: now });
-        }
-
-        break;
-      case TASK_STATUS.ERROR:
-      case TASK_STATUS.TIMEOUT: {
-        // Error o timeout: reintento con espera creciente en vez de morir al tercer fallo.
-        const failed_attempts = task.failed_attempts + 1;
-
-        data_update = {
-          last_response: result,
-          failed_attempts,
-          status: new_status,
-          last_exec_time: exec_ms,
-          next_run: computeBackoffNextRun(task, failed_attempts, { from: now }),
-        };
-
-        if (shouldDisableForFailures(task, failed_attempts)) {
-          data_update.enabled = false;
-          data_update.last_response = {
-            ...(result && typeof result === "object" ? result : { error: result }),
-            disabled_reason: `Deshabilitada tras ${failed_attempts} fallos consecutivos`,
-          };
-        }
-
-        break;
-      }
-      default:
-        break;
-    }
-
-    await IntervalTask.update(data_update, { where: { idtask } });
-
-    return {
+    const exito = (runtime) => ({
       success: true,
       message: "La tarea fue actualizada correctamente.",
-      runtime: data_update,
-    };
+      runtime,
+    });
+
+    // Camino corto: quien llama ya tiene la fila. Un solo UPDATE y ninguna lectura.
+    if (tareaConocida) {
+      const data_update = camposDeTransicion(tareaConocida, new_status, result, exec_ms, now);
+
+      if (!data_update) return exito({});
+
+      await IntervalTask.update(data_update, { where: { idtask } });
+      return exito(data_update);
+    }
+
+    // Camino con lectura: hace falta para decidir, así que lee y escribe en una sola
+    // transacción pidiendo el bloqueo de fila. Ver la cabecera para lo que el bloqueo
+    // significa en cada motor.
+    return await IntervalTask.sequelize.transaction(async (t) => {
+      const task = await IntervalTask.findOne({
+        where: { idtask: idtask },
+        transaction: t,
+        lock: t.LOCK.UPDATE,
+      });
+
+      if (!task) {
+        throw new Error(`No se encontró la tarea con idtask: ${idtask}`);
+      }
+
+      const data_update = camposDeTransicion(task, new_status, result, exec_ms, now);
+
+      if (!data_update) return exito({});
+
+      await IntervalTask.update(data_update, { where: { idtask }, transaction: t });
+
+      return exito(data_update);
+    });
   } catch (error) {
     console.log(error);
     return { success: false, message: error.message };

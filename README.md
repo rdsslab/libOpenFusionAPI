@@ -208,6 +208,8 @@ Copy [.env.example](.env.example) to `.env` and adjust the values for your setup
 | `OFAPI_SQL_POOL_FORCE_VALIDATE_ALWAYS` | Force SQL pool connection validation on every use | disabled | No |
 | `OFAPI_SQL_POOL_MAX_CONNECTIONS` | Distinct SQL connection configs cached per process. When the limit is reached the least recently requested one is closed, which can abort an in-flight query. Raise it when the log shows "Pool at capacity" | `50` (hard cap `500`) | No |
 | `OFAPI_APPVARS_LIVE_READ` | Enable live (non-cached) reads of App Vars in the SQL handler | disabled | No |
+| `OFAPI_RESTORE_CONCURRENCY` | Writes `saveAppWithEndpoints` may have in flight (app vars, endpoints, endpoint backups, bots, interval tasks). The limit has to be the platform's, not the caller's: too high is what produces the MSSQL deadlock (error 1205) between two MERGE statements | `4` | No |
+| `OFAPI_TASK_BATCH_SIZE` | Due interval tasks fetched per scheduler cycle. Bounds the size of a single query, not the start of any task: a full batch is drained immediately, so a task that does not fit goes into the next batch, which leaves right away | `200` | No |
 | `TIME_SYNC_ENABLED` | Enable external clock-drift correction for JWT `iat`/`exp`/`nbf`, for hosts whose system clock cannot be trusted | `false` | No |
 
 ## 🔄 Recommended Creation Flow

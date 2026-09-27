@@ -185,6 +185,24 @@ async function runAllTests() {
         args: ["db_method_seed_test.js"],
       },
       {
+        // Puro: el planificador de tareas de intervalo se trae las vencidas en lotes, y
+        // lo que hace que el drenaje termine no es el `LIMIT` sino el `ORDER BY`. Con la
+        // fila a mano, la transición de estado es un `UPDATE` y ni una lectura de mas en
+        // el camino que retarda el arranque de cada ejecucion (H37).
+        label: "interval_task_transition_test.js",
+        command: "node",
+        args: ["interval_task_transition_test.js"],
+      },
+      {
+        // Abre conexion: el `LIMIT` y el `ORDER BY` son de la consulta, y el `ORDER BY` se
+        // comprueba sobre el SQL que sale de verdad. En SQLite y MSSQL una consulta sin
+        // orden sale en orden de insercion, que ya es estable, asi que un test que
+        // mirase solo el orden de las filas podria pasar con el `ORDER BY` ausente.
+        label: "interval_task_batch_test.js",
+        command: "node",
+        args: ["interval_task_batch_test.js"],
+      },
+      {
         // Este SÍ abre conexión: comprueba que los `bigint` de los modelos de la
         // plataforma llegan como numero cuando se puede representarlos, en el
         // dialecto que toque. El de arriba no puede cubrirlo porque ejercita el

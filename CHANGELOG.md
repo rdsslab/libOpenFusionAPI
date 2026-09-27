@@ -18,6 +18,87 @@ proyecto, ver [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [13.11.14] - 2026-09-27
+
+### Fixed
+
+#### El planificador de tareas de intervalo se traía todas las vencidas y releía cada una dos veces
+
+Con esto queda resuelta la segunda de las dos limitaciones conocidas de 13.11.12.
+
+**El planificador no puede limitar cuántas tareas arranca a la vez.** Es lo primero que
+hay que decir, porque es lo que descarta el arreglo obvio. Cada tarea va a su propio
+endpoint y muchas veces a una base de datos distinta, y todas tienen una hora programada:
+un despliegue con cientos de tareas vencidas a la vez las necesita todas lanzadas. Un
+límite de concurrencia aquí no protegería la base de datos de la plataforma —que no es la
+que esas tareas tocan—, sino que retrasaría ejecuciones que el operador quiere puntuales.
+Así que **no hay ninguna puerta entre el ciclo y el arranque de la ejecución**.
+
+Lo que estaba mal eran dos cosas que multiplicaban el trabajo contra la base de datos de
+la propia plataforma, que es la que sí hay que cuidar:
+
+1. **La consulta de elegibilidad no tenía `LIMIT`.** El ciclo se traía *todas* las tareas
+   vencidas, con dos `JOIN` y 29 columnas de la tarea más las del endpoint y su app, y
+   repetía esa consulta en cada ciclo, que puede ser cada 250 ms. Ahora trae un lote de
+   **200** (`OFAPI_TASK_BATCH_SIZE`).
+2. **Cada tarea se releía una fila que el ciclo ya tenía en la mano.** El ciclo se traía la
+   tarea con su endpoint y su app para decidir si la lanzaba, y `updateIntervalTaskStatus`
+   volvía a pedirla entera. Ese segundo viaje estaba en el camino que retarda el arranque
+   de cada ejecución. Con la fila a mano, la transición a `RUNNING` es **un `UPDATE` y
+   ninguna lectura**: una sentencia en vez de dos, y con 200 tareas venciendo a la vez son
+   200 lecturas menos de golpe.
+
+### Added
+
+- `OFAPI_TASK_BATCH_SIZE` (por defecto `200`): cuántas tareas vencidas se traen en cada
+  viaje. Un valor que no sea un entero ≥ 1 se avisa y cae al de por defecto; un `3.5` se
+  trunca a 3, que es lo razonable para un número que acaba siendo un `LIMIT`.
+- `dev/test/interval_task_transition_test.js`, puro, y `dev/test/interval_task_batch_test.js`,
+  que abre conexión. Los dos verificados contra SQLite, PostgreSQL y SQL Server, junto con
+  la suite de contrato de tareas de intervalo que ya existía.
+
+### Changed
+
+- **`ORDER BY next_run, idtask` en la consulta de elegibilidad.** Sin esto el `LIMIT` es un
+  subconjunto arbitrario, y dos lecturas del mismo conjunto pueden devolver filas solapadas.
+  El efecto no es un error de SQL: es que el drenaje de lotes puede no terminar nunca.
+  `idtask` va de segundo criterio no por estética, sino para que el orden sea total y dos
+  lecturas del mismo conjunto devuelvan el mismo prefijo.
+- El lote **se drena en vez de esperar**: si el lote vino lleno y el ciclo avançó, el worker
+  vuelve a preguntar de inmediato en vez de dormirse hasta el próximo vencimiento. Una
+  tarea que no cabe en este lote entra en el siguiente, y el siguiente sale ya, así que
+  **ninguna tarea espera por el lote**. El drenaje se detiene solo cuando un ciclo no avanza
+  —nada lanzado, nada reprogramado—, y hay un tope de 200 drenajes seguidos para el caso
+  que eso no cubre: un lote que se llenara solo de tareas cuya transición de estado falla
+  una y otra vez, que se releen igual porque su `next_run` no se movió.
+- La lectura y la escritura de una transición de estado que **no** viene con la fila van
+  ahora en la misma transacción, pidiendo el bloqueo de fila. Es el caso de `ERROR` y
+  `TIMEOUT`, donde se incrementa `failed_attempts`: leer y escribir son dos sentencias y
+  entre medias otra puede cambiar la fila. La transición a `RUNNING` se queda sin
+  transacción a propósito, porque es un `UPDATE` con sus propios valores y ya es atómico:
+  una transacción ahí solo añadiría dos viajes, en el camino que más debe ser rápido.
+- Un estado que no existe ya no escribe. Caía en `IntervalTask.update({}, ...)`, que es un
+  `UPDATE` sin nada que poner.
+- Cuando el tope de drenajes seguidos se alcanza, el worker lo avisa por log en vez de
+  seguir encadenando ciclos en silencio.
+
+### Known limitations
+
+- **El bloqueo de fila solo es real en PostgreSQL.** Sequelize 6.37.8 declara
+  `supports.lock = false` en MSSQL, así que allí la transacción sale sin pista de bloqueo y
+  el `SELECT` va pelado; en SQLite se ignora, que es lo correcto porque hay un solo
+  escritor. No se puede prometer el bloqueo en MSSQL sin escribir SQL a mano con
+  `WITH (UPDLOCK, ROWLOCK)`, y no compensa por una fila que solo escribe su propia tarea.
+  La carrera tampoco es posible entre dos tareas distintas, porque cada una escribe la suya.
+- Queda un punto del alcance sin resolver, y **no era un defecto activo**:
+  `saveAppWithEndpoints` (`src/lib/db/app.js`) tiene dos bucles sin cota, el segundo un
+  `Promise.allSettled` sobre todos los endpoints de la app, que serían 209
+  `MERGE ... WITH(HOLDLOCK)` simultáneos —el mismo patrón que produjo el 1205—. Su único
+  llamador, `fnSaveApp`, está comentado desde antes de esta serie. En 13.11.15 queda
+  comentado el propio `saveAppWithEndpoints`.
+
+---
+
 ## [13.11.13] - 2026-09-27
 
 ### Fixed

@@ -69,6 +69,42 @@ export function computeSchedulerDelay(nextRun, now = new Date()) {
 }
 
 /**
+ * ¿Quedan tareas por tomar en este mismo instante, o toca dormir?
+ *
+ * ## Por que el lote va con drenaje y no con espera
+ *
+ * El worker no puede serializar las tareas: cada una va a su propio destino, muchas
+ * veces a bases de datos distintas, y todas tienen una hora programada. Acotar cuantas
+ * tareas arrancan a la vez las retrasaria, que es justo lo que el operador no quiere.
+ * Lo que si se acota es **cuantas se traen de la base en un viaje**: un despliegue con
+ * cientos de tareas vencidas a la vez se las trae todas, con dos `JOIN` y 29 columnas de
+ * la tarea mas las del endpoint y su app, y las mete todas en memoria.
+ *
+ * La respuesta es un lote acotado que se drena: si el lote vino lleno hay mas, asi que
+ * el worker vuelve a preguntar de inmediato en vez de dormirse. Ninguna tarea espera a
+ * que termine el ciclo —una que no cabe en este lote entra en el siguiente, y el
+ * siguiente sale ya, no cuando suene el proximo vencimiento— y a la vez cada consulta
+ * tiene un techo.
+ *
+ * ## Por que no basta con "el lote vino lleno"
+ *
+ * Un lote lleno con las mismas tareas dentro volveria a pedir exactamente lo mismo, y
+ * con `scheduleTick(0)` eso es un bucle que no acaba. Se drena solo si este ciclo ha
+ * **avanzado de verdad**: una tarea lanzada pasa a `RUNNING` y su `next_run` va al
+ * futuro, y una reprogramada tambien. Cada drenaje deja al menos una tarea fuera del
+ * conjunto elegible, asi que el numero de drenajes queda acotado por las tareas
+ * pendientes. Si no se avanzo —todas marcadas como en ejecucion, o una reprogramacion
+ * que fallo— no se drena: se duerme lo que diga el proximo vencimiento, con el suelo de
+ * `MIN_SCHEDULER_DELAY_MS` detras.
+ *
+ * @param {{llevo?: number, limite?: number, lanzadas?: number, reprogramadas?: number}} estado
+ * @returns {boolean}
+ */
+export function debeDrenarLote({ llevo = 0, limite = 0, lanzadas = 0, reprogramadas = 0 } = {}) {
+  return llevo >= limite && limite > 0 && lanzadas + reprogramadas > 0;
+}
+
+/**
  * Segundos de intervalo saneados de una tarea.
  * @param {object} task
  * @returns {number}
