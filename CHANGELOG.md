@@ -18,6 +18,62 @@ proyecto, ver [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [13.11.21] - 2026-09-27
+
+### Fixed
+
+**Dos suites de `dev/test` ignoraban `OFAPI_BASE_URL` en silencio, así que se podían pasar
+contra el servidor equivocado.**
+
+`system_test.js` llevaba la URL escrita a pelo: `const baseUrl = "http://localhost:3000"`. No
+es que no se pudiera apuntar a otra instancia; es peor que eso. Poner `OFAPI_BASE_URL` a otra
+dirección no daba ningún error, ni warning, ni cambio de comportamiento: la suite se iba
+contra `localhost:3000` y salía con código 0. Una prueba que se ejecuta contra el sitio que
+no es no es una prueba que falle, es una garantía falsa, y de las caras.
+
+El fallo se ve mejor desde dentro. `test_credentials.js` exporta `TEST_BASE_URL`, que ya lee
+`OFAPI_BASE_URL` con `http://localhost:3000` por defecto, y lo usan las 11 suites que se
+autentican con el par `admin`. `system_test.js` importaba de ese mismo fichero —para las
+credenciales— y aun así se definía su propia URL. La convención ya estaba escrita; el
+fichero era la excepción.
+
+`exception_payload_test.js` tenía el mismo defecto con otro nombre: leía `OFAPI_TEST_URL`, que
+no aparece en ningún otro fichero del repositorio, no está en `env.example` y no está en
+ningún README. Ahora ambos toman `OFAPI_BASE_URL`, y `OFAPI_TEST_URL` se queda como repliegue
+silencioso en vez de desaparecer: dos nombres para lo mismo acaban siendo dos que no
+coinciden, y tirarlo sin avisar costaría una hora a quien lo tuviera puesto.
+
+Verificado en rojo antes que en verde, y por las dos vías, con un servidor vivo en `:3000` para
+que el rojo significara algo:
+
+- **En rojo**: con el código anterior, `OFAPI_BASE_URL=http://localhost:3999` —un puerto
+  cerrado— salía con **código 0** y las cuatro etapas en verde. Se había ejecutado entera
+  contra el servidor de siempre, que es exactamente el fallo.
+- **En verde**, las siete comprobaciones, con la suite real y el puerto cerrado:
+
+| suite | sin variable | `OFAPI_BASE_URL=:3000` | `OFAPI_TEST_URL=:3000` | `OFAPI_BASE_URL=:3999` |
+|---|---|---|---|---|
+| `system_test.js` | 0 | 0 | — | 1, `ECONNREFUSED` |
+| `exception_payload_test.js` | 0 | 0 | 0 | 1, `ECONNREFUSED` |
+
+Que el puerto cerrado ahora dé `ECONNREFUSED` en vez de pasar es el resultado que importa: la
+variable manda. Y que las tres primeras columnas sigan en 0 confirma que no se rompió el caso
+normal, que es el que se ejecuta siempre.
+
+Ninguna de las dos suites está en el packet, y `OFAPI_BASE_URL` no toca la plataforma: solo
+afecta a estos dos scripts de prueba.
+
+**Lo que este arreglo no arregla, y conviene no dejarlo en un rincon:** este directorio no
+tiene una convención de URL base, tiene tres, y ninguna está completa. `OFAPI_BASE_URL` la
+leen ahora los cuatro ficheros que la leen bien, pero **cinco suites registradas siguen con
+`http://localhost:3000` escrito a pelo y sin override** — `bot_backup_test.js`,
+`bot_crud_test.js`, `bot_resilience_test.js`, `fetch_timeout_test.js` e `integration_test.js`—,
+y otras tres registradas se inventaron una variable privada: `CACHE_TEST_BASE_URL`,
+`OWASP_BASE_URL` y `WS_CACHE_TEST_BASE_URL`. Poner `OFAPI_BASE_URL` y la mayor parte del
+directorio lo ignora. `index.js` también, y ese a propósito: arranca el servidor en `:3000` y
+sondea `:3000`, así que el packet entero no se puede apuntar a otra instancia. Con esto son 2
+de 10 ficheros con la convención correcta, y 8 con la suya propia o ninguna.
+
 ## [13.11.20] - 2026-09-27
 
 ### Changed

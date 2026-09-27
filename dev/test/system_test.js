@@ -1,5 +1,5 @@
 import assert from "node:assert";
-import { basicAuthHeader } from "./test_credentials.js";
+import { TEST_BASE_URL, basicAuthHeader } from "./test_credentials.js";
 
 // El endpoint MCP no contesta JSON: contesta SSE (`content-type:
 // text/event-stream`), con un bloque `event: message` y el JSON-RPC entero en la
@@ -27,7 +27,13 @@ const parseSseJson = (text) => {
 };
 
 async function runTests() {
-  const baseUrl = "http://localhost:3000";
+  // La URL viene de `test_credentials.js`, que es la misma que usan las otras 11
+  // suites que se autentican con el par `admin`. Estaba escrita a pelo aqui, y
+  // eso hacia una cosa peor que no funcionar en otro sitio: `OFAPI_BASE_URL`
+  // apuntando a otra instancia se ignoraba en silencio y la suite pasaba igual
+  // contra el servidor de siempre. Un fallo que se prueba contra el sitio
+  // equivocado no es un fallo: es una garantia falsa.
+  const baseUrl = TEST_BASE_URL;
   const authHeader = basicAuthHeader();
   
   console.log("--- Starting System Integration Tests ---");

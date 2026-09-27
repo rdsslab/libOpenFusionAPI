@@ -130,7 +130,7 @@ run them and nothing catches a regression in them.
 
 | file | state |
 |---|---|
-| `exception_payload_test.js` | needs a live server on `:3000`; passes |
+| `exception_payload_test.js` | needs a live server on `:3000`; passes. Reads `OFAPI_BASE_URL` since 13.11.21, and used to read an `OFAPI_TEST_URL` of its own |
 | `system_test.js` | needs a live server on `:3000`; passes since 13.11.17 |
 
 Four more sat here until 13.11.18 and are registered now: `interval_task_schedule_test.js`,
@@ -141,8 +141,13 @@ registered them — which is not the same as having considered and excluded them
 `system_test.js` is unregistered on purpose, and the reason holds up: it creates and deletes
 an endpoint in the shared `demo` app, so putting it in the packet would make every run create
 and delete a shared endpoint, and its own failures would be one more thing that can spoil the
-suites after it. One problem is left in it: it hardcodes `http://localhost:3000` with no
-environment override, so it cannot be pointed at another instance.
+suites after it.
+
+It also hardcoded `http://localhost:3000` in its own `baseUrl`, so `OFAPI_BASE_URL` was
+ignored *silently*: point it at a dead port and the suite went to `localhost:3000` anyway and
+exited 0. Fixed in 13.11.21 — it takes `TEST_BASE_URL` from `test_credentials.js` now, like
+the other 11. A test that runs against the wrong instance is not a failing test, it is a false
+guarantee, and that is the expensive kind of green.
 
 It was broken for a long time, for two reasons in a row. Up to `1f075a9` it hardcoded
 `admin:admin@admin`, which the seed has never created, so it never got past login. An
@@ -163,9 +168,20 @@ reading each one:
 - **helpers**, imported by suites rather than run as one — `close_db.js` (close the
   pool), `execute_endpoint_test_payload.js`, and `test_credentials.js`, which holds the
   `admin` / `Adm1n@0penFusion!` pair that 11 files here log in with (9 of them suites;
-  the other 2 are the unregistered ones below). All three values are overridable —
-  `OFAPI_BASE_URL`, `OFAPI_TEST_USER`, `OFAPI_TEST_PASS` — which is how you point a
-  suite at a different instance without editing it.
+  the other 2 are the unregistered ones below) and exports `TEST_BASE_URL`. All three values
+  are overridable — `OFAPI_BASE_URL`, `OFAPI_TEST_USER`, `OFAPI_TEST_PASS` — which is how you
+  point a suite at a different instance without editing it.
+- **base URL, three different conventions, none of them complete** — `OFAPI_BASE_URL` is the
+  one `test_credentials.js` and `handler_db_matrix.mjs` read, and as of 13.11.21 also
+  `system_test.js` and `exception_payload_test.js` (the latter had invented `OFAPI_TEST_URL`,
+  which survives only as a silent fallback). Against that, **five registered suites still
+  hardcode `http://localhost:3000` with no override at all** — `bot_backup_test.js`,
+  `bot_crud_test.js`, `bot_resilience_test.js`, `fetch_timeout_test.js` and
+  `integration_test.js` — and three more registered ones invented a private variable:
+  `CACHE_TEST_BASE_URL` in `cache_validation.js`, `OWASP_BASE_URL` in `owasp_top10.js` and
+  `WS_CACHE_TEST_BASE_URL` in `ws_cache_events.js`. Set `OFAPI_BASE_URL` and most of this
+  directory ignores it. `index.js` ignores it too, on purpose: it starts the server on `:3000`
+  and polls `:3000`, so the packet as a whole cannot be pointed at another instance.
 - **the runner** — `index.js`, the thing `npm test` invokes
 - **runnable on their own, with their own npm script** — `mcp_contract_audit.js`
   (`npm run test:mcp-contract`), `mcp_schema_smoke.mjs` (`test:mcp-schemas`),

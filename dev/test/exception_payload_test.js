@@ -6,13 +6,18 @@
  * body o las variables de aplicación, así que NUNCA debe salir solo. Solo viaja lo que el
  * autor pone en `data.public` con la firma de objeto.
  *
- * Requiere el servidor levantado en http://localhost:3000 (igual que fetch_timeout_test).
+ * Requiere el servidor levantado. Por defecto `http://localhost:3000`, y se cambia con
+ * `OFAPI_BASE_URL` (igual que fetch_timeout_test).
  */
 
 import assert from "node:assert";
-import { basicAuthHeader } from "./test_credentials.js";
+import { TEST_BASE_URL, basicAuthHeader } from "./test_credentials.js";
 
-const baseUrl = process.env.OFAPI_TEST_URL || "http://localhost:3000";
+// `OFAPI_BASE_URL` es el nombre que usan el resto de scripts de este directorio.
+// `OFAPI_TEST_URL` era el de este fichero solo, y no estaba escrito en ningun
+// sitio, asi que se deja como repliegue y no como alternativa: dos nombres para
+// lo mismo acaban siendo dos que no coinciden.
+const baseUrl = process.env.OFAPI_BASE_URL || process.env.OFAPI_TEST_URL || TEST_BASE_URL;
 const authHeader = basicAuthHeader();
 
 const call = async (url, options = {}) => {
