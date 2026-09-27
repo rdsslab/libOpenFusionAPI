@@ -18,6 +18,56 @@ proyecto, ver [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [13.11.26] - 2026-09-27
+
+### Fixed
+
+**La comprobación de huérfanos comparaba contra el número de tareas de intervalo de un seed que ya
+no existe.** Cierra el segundo colateral que 13.11.24 dejó documentado, y con él el último `FAIL`
+de `mcp_exhaustive_validation.js`.
+
+```js
+const dbTasks = db.prepare("SELECT COUNT(*) AS n FROM ofapi_intervaltask").get().n;
+check("solo quedan las tareas de intervalo seed (1 disable y 1 cleanup)", dbTasks === 2, `n=${dbTasks}`);
+//                                                                                   ^^ el numero
+//                                                                               y el comentario
+```
+
+El `=== 2` llevaba un comentario que explicaba de dónde salía el 2, y el seed de hoy crea **5**:
+limpieza de recuperaciones, dos de avisos de admin, uno de grupos de app y uno de poda del log de
+auditoría. Los cinco son legítimos y `enabled=1`.
+
+**Poner 5 habría sido el arreglo fácil y el equivocado.** No afloja una aserción: la aserción
+—«no ha quedado nada de lo que la suite creó»— seguía siendo correcta, lo caducado era el número
+de la derecha. Y un número escrito a mano se pudre otra vez en cuanto el seed crezca, que es
+justo lo que pasó.
+
+Lo que no puede pudrirse es una **foto**. El preflight toma la tabla antes de que la suite toque
+nada, y el lote de limpieza la compara:
+
+```js
+const intervalTasksAtStart = db.prepare("SELECT idtask, note FROM ofapi_intervaltask ORDER BY idtask").all();
+// …al final…
+check("ninguna tarea de intervalo creada por la suite sobrevive, y ninguna del seed desaparece",
+  sobran.length === 0 && faltan.length === 0, /* … */);
+```
+
+Si el seed crece, la foto crece con él y la comparación sigue valiendo. Se comparan `idtask` y
+`note`, no estados, porque el planificador va cambiando `enabled` y `status` de las suyas mientras
+la suite corre y eso no es que la suite haya dejado nada.
+
+**El detalle nombra qué filas sobran o faltan**, no cuántas, que es la diferencia entre un fallo
+diagnosticable y otro que obliga a ir a mirar la tabla.
+
+**Verificación, por las dos vías.** En rojo, con una fila de más y una de menos insertadas en una
+copia del fichero justo después de la foto: el check nuevo nombra las dos —
+`sobran=6:Tarea Inventada Por La Prueba` y `faltan=2:Admin Alerts - events scan`— frente al
+`n=5` mudo del check viejo. Y con `antes=5 despues=5`: **el recuento bruto era idéntico**, así que
+el `=== 2` no habría dicho ni una palabra de qué estaba mal. En verde, base creada desde cero:
+**79/79**, y el fichero sale con 0 por primera vez.
+
+---
+
 ## [13.11.25] - 2026-09-27
 
 ### Fixed

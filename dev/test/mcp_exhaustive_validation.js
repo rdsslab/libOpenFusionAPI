@@ -267,6 +267,16 @@ async function main() {
   const byName = new Map(tools.map((t) => [t.name, t]));
   const health = await http("/api/system/user/recovery/options/prd");
   check("servidor vivo (endpoint público)", health.status === 200, `status=${health.status} body=${JSON.stringify(health.data).slice(0, 120)}`);
+  // Foto de `ofapi_intervaltask` antes de que la suite toque nada. La compara el lote de
+  // limpieza para no tener que escribir un numero, y esa es la gracia: el check decia
+  // `dbTasks === 2` con el comentario «1 disable y 1 cleanup», el seed de hoy crea 5, y un
+  // numero escrito a mano se pudre cada vez que el seed crece. Una foto no, porque crece
+  // con el.
+  //
+  // Se comparan identidades (`idtask` y `note`), no estados: el planificador va cambiando
+  // `enabled` y `status` de las suyas mientras la suite corre, y eso no es que la suite
+  // haya dejado nada.
+  const intervalTasksAtStart = db.prepare("SELECT idtask, note FROM ofapi_intervaltask ORDER BY idtask").all();
   // NOTA: no se hace login fallido de 'admin' (seed legacy enabled=0) porque cada
   // 401 cuenta contra el rate limit de auth por IP (5 fallos / 10 min → lockout).
   // Se verifica su estado directamente desde la DB.
@@ -701,8 +711,22 @@ async function main() {
     const itDemo = await mcpCall("list_interval_tasks", { idapp: DEMO_IDAPP });
     const demoTasks = itDemo.isError ? [] : (Array.isArray(itDemo.data?.data) ? itDemo.data.data : Array.isArray(itDemo.data) ? itDemo.data : itDemo.data?.tasks || []);
     note("tareas de intervalo en demo via MCP", `${demoTasks.length} devueltas por list_interval_tasks`);
-    const dbTasks = db.prepare("SELECT COUNT(*) AS n FROM ofapi_intervaltask").get().n;
-    check("solo quedan las tareas de intervalo seed (1 disable y 1 cleanup)", dbTasks === 2, `n=${dbTasks}`);
+
+    // El `=== 2` de antes no fallaba por huerfanos: no hay ninguno, porque la suite no
+    // crea tareas de intervalo. Fallaba porque el numero era del seed de otro dia. Lo que
+    // se compara es la foto del preflight contra el estado final, y el detalle dice que
+    // filas sobran o faltan, que es lo que hace util un fallo.
+    const dbTasks = db.prepare("SELECT idtask, note FROM ofapi_intervaltask ORDER BY idtask").all();
+    const antes = new Set(intervalTasksAtStart.map((t) => t.idtask));
+    const despues = new Set(dbTasks.map((t) => t.idtask));
+    const sobran = dbTasks.filter((t) => !antes.has(t.idtask)).map((t) => `${t.idtask}:${t.note}`);
+    const faltan = intervalTasksAtStart.filter((t) => !despues.has(t.idtask)).map((t) => `${t.idtask}:${t.note}`);
+    check("ninguna tarea de intervalo creada por la suite sobrevive, y ninguna del seed desaparece",
+      sobran.length === 0 && faltan.length === 0,
+      `antes=${intervalTasksAtStart.length} despues=${dbTasks.length}` +
+      (sobran.length ? ` sobran=${sobran.join(", ")}` : "") +
+      (faltan.length ? ` faltan=${faltan.join(", ")}` : ""));
+    note("tareas de intervalo que quedan (la suite no crea ninguna)", dbTasks.map((t) => `${t.idtask}:${t.note}`).join(", ") || "ninguna");
 
     if (clientId) {
       const delCli = await mcpCall("apiclient_delete", { idclient: clientId });
