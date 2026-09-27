@@ -64,17 +64,39 @@ export default dbsequelize;
 // (las suites de `dev/test/`) tiene que poder esperar a que termine: si se cierra
 // mientras el `authenticate()` sigue en vuelo, Sequelize responde "pool is
 // draining and cannot accept work" y el error aparece sin que nadie lo pidiera.
+//
+// Lo que se registra es a donde se conecto la plataforma y con que error, nunca la
+// contrasena. Este archivo se ejecuta en cada arranque, asi que lo que escribe aqui
+// va al log del proceso entero, y con el `DATABASE_URL` y las `options` a pelo esa
+// linea era la contrasena de la base de datos de la plataforma, en claro, en todos
+// los reinicios. Un log de arranque es de los primeros que se pega a un ticket y de
+// los que se guarda mas tiempo, y un secreto en el cambia de manos con el.
+//
+// Sequelize muta el objeto `options` que se le pasa y le añade las credenciales ya
+// resueltas en `dialectOptions`, asi que el volcado de antes llevaba la contrasena
+// dos veces: en la URL y en `dialectOptions.password`. Lo que queda es lo que hace
+// falta para diagnosticar un fallo de conexion —destino, pool y opciones de
+// dialecto— y nada que autentique.
+const connectionSummary = () => {
+  const { password, ...dialectOptions } = options.dialectOptions || {};
+  return {
+    destino: db_conn.replace(/:\/\/([^:@/]*):[^@/]*@/, "://$1:***@"),
+    pool: options.pool,
+    dialectOptions,
+  };
+};
+
 export const connectionReady = (async () => {
   try {
     await dbsequelize.authenticate();
     console.log(
-      ">>>>>>>>> Connection has been established successfully to " + db_conn,
-      options
+      ">>>>>>>>> Connection has been established successfully",
+      connectionSummary()
     );
   } catch (error) {
     console.error(
-      ">>>>>>>>> Unable to connect to the database: " + db_conn,
-      options,
+      ">>>>>>>>> Unable to connect to the database",
+      connectionSummary(),
       error
     );
   }

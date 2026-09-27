@@ -172,6 +172,15 @@ async function runAllTests() {
         args: ["db_bigint_normalization_test.js"],
       },
       {
+        // Puro: el log de arranque no puede llevar la contrasena de la base de datos
+        // de la plataforma. Sequelize muta el objeto `options` y le anade las
+        // credenciales ya resueltas, asi que un volcado que al leer el codigo
+        // parece inocuo escribe el secreto dos veces, en cada reinicio.
+        label: "db_startup_log_test.js",
+        command: "node",
+        args: ["db_startup_log_test.js"],
+      },
+      {
         // Puro: la clave de caché del pool tiene que cubrir TODO lo que distingue una
         // conexión de otra —las options, la forma de config de cada motor y la
         // credencial, hasheada—. Lo que se le escapaba no daba error, devolvía la

@@ -1032,6 +1032,61 @@ rápido. En PostgreSQL y MSSQL las tablas las crea el propio script.
 
 ---
 
+## [13.11.9] - 2026-09-26
+
+**El log de arranque de la plataforma llevaba su propia contraseña de base de datos, en claro, en
+todos los reinicios.**
+
+Salió al buscar la fuga de 13.11.7 y es independiente de ella: no es la clave del pool de un tenant,
+es la conexión de la propia plataforma. `src/lib/db/sequelize.js` abría la conexión al importarse y
+registraba, en los dos caminos —éxito y error—:
+
+```js
+console.log(">>>>>>>>> Connection has been established successfully to " + db_conn, options);
+```
+
+Con eso la contraseña aparecía **dos veces por arranque**, en la URL y en el volcado, y cinco
+ocurrencias en el log de una sola puesta en marcha.
+
+El segundo sitio es el que no se ve leyendo el código, y por eso merece la pena explicarlo. El objeto
+`options` que se declara arriba **no tiene `dialectOptions` con credenciales**; Sequelize se lo
+rellena por dentro con las credenciales ya resueltas, mutando el mismo objeto. Quien lee
+`sequelize.js` ve un volcado de tres campos, `logging`, `dialectOptions` y `pool`, y no ve ningún
+secreto: la contraseña llega después y se cuela en la línea siguiente. Un `console.log(options)`
+parece inocuo hasta que se lee el log de arranque de verdad.
+
+La línea ahora registra lo que hace falta para diagnosticar un fallo de conexión —destino, pool y
+opciones de dialecto— con la URL enmascarada y sin el campo `password`:
+
+```
+>>>>>>>>> Connection has been established successfully {
+  destino: 'postgres://ofapi:***@127.0.0.1:5432/ofapi',
+  pool: { max: 20, min: 1, acquire: 30000, idle: 10000 },
+  dialectOptions: { user: 'ofapi', host: '127.0.0.1', port: '5432', database: 'ofapi' }
+}
+```
+
+Ocultar el destino entero habría tapado el problema en vez de resolverlo: `ofapi:***@...` sigue
+diciendo a qué base y a qué puerto se conectó la plataforma, que es lo que se necesita para
+diagnosticar.
+
+Un log de arranque es de los primeros que se pega a un ticket y de los que se guarda más tiempo, y
+un secreto en él cambia de manos con el.
+
+#### Verificación
+
+`db_startup_log_test.js` (puro, 5 bloques) fija las tres reglas de la redacción: ni la URL ni el
+volcado llevan la contraseña, el destino sigue siendo legible, y las dos entradas raras que pueden
+darse de verdad —`dialectOptions` sin resolver todavía y un destino que no sea URL— no tumban el
+arranque, que es el riesgo real de tocar una línea que se ejecuta antes de que exista nadie a quien
+reportarle un fallo.
+
+Medido sobre el arranque real: **5 → 0** ocurrencias de la contraseña en el log, en las dos formas en
+que aparecía (la URL con el password URL-encoded y el volcado en claro). Packet de PostgreSQL:
+32/32.
+
+---
+
 ## Referencia
 
 - Versionado: `package.json`
