@@ -18,6 +18,48 @@ proyecto, ver [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [13.11.19] - 2026-09-27
+
+### Fixed
+
+**Un fallo de `system_test.js` dejaba el endpoint `/test_ping_js` puesto en la app `demo`.**
+
+La suite creaba el endpoint, ejecutaba los pasos 4 y 5 y lo borraba al final, sin nada en medio.
+Un fallo en cualquiera de esos dos pasos se llevaba por delante el borrado, y como el paso 5
+llevaba roto desde antes de esta serie, el endpoint se quedaba ahí en todas las pasadas. Se
+vio al reproducir ese fallo: la suite terminó sin imprimir ni `Cleaning up`.
+
+La solución obvia —meter el borrado en un `finally`— **no habría funcionado**:
+`process.exit()` no ejecuta el `finally`, que es justo lo que hacían los dos `process.exit(1)`
+de esos pasos. Con ellos dentro, el `finally` da una sensación de seguridad que no tiene. Así
+que los dos `process.exit(1)` de dentro son ahora `throw`, y el error se relanza después de la
+limpieza. Los dos que quedan fuera (login y catálogo de apps) sí son legítimos: en esos
+pasos todavía no hay nada que limpiar.
+
+El `idendpoint` se lee ahora dentro del bloque protegido. Antes se leía fuera, así que un
+`data` o un `result` ausente reventaba con un `TypeError` en esa línea, ya con el endpoint
+creado y sin limpieza posible. Si aún así no hay id —un `200` sin `idendpoint` en el cuerpo—
+el borrado es imposible, porque el `DELETE` va por id, y la suite lo dice en voz alta en vez de
+fingir que limpió.
+
+Verificado en rojo antes que en verde, y por las dos vías:
+
+- **Con un fallo inyectado** en mitad del paso 4, la suite sale con código 1 **y borra**:
+  `Endpoint deleted.` aparece en la salida y la tabla `ofapi_endpoint` se queda sin filas de
+  `/test_ping_js`.
+- **Con un `200` sin `idendpoint` inyectado**, la rama que no puede borrar avisa con `NO SE PUDO
+  LIMPIAR` y sale con código 1, que es lo único honesto que puede hacer.
+- **En verde**, contra la plataforma real: código 0, 79 herramientas MCP descubiertas y cero
+  filas de residuo.
+
+Un matiz que hace el fallo menos grave de lo que suena, y que conviene no callar: el paso 3
+hace `upsert` sobre el recurso, así que la fila huérfana no se acumula sin límite —la
+siguiente pasada la reutiliza y la borra si llega al final. Lo que sí pasó era que, con el
+paso 5 roto, ninguna pasada llegaba nunca al final.
+
+La suite **sigue fuera del packet**, y ahora por una razón que se sostiene: muta la app `demo`,
+así que meterla en el packet hace que cada pasada cree y borre un endpoint compartido.
+
 ## [13.11.18] - 2026-09-27
 
 ### Added
