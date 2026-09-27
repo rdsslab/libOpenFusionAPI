@@ -18,6 +18,74 @@ proyecto, ver [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [13.11.25] - 2026-09-27
+
+### Fixed
+
+**`mcp_exhaustive_validation.js` exigía borrar por MCP un usuario que la propia suite había creado
+como `as_admin`, y la comprobación que lo detectaba no decía por qué.** Cierra el primer
+colateral que 13.11.24 dejó documentado. **El defecto es de la suite, no del producto.**
+
+El actor de estas llamadas es la api key del app `system`, y ese usuario no es `as_admin`; el
+usuario A sí lo es, porque el BUG-8 necesita que lo tenga. La ruta hace lo correcto:
+
+```json
+{"error":"Permission denied: cannot delete an as_admin account."}
+```
+
+El usuario B, creado sin permisos, se borra sin problema. O sea: una cuenta sin `as_admin` no
+puede borrar una con `as_admin`, y esa protección **no se toca**. Arreglarlo debilitando la ruta
+para que la limpieza de un test sea más cómoda sería arreglar el producto desde el test.
+
+Lo que corresponde es lo que un lote de limpieza promete de verdad: que la plataforma se niegue y
+que el huérfano desaparezca igualmente.
+
+```js
+// antes: espera algo que por diseño no puede pasar, y sin detalle que lo explique
+check("user_delete A", !delU.isError && delU.data?.success === true);
+
+// ahora: comprueba el denegado correcto, y limpia por la base en el orden de `deleteUser`
+const denegado = delA.isError && /cannot delete an as_admin account/.test(String(delA.data?.error || ""));
+check("user_delete A (as_admin) denegado al actor sin as_admin, por diseño", denegado, /* ... */);
+db.prepare("DELETE FROM ofapi_password_recovery WHERE iduser = ?").run(userAId);
+db.prepare("DELETE FROM ofapi_user WHERE iduser = ?").run(userAId);
+```
+
+El orden no es libre: `ofapi_password_recovery` va antes que `ofapi_user` porque es clave foránea,
+y es el mismo criterio que usa `deleteUser` al borrar. El `as_admin` de A se queda en la base hasta
+el final a propósito, porque hace falta para el BUG-8.
+
+**De paso, los otros 16 checks que tampoco pasaban `detail`.** El defecto no era de esa línea sino
+del fichero entero: de 68 llamadas a `check()`, **17 no tenían tercer argumento**, así que cuando
+fallaban no decían nada. Con el arreglo son **0**. Los dos que comprobaban sintaxis ahora
+recogen el mensaje del `catch` en vez de tragárselo, y el que verifies el código recuperado
+distingue "0 chars" de "no devolvió código".
+
+**Y una que no podía fallar nunca.** `check("servidor sigue vivo tras arranque de bot con token
+falso", true)` tenía el segundo argumento constante. Ahora sondea de verdad, por el mismo endpoint
+público que usa el preflight, y va en `try` porque `http()` no captura y `fetch` lanza si no hay
+nadie escuchando: sin el, el escenario que esa comprobación existe para detectar —que el bot lo
+tumbe— no daría un `FAIL` con motivo sino una excepción sin resumen.
+
+**La comprobación de cascada no comprobaba cascadas.** Decía `no quedan filas de recuperación
+para A (CASCADE)` y las dos cosas eran falsas: A ya no pasa por `deleteUser`, y `deleteUser` borra
+las recuperaciones con un `destroy` explícito, no con una cascada. Ahora apunta a B, que sí pasa por
+`deleteUser`, se llama como lo que verifica, y hay una segunda que cubre a los dos usuarios.
+
+**Verificación, por las dos vías.** En rojo, con solo el bloque de `user_delete` en su estado
+anterior —el resto del fichero intacto, porque revertirlo entero devolvería el fallo del punto 6—
+: **74/77**, con `user_delete A` en `FAIL` y el `detail` vacío, y el de recuperación en `FAIL`.
+En verde, mismo servidor y misma base: **78/79**, los dos fallos fuera y el único que queda es la
+aserción caducada del punto 8. 77 → 79 comprobaciones, dos de ellas nuevas.
+
+### Changed
+
+- `dev/test/mcp_exhaustive_validation.js`: 17 comprobaciones con motivo de fallo, una tautología
+  convertida en comprobación real, y el lote de limpieza de usuarios reescrito para no exigir lo
+  que la plataforma no debe permitir.
+
+---
+
 ## [13.11.24] - 2026-09-27
 
 ### Fixed
@@ -64,9 +132,9 @@ esta máquina**. Ahora se ejecuta, y de 77 salen 3 fallos. No son de este arregl
 cambia de dónde se lee— pero solo se ven porque este las desbloqueó:
 
 - **`user_delete` vía MCP no borra al usuario `as_admin`** (el B, sin permisos, sí se borra), y
-  en cascada se queda su fila en `ofapi_password_recovery`. El check que lo detecta imprime el
-  `detail` vacío, así que además pierde el motivo: **una comprobación que falla sin decir por
-  qué es media comprobación**.
+  en cascada se queda su fila en `ofapi_password_recovery`. El check que lo detecta no le pasa
+  `detail` a `check()`, así que además pierde el motivo: **una comprobación que falla sin decir
+  por qué es media comprobación**.
 - **La aserción del seed está caducada.** Dice `dbTasks === 2` con el comentario «1 disable y 1
   cleanup», y el seed actual crea **5**: cleanup de recuperaciones, dos de avisos de admin, uno
   de grupos de app y uno de poda del log de auditoría. El número es un número mágico que se

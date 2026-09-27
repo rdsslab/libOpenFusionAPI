@@ -266,7 +266,7 @@ async function main() {
   check("tools/list responde", tools.length >= 70, `tools=${tools.length}`);
   const byName = new Map(tools.map((t) => [t.name, t]));
   const health = await http("/api/system/user/recovery/options/prd");
-  check("servidor vivo (endpoint público)", health.status === 200);
+  check("servidor vivo (endpoint público)", health.status === 200, `status=${health.status} body=${JSON.stringify(health.data).slice(0, 120)}`);
   // NOTA: no se hace login fallido de 'admin' (seed legacy enabled=0) porque cada
   // 401 cuenta contra el rate limit de auth por IP (5 fallos / 10 min → lockout).
   // Se verifica su estado directamente desde la DB.
@@ -293,10 +293,10 @@ async function main() {
 
     const lA = await http("/api/system/system/login/prd", { method: "POST", body: {}, headers: { authorization: basic(userA.username, userA.password) } });
     const lABody = lA.data || {};
-    check("login usuario interno A -> 200 + token", lA.status === 200 && !!lABody.token && lABody.login === true);
+    check("login usuario interno A -> 200 + token", lA.status === 200 && !!lABody.token && lABody.login === true, `status=${lA.status} login=${lABody.login} token=${lABody.token ? "si" : "no"}`);
 
     const lB = await http("/api/system/system/login/prd", { method: "POST", body: {}, headers: { authorization: basic(userB.username, userB.password) } });
-    check("login usuario interno B -> 200 + token", lB.status === 200 && !!lB.data?.token);
+    check("login usuario interno B -> 200 + token", lB.status === 200 && !!lB.data?.token, `status=${lB.status} body=${JSON.stringify(lB.data).slice(0, 120)}`);
 
     const uaBearer = { authorization: `Bearer ${lABody.token}` };
     const ubBearer = { authorization: `Bearer ${lB.data.token}` };
@@ -311,7 +311,7 @@ async function main() {
     const listUsers = await mcpCall("list_users", {});
     const rows = listUsers.isError ? null : listUsers.data;
     const hasA = Array.isArray(rows) ? rows.some((u) => u.username === userA.username) : Array.isArray(listUsers.data?.data) ? listUsers.data.data.some((u) => u.username === userA.username) : false;
-    check("list_users incluye al usuario creado", hasA);
+    check("list_users incluye al usuario creado", hasA, `buscado=${userA.username} (iduser=${userAId}), lista de ${Array.isArray(rows) ? rows.length : "forma no-array"}`);
 
     // BUG-8: user_create vía MCP debe conservar ctrl.as_admin (se perdía antes del fix).
     try {
@@ -323,7 +323,7 @@ async function main() {
     const reset = await mcpCall("user_reset_password", { iduser: userAId, newPassword: "Nueva_Clave_123!" });
     check("user_reset_password (admin) OK", !reset.isError && reset.data?.success === true, JSON.stringify(reset.data));
     const lA2 = await http("/api/system/system/login/prd", { method: "POST", body: {}, headers: { authorization: basic(userA.username, "Nueva_Clave_123!") } });
-    check("re-login con clave reseteada", lA2.status === 200 && !!lA2.data?.token);
+    check("re-login con clave reseteada", lA2.status === 200 && !!lA2.data?.token, `status=${lA2.status} body=${JSON.stringify(lA2.data).slice(0, 120)}`);
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -459,8 +459,9 @@ async function main() {
     const INVALID_CODE = "module.exports = async (ctx) => { await ctx.reply('boom');";
 
     let syntaxValid = false;
-    try { new Function(VALID_CODE); syntaxValid = true; } catch { /* informativo */ }
-    check("referencia: código VALIDO compila (JavaScript)", syntaxValid);
+    let syntaxErrMsg = null;
+    try { new Function(VALID_CODE); syntaxValid = true; } catch (e) { syntaxErrMsg = e.message; }
+    check("referencia: código VALIDO compila (JavaScript)", syntaxValid, syntaxErrMsg ? `lanza: ${syntaxErrMsg}` : "new Function compila el bueno, o sea que el harness SABRÁ detectar uno malo");
 
     const up = await mcpCall("upsert_bot", { idapp: DEMO_IDAPP, name: `${PREFIX}_bot`, token: "fake_dev_token_123", code: VALID_CODE, environment: "dev", enabled: false });
     const botId = !up.isError && up.data?.data?.idbot ? up.data.data.idbot : up.data?.idbot;
@@ -472,10 +473,11 @@ async function main() {
       const list = await mcpCall("list_bots", { idbot: botId, include_code: true });
       const b = list.isError ? null : (list.data?.data?.[0] || list.data?.data || list.data?.[0] || list.data?.bot);
       storedCode = (b && b.code) || "";
-      check("list_bots(idbot) devuelve el bot creado", !!b);
+      check("list_bots(idbot) devuelve el bot creado", !!b, `idbot=${botId}, recibido=${b ? Object.keys(b).join(",") : "nada"}`);
       let storedOk = false;
-      try { new Function(storedCode || VALID_CODE); storedOk = true; } catch { /* */ }
-      check("código recuperado del bot compila (sin errores de sintaxis)", storedOk);
+      let storedErr = null;
+      try { new Function(storedCode || VALID_CODE); storedOk = true; } catch (e) { storedErr = e.message; }
+      check("código recuperado del bot compila (sin errores de sintaxis)", storedOk, storedErr ? `lanza: ${storedErr}` : storedCode ? `${storedCode.length} chars recuperados y compilan` : "el bot no devolvio codigo, se compilo el de referencia");
     }
 
     const bad = await mcpCall("upsert_bot", { idapp: DEMO_IDAPP, name: `${PREFIX}_badbot`, token: "fake_dev_token_123", code: INVALID_CODE, environment: "dev", enabled: false });
@@ -490,13 +492,26 @@ async function main() {
       const logs = await mcpCall("bot_lifecycle_logs", { idbot: botId, limit: 20 });
       const events = logs.ok && Array.isArray(logs.data?.data) ? logs.data.data : logs.ok && Array.isArray(logs.data) ? logs.data : logs.ok && logs.data?.data ? [].concat(logs.data.data) : [];
       const syntaxErr = events.some((e) => /syntax|compile/i.test(String(e.event || e.error_type || "")));
-      check("servidor sigue vivo tras arranque de bot con token falso", true);
+      // Antes era `check(..., true)`: un segundo argumento constante que hace que la
+      // comprobacion no pueda fallar nunca. Vale mas no ponerla que ponerla de mentira,
+      // asi que ahora sondea de verdad, por el mismo endpoint publico que el preflight.
+      //
+      // El `try` no es cosmetico: `http()` no captura, `fetch` lanza si no hay nadie
+      // escuchando, y el escenario que esta comprobacion existe para detectar es
+      // justamente "el bot lo tumbo". Sin el, ese caso no daria un FAIL con motivo sino
+      // una excepcion sin resumen: justo el defecto que estamos corrigiendo en la otra
+      // punta.
+      let vivo = null;
+      let vivoErr = null;
+      try { vivo = await http("/api/system/user/recovery/options/prd"); } catch (e) { vivoErr = e.message; }
+      check("servidor sigue vivo tras arranque de bot con token falso", !!vivo && vivo.status === 200,
+        vivoErr ? `no respondio: ${vivoErr}` : `status=${vivo?.status} body=${JSON.stringify(vivo?.data).slice(0, 80)}`);
       note("eventos de ciclo de vida observados", `${events.length} evento(s): ${events.slice(0,3).map((e) => e.event || e.error_type || JSON.stringify(e)).join(", ")}`);
       if (syntaxErr) check("NO aparecen errores de sintaxis en logs de vida del bot", false, "se detectó evento de sintaxis");
       else check("NO aparecen errores de sintaxis en logs de vida del bot", true, "ningún evento syntax/compile");
 
       const dis = await mcpCall("enable_disable_bot", { idbot: botId, enabled: false });
-      check("enable_disable_bot(disable) -> success", !dis.isError && dis.data?.success === true);
+      check("enable_disable_bot(disable) -> success", !dis.isError && dis.data?.success === true, JSON.stringify(dis.data));
     }
   }
 
@@ -556,12 +571,12 @@ async function main() {
     check("POST /apikey (endpoint real, app system) genera key firmada", sysKey.status === 200 && !!sysKeyToken, JSON.stringify(sysKey.data).slice(0, 160));
 
     const demoKey = mintAppApiKey(DEMO_IDAPP, clientId, DEMO_JWT_KEY, "exh-demo-key");
-    check("key firmada con jwt_key del app DEMO (procesador del app) creada", !!demoKey.token);
+    check("key firmada con jwt_key del app DEMO (procesador del app) creada", !!demoKey.token, `idkey=${demoKey.idkey}, token=${demoKey.token ? "acuñado" : "vacio"}`);
 
     const listKeys = await mcpCall("list_api_keys", { idclient: clientId });
     const keysData = listKeys.isError ? [] : (Array.isArray(listKeys.data) ? listKeys.data : listKeys.data?.data || []);
     check("list_api_keys (MCP) muestra ambas keys del client", keysData.length >= 2, `keys=${keysData.length}`);
-    check("list_api_keys expone el token (usable como Bearer)", keysData.some((k) => typeof k.token === "string" && k.token.length > 50));
+    check("list_api_keys expone el token (usable como Bearer)", keysData.some((k) => typeof k.token === "string" && k.token.length > 50), `keys=${keysData.length}, con token de mas de 50 chars=${keysData.filter((k) => typeof k.token === "string" && k.token.length > 50).length}`);
 
     const demoBearer = { authorization: `Bearer ${demoKey.token}` };
     const sysBearer = { authorization: `Bearer ${sysKeyToken}` };
@@ -593,7 +608,7 @@ async function main() {
   section("Batch-Q: calidad informativa de las tools MCP");
   {
     const names = new Set(tools.map((t) => t.name));
-    check("nombres de tool únicos", names.size === tools.length);
+    check("nombres de tool únicos", names.size === tools.length, `unicos=${names.size} de ${tools.length} tools`);
     const PLACEHOLDER = /TODO|TBD|FIXME|lorem ipsum|to be written/i;
     const badDesc = tools.filter((t) => !t.description || PLACEHOLDER.test(t.description) || t.description.length < 20);
     check("ningún tool con descripción placeholder/vacía", badDesc.length === 0, `malos: ${badDesc.map((t) => t.name).join(", ")}`);
@@ -638,7 +653,7 @@ async function main() {
       check("delete_bot", !delBot.isError && delBot.data?.success === true, JSON.stringify(delBot.data));
       const bots = await mcpCall("list_bots", { idbot: createdBotId });
       const found = !bots.isError && JSON.stringify(bots.data).includes(createdBotId);
-      check("el bot ya no existe", !found);
+      check("el bot ya no existe", !found, `idbot=${createdBotId}, sigue apareciendo=${found}`);
     }
     if (createdBadBotId) {
       await mcpCall("delete_bot", { idbot: createdBadBotId });
@@ -647,15 +662,41 @@ async function main() {
     db.prepare("DELETE FROM ofapi_api_key WHERE idclient = ? OR description IN ('exhaustive-validate','exh-demo-key')").run(clientId ?? null);
 
     if (userAId) {
-      const delU = await mcpCall("user_delete", { iduser: userAId });
-      check("user_delete A", !delU.isError && delU.data?.success === true);
+      // El usuario A se creo con `ctrl.as_admin: true` porque el BUG-8 necesita que lo
+      // tenga, y el actor de estas llamadas es la api key del app `system`, que no es
+      // `as_admin`. La ruta lo dice con un 403 explicito y asi debe ser: una cuenta sin
+      // as_admin no puede borrar una con as_admin.
+      //
+      // Asi que la comprobacion que corresponde no es "el MCP lo borro" —que nunca va a
+      // pasar y por eso fallaba— sino la que de verdad importa en un lote de limpieza: que
+      // la plataforma se niegue, y que el huerfano desaparezca igualmente. Por eso el
+      // borrado de A se hace por la base, y en el mismo orden que `deleteUser`: las
+      // recuperaciones antes que el usuario, que es lo que evita el fallo de clave
+      // foranea. No se toca la proteccion de la ruta para que la limpieza de la suite
+      // sea mas comoda: eso seria arreglar el producto desde el test.
+      const delA = await mcpCall("user_delete", { iduser: userAId });
+      const denegado = delA.isError && /cannot delete an as_admin account/.test(String(delA.data?.error || ""));
+      check("user_delete A (as_admin) denegado al actor sin as_admin, por diseño", denegado, `isError=${delA.isError} data=${JSON.stringify(delA.data)}`);
+      db.prepare("DELETE FROM ofapi_password_recovery WHERE iduser = ?").run(userAId);
+      const bA = db.prepare("DELETE FROM ofapi_user WHERE iduser = ?").run(userAId);
+      check("usuario A desaparece igualmente (por la base: el MCP no puede)", bA.changes === 1, `changes=${bA.changes} iduser=${userAId}`);
     }
     if (userBId) {
       const delU = await mcpCall("user_delete", { iduser: userBId });
-      check("user_delete B", !delU.isError && delU.data?.success === true);
+      check("user_delete B (sin as_admin) borrado por MCP", !delU.isError && delU.data?.success === true, `isError=${delU.isError} data=${JSON.stringify(delU.data)}`);
     }
 
-    check("no quedan filas de recuperación para A (CASCADE)", countRecoveryRows(userAId ?? -1) === 0);
+    // Apuntaba a A y decia "(CASCADE)", y las dos cosas eran falsas. A ya no pasa por
+    // `deleteUser`, asi que no hay cascada que comprobar; y `deleteUser` borra las
+    // recuperaciones con un `destroy` explicito, no con una cascada. La comprobacion
+    // util es la de B, que si pasa por `deleteUser`: que las filas de recuperacion se van
+    // con el usuario.
+    check("user_delete B: las recuperaciones se van con el usuario (las borra deleteUser, no una cascada)",
+      userBId ? countRecoveryRows(userBId) === 0 : true,
+      userBId ? `rows=${countRecoveryRows(userBId)}` : "B no se pudo crear, nada que comprobar");
+    check("no queda ninguna fila de recuperacion de los dos usuarios de la suite",
+      countRecoveryRows(userAId ?? -1) === 0 && countRecoveryRows(userBId ?? -1) === 0,
+      `A=${countRecoveryRows(userAId ?? -1)} B=${countRecoveryRows(userBId ?? -1)}`);
 
     const itDemo = await mcpCall("list_interval_tasks", { idapp: DEMO_IDAPP });
     const demoTasks = itDemo.isError ? [] : (Array.isArray(itDemo.data?.data) ? itDemo.data.data : Array.isArray(itDemo.data) ? itDemo.data : itDemo.data?.tasks || []);
