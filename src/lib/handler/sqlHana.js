@@ -361,84 +361,166 @@ export const sqlHana = async (context) => {
   }
 };
 
+/**
+ * Sustituye los marcadores de un comando HANA por `?` posicionales y devuelve los
+ * valores en orden. Es toda la parte que no habla con la base de datos, así que vive
+ * aparte: se puede probar sin levantar un HANA, que es la única forma de saber que
+ * aquí no se cuela nada.
+ *
+ * ## Por qué lleva su propio escáner y no el de `utils.js`
+ *
+ * `scanSqlTokens` clasifica marcadores; esto construye el comando. Comparten la misma
+ * idea —un comentario no es código— pero no el mismo contrato: aquí los `?` son
+ * posicionales y un array se expande, y HANA no tiene cadenas dollar-quoted, así que
+ * heredar esas reglas cambiaría consultas que hoy funcionan. Lo que sí se comparte es
+ * la regla de qué es un comentario, y es la de siempre: `--` hasta el fin de línea y
+ * `/* … *\/` de bloque, sin exigir espacio detrás de `--`.
+ *
+ * ## Los comentarios
+ *
+ * Antes este bucle llevaba cuenta de comillas y nada más, y salían dos defectos:
+ *
+ *  1. `/* $_VAR_CNX *\/` se leía como un marcador sin valor y la consulta moría con
+ *     `Missing parameter value for $_VAR_CNX`. `$_VAR_…` es la forma exacta de un
+ *     marcador, y es lo que pone la gente en un comentario para decir de dónde sale
+ *     la conexión. Es el mismo defecto que tenía el handler SQL.
+ *  2. Más traicionero: un apostrofe dentro de un comentario (`/* it's a note *\/`)
+ *     alternaba el estado de comillas y se quedaba pegado. A partir de ahí los
+ *     marcadores REALES ya no se veían, así que `$a` viajaba literal a la base de
+ *     datos: un error de sintaxis del motor en lugar del fallo claro de antes.
+ *
+ * @param {string} command texto de la consulta, con `$nombre` o `:nombre`
+ * @param {object} params_bind valores ya normalizados (sin prefijo en la clave)
+ * @returns {{comando: string, params: any[]}} el comando con `?` y los valores
+ * @throws {Error} si un marcador no tiene valor, o si un array viene vacío
+ */
+export function construirComandoHana(command, params_bind) {
+  let new_command = "";
+  const params = [];
+  let inSingleQuote = false;
+  let inDoubleQuote = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+  let i = 0;
+
+  while (i < command.length) {
+    const char = command[i];
+    const next = command[i + 1];
+
+    // Dentro de un comentario no cuenta nada: ni una comilla ni un marcador. Se
+    // resuelve antes que todo lo demás y se salta el texto tal cual, para que el
+    // motor siga viendo el mismo comentario que escribió el autor.
+    if (inLineComment) {
+      if (char === "\n") inLineComment = false;
+      new_command += char;
+      i++;
+      continue;
+    }
+    if (inBlockComment) {
+      if (char === "*" && next === "/") {
+        new_command += "*/";
+        i += 2;
+        inBlockComment = false;
+        continue;
+      }
+      new_command += char;
+      i++;
+      continue;
+    }
+
+    // Manejo de comillas, antes que la apertura de comentarios. Al revés de lo que
+    // parece el orden correcto: un `--` dentro de una cadena no abre comentario, y
+    // para saberlo hay que mirar primero si ya estamos dentro.
+    if (char === "'" && !inDoubleQuote) {
+      inSingleQuote = !inSingleQuote;
+      new_command += char;
+      i++;
+      continue;
+    }
+    if (char === '"' && !inSingleQuote) {
+      inDoubleQuote = !inDoubleQuote;
+      new_command += char;
+      i++;
+      continue;
+    }
+
+    if (!inSingleQuote && !inDoubleQuote) {
+      if (char === "-" && next === "-") {
+        inLineComment = true;
+        new_command += "--";
+        i += 2;
+        continue;
+      }
+      if (char === "/" && next === "*") {
+        inBlockComment = true;
+        new_command += "/*";
+        i += 2;
+        continue;
+      }
+    }
+
+    // Detección de Placeholders fuera de comillas
+    if (
+      !inSingleQuote &&
+      !inDoubleQuote &&
+      (char === "$" || char === ":")
+    ) {
+      // Extraer nombre del placeholder
+      let j = i + 1;
+      while (j < command.length && /[a-zA-Z0-9_]/.test(command[j])) {
+        j++;
+      }
+      const placeholder = command.slice(i, j);
+      const bindName = placeholder.replace(/[:$]/g, "");
+
+      if (j > i + 1) {
+        // Placeholder válido encontrado
+        // Verificar existencia en bind params
+        if (
+          params_bind &&
+          Object.prototype.hasOwnProperty.call(params_bind, bindName)
+        ) {
+          const value = params_bind[bindName];
+
+          if (Array.isArray(value)) {
+            // Expansión de Arrays: IN (?) -> IN(?,?,?)
+            if (value.length === 0) {
+              throw new Error(
+                `Empty array provided for parameter ${placeholder}`
+              );
+            }
+            const placeholders = value.map(() => "?").join(", ");
+            new_command += placeholders;
+            params.push(...value);
+          } else {
+            // Valor simple
+            new_command += "?";
+            params.push(value);
+          }
+        } else {
+          throw new Error(`Missing parameter value for ${placeholder}`);
+        }
+
+        i = j; // Saltar placeholder
+        continue;
+      }
+    }
+
+    // Caracter normal
+    new_command += char;
+    i++;
+  }
+
+  return { comando: new_command, params };
+}
+
 function executeQuery(pool, command, params_bind, options) {
   return new Promise((resolve, reject) => {
-    // 1. Parsing Single-Pass para robustez (ignora quotes)
-    let new_command = "";
-    let params = [];
-    let inSingleQuote = false;
-    let inDoubleQuote = false;
-    let i = 0;
-
+    // 1. Sustitución de marcadores por `?` posicionales
+    let new_command;
+    let params;
     try {
-      while (i < command.length) {
-        const char = command[i];
-
-        // Manejo de comillas
-        if (char === "'" && !inDoubleQuote) {
-          inSingleQuote = !inSingleQuote;
-          new_command += char;
-          i++;
-          continue;
-        }
-        if (char === '"' && !inSingleQuote) {
-          inDoubleQuote = !inDoubleQuote;
-          new_command += char;
-          i++;
-          continue;
-        }
-
-        // Detección de Placeholders fuera de comillas
-        if (
-          !inSingleQuote &&
-          !inDoubleQuote &&
-          (char === "$" || char === ":")
-        ) {
-          // Extraer nombre del placeholder
-          let j = i + 1;
-          while (j < command.length && /[a-zA-Z0-9_]/.test(command[j])) {
-            j++;
-          }
-          const placeholder = command.slice(i, j);
-          const bindName = placeholder.replace(/[:$]/g, "");
-
-          if (j > i + 1) {
-            // Placeholder válido encontrado
-            // Verificar existencia en bind params
-            if (
-              params_bind &&
-              Object.prototype.hasOwnProperty.call(params_bind, bindName)
-            ) {
-              const value = params_bind[bindName];
-
-              if (Array.isArray(value)) {
-                // Expansión de Arrays: IN (?) -> IN (?,?,?)
-                if (value.length === 0) {
-                  throw new Error(
-                    `Empty array provided for parameter ${placeholder}`
-                  );
-                }
-                const placeholders = value.map(() => "?").join(", ");
-                new_command += placeholders;
-                params.push(...value);
-              } else {
-                // Valor simple
-                new_command += "?";
-                params.push(value);
-              }
-            } else {
-              throw new Error(`Missing parameter value for ${placeholder}`);
-            }
-
-            i = j; // Saltar placeholder
-            continue;
-          }
-        }
-
-        // Caracter normal
-        new_command += char;
-        i++;
-      }
+      ({ comando: new_command, params } = construirComandoHana(command, params_bind));
     } catch (err) {
       return reject(err);
     }

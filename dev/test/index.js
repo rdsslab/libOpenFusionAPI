@@ -139,6 +139,16 @@ async function runAllTests() {
         args: ["sql_param_detection_test.js"],
       },
       {
+        // Puro: el sustituidor propio del handler SQL HANA, que no usa Sequelize.
+        // Un `$nombre` dentro de un comentario lo tumbaba, y un apostrofe dentro de
+        // un comentario descolocaba el estado de comillas y se tragaba los
+        // marcadores reales que iban después. Se comprueba sobre el texto que sale
+        // hacia el driver, sin necesitar un HANA delante.
+        label: "sql_hana_comments_test.js",
+        command: "node",
+        args: ["sql_hana_comments_test.js"],
+      },
+      {
         // Puro: distingue el agotamiento de conexiones del fallo de credenciales,
         // que antes comparten el mismo mensaje.
         label: "connection_pool_limits_test.js",

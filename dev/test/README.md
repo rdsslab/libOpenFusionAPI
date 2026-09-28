@@ -304,6 +304,48 @@ colliding literal was a 200 carrying data that was not what the endpoint said.
 `sql_param_detection_test.js` covers the pure half of this and is in the packet: 48 cases
 for the scanner and for `prepararSqlParaBinds()`, plus adversarial inputs.
 
+## The other two marker styles, and HANA
+
+Two follow-up questions that are worth answering in writing because the answer is not the
+one most people expect.
+
+**`:name` and `@name` inside a comment, in the `SQL` handler, were never broken.** No fix
+was needed and none was made; the point is that it is worth knowing why.
+
+- `:name` goes through `injectReplacements`, the hand-written scanner quoted above, which
+  already tracks comments. Inside a comment it is left alone.
+- `@name` is **not a placeholder at all** in this handler. The `@` is stripped from the
+  **keys of the request body** (`{"@name": "x"}` binds `$name`); in the query text it is
+  never substituted and travels to the engine as-is. On MSSQL that makes it a T-SQL
+  variable reference, so inside a comment it is inert twice over.
+
+Verified live against MSSQL rather than assumed — 13 query shapes covering each style in
+block and line comments, all three in the same comment, `$` repeated, `$` glued to the
+comment delimiters, and `$` at the end of a code line.
+
+**HANA had the same defect, still unfixed, because it is not Sequelize.**
+[`sql_hana_comments_test.js`](./sql_hana_comments_test.js) is in the packet and is pure —
+30 cases, no database, and it fails 14 of them against the previous parser. HANA rewrites
+`:name` / `$name` into positional `?` with its own loop in
+`src/lib/handler/sqlHana.js`, which tracked quotes and nothing else, so:
+
+1. `/* sale de $_VAR_HANA_DB */` was a **500** `Missing parameter value for $_VAR_HANA_DB`.
+   Same symptom, same reason: `$_VAR_…` is shaped exactly like a named placeholder.
+2. An apostrophe **inside a comment** (`/* it's a note */`, `-- don't filter`) flipped the
+   quote state and left it stuck. Every *real* placeholder after it was then invisible, so
+   `$a` reached the database verbatim. The failure surfaced as a HANA syntax error instead
+   of the clear "missing parameter" of case 1 — a neutral comment turned a working filter
+   into a broken statement.
+
+The fix is the comment state in that loop: inside a comment, no quote and no marker is
+read. Unlike the `SQL` handler, nothing has to be neutralized here — HANA already receives
+the `?` in place, so the comment text reaches the driver **byte for byte** as written.
+
+Getting at that loop at all required extracting it out of `executeQuery` into an exported
+`construirComandoHana()`. It is pure string work with no pool access, so it can be tested
+without a HANA server — which is the only reason this is covered by a test suite at all
+today, and the reason the second defect above was found.
+
 ## Adding a suite
 
 1. Write the file.

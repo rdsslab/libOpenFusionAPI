@@ -122,6 +122,17 @@ SELECT CONCAT('coste: ', $name)   -- MySQL / MariaDB
 Only the `$param` style is affected. `:param` has never had this problem: its substitution
 path already understands literals, quoted identifiers, comments and dollar-quoted bodies.
 
+### `@name` is not a placeholder
+
+Worth stating, because it is the third thing people assume once they have been bitten by
+the `$`. The leading `@` is stripped from the **keys of the request body**, so a body key
+`@name` binds `$name`. In the query text, though, `@name` is never substituted: it travels
+to the engine literally. On MSSQL that makes it a T-SQL variable reference, which the
+engine resolves on its own — in a comment it is doubly inert.
+
+So, for a marker written inside a comment: `$name` is neutralized, `:name` was never a
+problem, and `@name` is not a marker at all.
+
 ---
 
 ## Dialect Particularities & Reference Sheet

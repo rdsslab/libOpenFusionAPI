@@ -18,6 +18,59 @@ proyecto, ver [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [13.11.33] - 2026-09-28
+
+### Fixed
+
+- **El mismo defecto, en el handler `SQL` HANA, seguía vivo.** El arreglo de la 13.11.32
+  se hizo sobre Sequelize, y HANA no usa Sequelize: lleva su propio sustituidor
+  (`construirComandoHana`, en `handler/sqlHana.js`), que convierte `:nombre` y `$nombre` en
+  `?` posicionales antes de entregar el texto al driver. Ese bucle llevaba cuenta de
+  comillas y nada más, así que un comentario era indistinguible del código, y salían dos
+  fallos:
+
+  1. `/* sale de $_VAR_HANA_DB */` se leía como un marcador sin valor y la consulta moría
+     con `Missing parameter value for $_VAR_HANA_DB` → **500**. Es el mismo síntoma que
+     se corrigió en `SQL`, y por la misma razón: `$_VAR_…` tiene exactamente la forma de
+     un marcador nombrado.
+  2. **Más traicionero, y este no lo había detectado nadie.** Un apostrofe dentro de un
+     comentario —`/* it's a note */`, o `-- don't filter`— alternaba el estado de comillas
+     y lo dejaba **pegado**. A partir de ahí el sustituidor creía que seguía dentro de una
+     cadena, así que los marcadores **reales** que vinieran después ya no se veían: `$a`
+     viajaba literal a la base de datos, sin valor. La consulta llegaba al motor con un
+     `$a` suelto y la respuesta era un error de sintaxis de HANA, en lugar del fallo claro
+     del caso 1. Un comentario neutro convertía un filtro en un error de sintaxis.
+
+  El arreglo añade al bucle el estado de comentario (`--` hasta el fin de línea, `/* … */`
+  de bloque), de modo que dentro de un comentario no se lee ni una comilla ni un marcador.
+  Aquí **no** hace falta neutralizar nada, al contrario que en `SQL`: HANA ya recibe los
+  `?` puestos, así que el texto del comentario llega al driver **intacto**, tal cual lo
+  escribió el autor.
+
+  **Para el autor de endpoints:** los comentarios vuelven a ser seguros en HANA, y da igual
+  si mencionan el nombre de una AppVar, un `:nombre`, un `$nombre` repetido, o si llevan
+  comillas y apóstrofos dentro. Un `$nombre` o `:nombre` dentro de un literal o de un
+  identificador entrecomillado nunca se tocó y se sigue sin tocar: es lo que escribió el
+  autor. `@nombre` no es marcador en este handler —el `@` solo se quita de las **claves**
+  del body, no del SQL— y eso tampoco cambia.
+
+  Detalle en el `AI_SKILL.md` del handler HANA. Cobertura en
+  `dev/test/sql_hana_comments_test.js` (30 casos, puro, sin HANA delante), que falla 14 de
+  30 contra el bucle anterior.
+
+- **`:nombre` y `@nombre` dentro de un comentario, en el handler `SQL`.** Comprobado que
+  nunca fueron un problema y no hacía falta arreglar nada, pero conviene dejarlo escrito
+  porque son las dos cosas que alguien da por perdidas después de sufrir el defecto del
+  `$`:
+
+  - `:nombre` va por `injectReplacements` de Sequelize, que es un escáner a mano y **sí**
+    distingue comentarios, literales, identificadores entrecomillados y cuerpos
+    `$$…$$`. Dentro de un comentario no se toca, ni antes ni después del arreglo.
+  - `@nombre` **no es marcador** en este handler. El `@` se quita del prefijo de las
+    **claves** del body, para que una clave `@name` ate a `$name`; en el texto SQL un
+    `@name` no se sustituye nunca y viaja literal al motor. En MSSQL eso es una variable
+    T-SQL, así que en un comentario es doblemente inerte.
+
 ## [13.11.32] - 2026-09-28
 
 ### Fixed
