@@ -18,6 +18,66 @@ proyecto, ver [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [13.12.1] - 2026-09-28
+
+### Fixed
+
+- **Una variable de tipo `string` llegaba al runtime con comillas alrededor, y cada
+  backup de la app le añadía un par más hasta dejar el valor inservible.** Todo cabe en la
+  rama `default` de `parseAppVar` (`src/lib/db/app.js`), que hacía
+  `JSON.stringify(appvar.value)`. El modelo ya deserializa la columna `json` antes de
+  que el valor llegue ahí, así que esa llamada solo servía para volver a entrecomillar
+  lo que el usuario había escrito:
+
+  ```js
+  // $_VAR_CNX de type "string", written in the GUI as: caracol
+  // column json stores:  "caracol"        (correct: a JSON string)
+  // runtime handed to the endpoint:  "caracol"   ← with the quotes as characters
+  ```
+
+  Afectaba a los tipos sin rama propia —`string`, `none`, `html`, `sql`, `xml`— y
+  **no** a `number`, `json`, `object` ni `js`, que ya devolvían su valor intacto. Por
+  eso el síntoma era a medias: una variable `json` se veía bien al lado de otra
+  `string` que no lo estaba, y no dependía de la variable sino de su **tipo**.
+
+  Lo que lo hacía irreversible es que el defecto se realimentaba a sí mismo.
+  `getAppBackupById` serializa el árbol **ya parseado**, así que el backup guardaba el
+  valor entrecomillado; el restore lo escribía de vuelta en la columna `json`, y ahí
+  quedaba como texto con comillas dentro de la cadena. Medido contra PostgreSQL
+  real, con tres ciclos de "Backup All" → "Restore All" de la GUI:
+
+  ```
+  original:  "caracol"
+  ciclo 1:   "\"caracol\""
+  ciclo 2:   "\"\\\"caracol\\\"\""
+  ciclo 3:   "\"\\\"\\\\\\\"caracol\\\\\\\"\\\"\""
+  ```
+
+  Un valor de configuración—credenciales SMTP, un token, una URL— deja de ser usable
+  al cabo de un backup, y no hay forma de distinguirlo del que el usuario escribió
+  porque en pantalla ya se ve con las comillas que ganó por el camino.
+
+  El arreglo es devolver el valor tal cual. Los cuatro tipos con rama propia no
+  cambian, así que para ellos esta versión no es una diferencia observable.
+
+  **Para quien ya tenga variables dañadas:** el arreglo evita que seguían, pero no
+  repara lo que ya está corrupto. Una variable con las comillas acumuladas sigue
+  saliendo con ellas, porque ahora el runtime la devuelve tal cual, sin adivinar que
+  había que desenvolverlas. Hay que corregirlas a mano o con una migración que
+  deshaga las capas una a una.
+
+  Verificado con la corrección: `parseAppVar` devuelve el valor sin entrecomillar en
+  los nueve casos de tipo contra tipo; tres ciclos seguidos de backup y restore ya
+  no tocan la columna; el runtime entrega `caracol` para `string` y `none`, `{"a":1}`
+  para `json` y `7` para `number`. Packet completo 45/45.
+
+### Changed
+
+- El editor de variables de la GUI sigue como estaba: se comprobó con la pantalla
+  real, tres guardados seguidos sin tocar el valor, y el `POST` de
+  `/api/system/app/var/prd` manda el mismo valor cada vez. La escritura nunca añadió
+  las comillas; solo las hacía visibles un valor que ya venía alterado de antes.
+
 ## [13.12.0] - 2026-09-28
 
 ### Added

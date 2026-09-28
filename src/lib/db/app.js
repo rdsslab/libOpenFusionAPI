@@ -1685,7 +1685,14 @@ export function parseAppVar(appvar) {
             : JSON.parse(appvar.value);
         break;
       default:
-        v = JSON.stringify(appvar.value);
+        // `string`, `none` y cualquier tipo desconocido (html, sql, xml...).
+        // El valor ya viene deserializado por el modelo, así que se devuelve tal
+        // cual. Antes era `JSON.stringify(appvar.value)`, que devolvia la cadena
+        // CON comillas: un `$_VAR_X` de tipo string con valor `caracol` llegaba al
+        // runtime como `"caracol"`. Como el backup de la app serializa el árbol ya
+        // parseado y el restore lo escribe de vuelta en la columna `json`, cada
+        // ciclo backup+restore añadia un par de comillas mas al valor.
+        v = appvar.value;
         break;
     }
   } catch (error) {
