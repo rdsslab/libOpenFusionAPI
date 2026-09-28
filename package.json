@@ -1,6 +1,6 @@
 {
   "name": "@rdsslab/libopenfusionapi",
-  "version": "13.11.28",
+  "version": "13.11.29",
   "description": "Library based on Fastify to create APIs quickly and easily from a web interface.",
   "scripts": {
     "test": "node ./dev/test/index.js",

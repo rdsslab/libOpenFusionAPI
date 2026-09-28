@@ -92,7 +92,7 @@ Each guide provides step-by-step instructions, screenshots, and best practices t
 
 Important operational note:
 
-- Some bundled applications such as `demo` are restored from repository defaults on server startup. If you customize a seeded endpoint and need the change to survive restarts, update the corresponding default app definition in `src/lib/db/default/` as well.
+- Some bundled applications such as `demo` are restored from repository defaults on server startup. If you customize a seeded endpoint and need the change to survive restarts, update the corresponding default app definition in `src/lib/db/default/` as well. See [🌱 The Seed And Your Data](#-the-seed-and-your-data) for exactly what a boot does to a database that already has data in it.
 - Messaging bots are not endpoints: they are stored in the dedicated `ofapi_bot` table and each enabled bot runs in its own worker thread. Manage them with the bot tools (`list_bots`, `upsert_bot`, `enable_disable_bot`, `delete_bot`) and confirm startup in the logs (`method = BOT`, `idendpoint = idbot`), not in the tool response. See `src/docs/bots/`.
 - Password recovery and user self-service are built in: authenticated users can change their own password (`/user/changepassword`), administrators can reset a user without the current password (`/user/resetpassword`), and forgot-password users receive a single-use 6-digit OTP by email and/or Telegram through the seeded **Recovery Password Bot**. See `src/docs/auth/USER_RECOVERY.md`.
 
@@ -186,6 +186,74 @@ Follow [Creating Applications](./src/docs/App/README.md) and
 [Creating Endpoints](./src/docs/endpoint/README.md) for the full flow. AI agents should
 connect to the MCP server (`/api/system/mcp/server/prd`) and start with `apps_list`
 followed by the targeted write tools (`app_create_update`, `endpoint_upsert`, …).
+
+## 🌱 The Seed And Your Data
+
+`BUILD_DB=true` is not a one-time installer. On **every** boot the platform runs
+`dbAPIs.sync({ alter: true })` and then re-applies the default applications, users, API
+clients, methods and interval tasks. On a database that already holds data, that has
+consequences worth knowing before you edit an endpoint and restart. All of the following is
+measured, on PostgreSQL and on MSSQL, through the platform's own API.
+
+### What a boot replaces
+
+The two bundled apps — `system` and `demo` — are restored from a backup of repository
+defaults, and a backup *replaces* what it brings. For an endpoint that is in that backup:
+
+| What you did | What the next boot does |
+|---|---|
+| Edited its code (including through `POST /api/endpoint`) | Restores the seeded code |
+| Set `enabled: false` | Sets `enabled: true` again |
+| Deleted it | Creates it again |
+| Changed its `mcp.name` or any other field | Overwrites it with the seeded row |
+
+`system` is the administration app: its endpoints are meant to be maintained in
+`src/lib/db/default/`, not by hand.
+
+### What a boot leaves alone
+
+Endpoints that are **not** in that backup are yours, and nothing in the seed touches them:
+their code, their `enabled` flag, their `mcp` block, and the app vars, interval tasks and
+users of any app. That includes endpoints you add to `system` or `demo` — only the ones the
+backup lists get replaced.
+
+### The one case where the seed reaches something of yours
+
+`mcp.name` has to be unique within one `(app, environment)`. If one of your endpoints holds
+the name that a seeded endpoint needs, the seed takes the name, because the backup is the
+source of truth for its own apps. Your row survives and keeps serving; what it loses is the
+exposure as an MCP tool:
+
+- `mcp.enabled` is set to `false` and the contested `mcp.name` is removed. Both, and not just
+  the name: the tool list filters on `mcp.enabled` and never looks at the name, so leaving
+  `enabled: true` would publish a tool with an empty name.
+- The boot log names the affected endpoint — its `resource`, its `method`, its `environment` —
+  so you know which one to republish:
+
+  ```
+  [restoreAppFromBackup] MCP name 'X' is taken by the backup: endpoint '/my_endpoint' POST prd
+  of app '...' (...) keeps its row but is no longer exposed as an MCP tool
+  (mcp.enabled=false and its mcp.name removed). Restore it with another mcp.name.
+  ```
+
+- Give it a different `mcp.name` to publish it as a tool again. The conflict is not rediscovered
+  on later boots, because an endpoint with no `mcp.name` is not considered.
+
+This is the only case where the seed modifies a row that is not in its backup, and it never
+deletes one.
+
+### If a change you made has already been reverted
+
+Every endpoint write leaves a copy in `ofapi_endpoint_bkp`, and
+`POST /api/endpoint/restore` brings a previous version back. A reverted edit is not lost — it
+is in the history, and you have to go and fetch it. The exception is the table schema, below.
+
+### The schema belongs to the code
+
+`sync({ alter: true })` makes the tables match the models in `src/lib/db/models.js`. A column
+the models know about and that is missing gets created; a column the models do **not** know
+about gets dropped. That is deliberate: the schema is defined in the code, and editing tables
+by hand puts the database out of step with it. Change the model instead.
 
 ## ⚙️ Environment Variables
 

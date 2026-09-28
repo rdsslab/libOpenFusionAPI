@@ -18,6 +18,41 @@ proyecto, ver [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [13.11.29] - 2026-09-27
+
+### Documentation
+
+- `README.md`: sección nueva, **«🌱 The Seed And Your Data»**, que dice qué le hace un
+  arranque a una base de datos que ya tiene datos. Antes solo había una línea suelta dentro de
+  las notas de operación, y no recogía lo que más importa al operador.
+
+  La línea anterior no era inexacta, pero sí insuficiente: `BUILD_DB=true` no es un
+  instalador de una sola vez —en **cada** arranque corre `dbAPIs.sync({ alter: true })` y se
+  vuelven a aplicar las apps, usuarios, api clients, métodos y tareas por defecto—, y eso no
+  se decía en ninguna parte. Ahora queda escrito, y con el detalle que faltaba:
+
+  - **Qué reemplaza un arranque.** Para un endpoint que está en el backup de `system` o
+    `demo`: el código editado vuelve al del seed (también si se editó por
+    `POST /api/endpoint`), un `enabled: false` vuelve a `true`, y un endpoint del seed que se
+    borró se repone. Es lo correcto para un backup, y `system` es la app de administración:
+    sus endpoints se mantienen en `src/lib/db/default/`, no a mano.
+  - **Qué no toca.** Los endpoints que **no** están en ese backup son del operador: su
+    código, su `enabled`, su bloque `mcp`, y las app vars, tareas de intervalo y usuarios de
+    cualquier app. También los endpoints que se añadan a `system` o a `demo`.
+  - **La política de la propiedad del `mcp.name`**, con el mensaje del log tal cual sale y la
+    razón de que se desactive además de quitarse el nombre: el listado de herramientas filtra
+    por `mcp.enabled` y no mira el nombre.
+  - **Que un cambio revertido no está perdido**: cada escritura deja copia en
+    `ofapi_endpoint_bkp` y `POST /api/endpoint/restore` la recupera. La excepción es el
+    esquema, que va justo en el punto siguiente.
+  - **Que el esquema es del código.** `sync({ alter: true })` hace que las tablas coincidan con
+    los modelos de `src/lib/db/models.js`: una columna que el modelo no conoce se dropea. Es
+    deliberado —la base no se edita a mano, se cambia el modelo— y es la única parte del
+    arranque que destruye algo sin copia en ninguna parte.
+
+  Todo lo anterior está medido en PostgreSQL y en MSSQL, y la parte del borrado por conflicto
+  de nombre MCP es lo que arregla 13.11.28.
+
 ## [13.11.28] - 2026-09-27
 
 ### Fixed
