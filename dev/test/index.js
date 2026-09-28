@@ -195,6 +195,17 @@ async function runAllTests() {
         args: ["db_path_override_test.js"],
       },
       {
+        // Puro: el arranque destruia endpoints del operador cuando coincidian de nombre
+        // MCP con uno del backup del seed. Medido en PostgreSQL y en MSSQL, por la API:
+        // borrar un endpoint del seed, crear el suyo con el mcp.name de aquel y reiniciar
+        // hacia desaparecer. Un backup no puede borrar lo que no trae. Sale de ejecutar la
+        // funcion real contra un doble de Endpoint, no de un grep que pasaria con el
+        // `destroy` correcto, que se queda para los endpoints que si son del backup.
+        label: "mcp_conflict_on_restore_test.js",
+        command: "node",
+        args: ["mcp_conflict_on_restore_test.js"],
+      },
+      {
         // Puro: el seed de metodos tiene que estar terminado cuando su promesa resuelve,
         // no solo haber lanzado las escrituras. Con `forEach(async)` dentro de una
         // funcion que no era `async` el arranque continuaba con 11 `MERGE INTO

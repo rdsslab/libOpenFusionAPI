@@ -18,6 +18,46 @@ proyecto, ver [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [13.11.28] - 2026-09-27
+
+### Fixed
+
+- **El arranque ya no borra endpoints que no están en el backup.** Al aplicar el seed
+  (`defaultApps()` → `restoreAppFromBackup`), un endpoint del operador que compartiera
+  `mcp.name` con uno del backup **desaparecía** de la base, y el único rastro era una línea
+  de log con un UUID y las palabras `before restore`, que leen como un paso mecánico del
+  restore. Medido de punta a punta en PostgreSQL y en MSSQL, y por la API sin tocar la base
+  a mano: `DELETE /api/endpoint` sobre un endpoint del seed, `POST /api/endpoint` para crear
+  uno propio reutilizando su `mcp.name`, reinicio, y el endpoint propio ya no está. Se
+  llegaba con un `Endpoint.destroy` sin backup previo, y un backup no puede borrar lo que no
+  trae.
+
+  Ahora se distinguen los dos casos que antes se trataban como uno:
+
+  | El que tiene el nombre | Qué hace el arranque |
+  |---|---|
+  | Es un endpoint **del propio backup** (una versión anterior del seed lo dejó en otra ruta y conservó el `mcp.name`) | Se borra, como siempre. Sin esto el seed deja de reponer sus propios endpoints, y eso también falla en silencio. |
+  | Es un endpoint **propio del operador** | **Conserva su fila** y deja de exponerse como herramienta MCP: se le quita el `mcp.name` en disputa y se pone `mcp.enabled = false`. |
+
+  Desactivar además de quitar el nombre no es un detalle: el listado de herramientas MCP
+  filtra por `mcp.enabled` y no mira el nombre, así que un `enabled` sin `name` sería una
+  herramienta expuesta con el nombre vacío. Sin `mcp.name` el conflicto tampoco se repite en
+  el siguiente arranque.
+
+  El mensaje del log dice ahora de quién era el endpoint —su `resource`, su `method`, su
+  `environment`— y que conserva la fila, en vez de un UUID suelto. El nombre MCP lo gana el
+  seed porque el backup es la fuente de verdad de `system` y `demo`.
+
+  Lo que el arranque **sí** sigue haciendo, y es lo correcto para un backup: revertir el
+  código editado, reactivar lo que se desactivó y reponer lo que se borró, en los endpoints
+  que el backup trae. Lo que no puede es tocar los que no trae.
+
+- `dev/test/mcp_conflict_on_restore_test.js`: suite nueva, registrada en el packet, que
+  ejecuta la función real contra un doble de `Endpoint` y comprueba qué caso toma cada
+  endpoint. Un `grep` sobre el fuente no distinguiría nada: pasaría con el `destroy`
+  escribiendo en una rama muerta, y pasaría también con el `destroy` correcto, que se queda
+  para los endpoints que sí son del backup.
+
 ## [13.11.27] - 2026-09-27
 
 ### Changed

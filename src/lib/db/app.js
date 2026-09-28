@@ -511,12 +511,31 @@ function safeParseJson(value) {
 }
 
 /**
- * Elimina endpoints existentes que entren en conflicto de nombre MCP con el
- * endpoint que se va a restaurar. El seed del sistema es la fuente de verdad;
- * si la ruta de un endpoint cambió pero conserva el mismo mcp.name, el
- * endpoint antiguo debe ser reemplazado para evitar errores de unicidad.
+ * Resuelve los endpoints existentes que entran en conflicto de nombre MCP con el
+ * endpoint que se va a restaurar, y hay dos casos distintos que antes se trataban
+ * como uno solo:
+ *
+ * - El que tiene el nombre es un endpoint DEL PROPIO BACKUP (una version anterior lo
+ *   dejo en otra ruta y conserva el mcp.name). Ahi el backup es la fuente de verdad y
+ *   el antiguo se borra, que es lo que hacia esta funcion desde siempre.
+ *
+ * - El que tiene el nombre es un endpoint PROPIO del operador, que no viene en el
+ *   backup. Medido: un operador que borra un endpoint del seed por la API y crea el
+ *   suyo con el mismo mcp.name (tambien por la API) perdi`a su endpoint en el
+ *   siguiente arranque, en silencio. El backup no puede borrar endpoints que no
+ *   trae: los que no estan en el backup se mantienen. Ahi lo que se hace es quitarle
+ *   el mcp.name en disputa y desactivar su MCP; la fila se conserva y el operador
+ *   ve el endpoint entre los endpoints pero ya no expuesto como herramienta.
+ *
+ * `name` solo no basta para dejar de exponerlo: el listado de herramientas MCP
+ * filtra por `mcp.enabled` (src/lib/server/endpoint/handlerBuild/mcp.js), asi que
+ * un `enabled` sin `name` apareceria como herramienta con el nombre vacio.
+ *
+ * @param {Set<string>} idendpointDelBackup los idendpoint que trae el backup, para
+ *   poder distinguir "endpoint del seed que se movio de ruta" de "endpoint del
+ *   operador". Sin ese dato los dos casos son indistinguibles.
  */
-async function removeConflictingMcpEndpoints(appId, environment, endpointData) {
+async function resolverConflictoMcpNombre(appId, environment, endpointData, idendpointDelBackup) {
   if (!appId || !environment || !endpointData) return;
 
   const mcp = safeParseJson(endpointData.mcp);
@@ -536,10 +555,11 @@ async function removeConflictingMcpEndpoints(appId, environment, endpointData) {
 
   const existing = await Endpoint.findAll({
     where,
-    attributes: ["idendpoint", "mcp", "resource", "method"],
+    attributes: ["idendpoint", "mcp", "resource", "method", "environment"],
   });
 
-  const conflictingIds = [];
+  const delBackup = [];
+  const delOperador = [];
   for (const ep of existing) {
     const plain = ep.toJSON ? ep.toJSON() : ep;
     const currentMcp = safeParseJson(plain.mcp);
@@ -547,16 +567,40 @@ async function removeConflictingMcpEndpoints(appId, environment, endpointData) {
       currentMcp?.enabled &&
       String(currentMcp.name).trim() === targetName
     ) {
-      conflictingIds.push(plain.idendpoint);
+      // Del backup si su idendpoint viene en el backup que se esta restaurando.
+      if (idendpointDelBackup instanceof Set && idendpointDelBackup.has(plain.idendpoint)) {
+        delBackup.push(plain);
+      } else {
+        delOperador.push(plain);
+      }
     }
   }
 
-  if (conflictingIds.length > 0) {
+  if (delBackup.length > 0) {
     console.log(
-      `[restoreAppFromBackup] Removing ${conflictingIds.length} endpoint(s) with conflicting MCP name '${targetName}' before restore:`,
-      conflictingIds.map((id) => ({ idendpoint: id }))
+      `[restoreAppFromBackup] Removing ${delBackup.length} endpoint(s) with conflicting MCP name '${targetName}' before restore:`,
+      delBackup.map((ep) => ({ idendpoint: ep.idendpoint }))
     );
-    await Endpoint.destroy({ where: { idendpoint: conflictingIds } });
+    await Endpoint.destroy({ where: { idendpoint: delBackup.map((ep) => ep.idendpoint) } });
+  }
+
+  for (const ep of delOperador) {
+    const currentMcp = safeParseJson(ep.mcp) || {};
+    // Se quita el `name` y se desactiva: sin nombre ni esta funcion ni
+    // `ensureUniqueEnabledMcpName` vuelven a mirar el endpoint, asi que el conflicto
+    // no se repite en cada arranque.
+    const { name: _nameCedido, ...mcpResto } = currentMcp;
+    const mcpNuevo = { ...mcpResto, enabled: false };
+    await Endpoint.update({ mcp: mcpNuevo }, { where: { idendpoint: ep.idendpoint } });
+    // Se deja traza con resource y method y no solo el idendpoint: el mensaje tiene
+    // que decir DE QUIEN era el endpoint que ha cambiado, que es lo que el operador
+    // necesita para saber cual reponer.
+    console.log(
+      `[restoreAppFromBackup] MCP name '${targetName}' is taken by the backup: ` +
+      `endpoint '${ep.resource}' ${ep.method} ${ep.environment} of app '${appId}' ` +
+      `(${ep.idendpoint}) keeps its row but is no longer exposed as an MCP tool ` +
+      `(mcp.enabled=false and its mcp.name removed). Restore it with another mcp.name.`
+    );
   }
 }
 
@@ -1018,6 +1062,17 @@ export const restoreAppFromBackup = async (app) => {
           // viva en `cierreEscrituras` y no aqui es lo que lo hace global: con las apps
           // en paralelo, un limite en este bucle es un limite por app.
 
+          // Que idendpoint trae el backup. Lo necesita `resolverConflictoMcpNombre`
+          // para distinguir un endpoint del seed que cambio de ruta (se borra, el
+          // backup manda) de uno propio del operador que le copio el mcp.name (no se
+          // borra, se le desactiva el MCP). Se construye una vez y se lee por
+          // referencia en cada llamada.
+          const idendpointDelBackup = new Set(
+            app.endpoints
+              .map((ep) => ep?.idendpoint)
+              .filter((idendpoint) => typeof idendpoint === "string" && idendpoint.length > 0)
+          );
+
           const promesa_endpoint = async (ep) => {
             // Capturar el idendpoint original ANTES del upsert: upsertEndpoint
             // reescribe ep.idendpoint in-place cuando encuentra un endpoint
@@ -1106,11 +1161,12 @@ export const restoreAppFromBackup = async (app) => {
               }
             }
 
-            // Antes de restaurar el endpoint, eliminar endpoints antiguos que
-            // compartan el mismo nombre MCP en el mismo (idapp + environment).
-            // Esto permite que el backup reemplace una ruta obsoleta sin
-            // violar la restricción de unicidad de nombres MCP.
-            await removeConflictingMcpEndpoints(app.idapp, ep.environment, ep);
+            // Antes de restaurar el endpoint, resolver los que compartan su mismo
+            // nombre MCP en el mismo (idapp + environment). Esto permite que el
+            // backup reemplace una ruta obsoleta sin violar la unicidad de nombres
+            // MCP, y que un endpoint del operador que copio ese nombre conserve su
+            // fila en vez de desaparecer.
+            await resolverConflictoMcpNombre(app.idapp, ep.environment, ep, idendpointDelBackup);
 
             // Restaurar el endpoint. Si ya existe un endpoint con el mismo
             // (idapp + environment + resource + method), upsertEndpoint lo
