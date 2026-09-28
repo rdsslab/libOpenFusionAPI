@@ -665,6 +665,23 @@ const camposDeTransicion = (task, new_status, result, exec_ms, now) => {
       }
 
       break;
+    case TASK_STATUS.ABORTED:
+      // Detenida por orden del operador (`stop_interval_task_run`): la última ejecución
+      // se cortó en vuelo. No es un fallo de la tarea —el operador la detuvo, no el
+      // endpoint ni el timeout—, así que NO se incrementa `failed_attempts`, no hay
+      // backoff y no puede deshabilitar la tarea. El horario sigue anclado al
+      // planificado, igual que en un DONE.
+      data_update = {
+        last_response: result,
+        last_exec_time: exec_ms,
+        status: new_status,
+      };
+
+      if (task.next_run && new Date(task.next_run) <= now) {
+        data_update.next_run = computeNextRun(task, { from: now });
+      }
+
+      break;
     case TASK_STATUS.ERROR:
     case TASK_STATUS.TIMEOUT: {
       // Error o timeout: reintento con espera creciente en vez de morir al tercer fallo.

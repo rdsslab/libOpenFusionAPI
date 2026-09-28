@@ -32,6 +32,30 @@ const fetchOFAPI = new URLAutoEnvironment({ environment: "no_env" });
 const running = new Set();
 
 /**
+ * Controladores de aborto de las corridas en vuelo, por idtask.
+ *
+ * `running` solo sabe que una corrida está viva en este worker; esto además permite
+ * abortarla. El idtask es la clave porque el worker tiene una sola corrida por tarea
+ * en vuelo (`running` es un Set).
+ *
+ * La entrada existe únicamente mientras el fetch está pendiente: se registra justo
+ * antes de llamar y se borra en cuanto la llamada resuelve o rechaza. Si llega una
+ * orden de stop con la entrada ya borrada, la corrida no está en vuelo: terminó y está
+ * escribiendo su resultado, y abortarla no significaría nada.
+ *
+ * @type {Map<string, import("node:worker_threads").AbortController>}
+ */
+const runAbort = new Map();
+
+/**
+ * idtask de las corridas que se abortan POR ORDEN DEL OPERADOR
+ * (`stop_interval_task_run`). Distingue en el `catch` un aborto pedido de un timeout
+ * propio: un aborto del operador queda registrado como estado ABORTED y no se castiga
+ * con backoff, mientras que un timeout es TIMEOUT y sí.
+ */
+const abortedByOperator = new Set();
+
+/**
  * Verbos que el cliente saliente implementa. Deliberadamente explícita: listar lo que
  * este worker NO puede hacer es la información que evita que alguien configure una
  * tarea que va a fallar en cada corrida. `endpoint_upsert` admite HEAD y OPTIONS, así
@@ -100,6 +124,34 @@ parentPort.on("message", (data) => {
       case "wake":
         scheduleTick(0);
         break;
+
+      case "abortRun": {
+        // Stop selectivo de una corrida en vuelo (`stop_interval_task_run`). Solo puede
+        // abortar la que este worker tiene pendiente: `runAbort` guarda el controller
+        // mientras el fetch no resuelve. El ack es sincero: `stopped` dice si había una
+        // corrida que abortar, no si el operador la pidió.
+        const idtask = String(data_json.idtask ?? "");
+        const entry = runAbort.get(idtask);
+
+        if (!entry) {
+          parentPort.postMessage(
+            JSON.stringify({
+              action: "abortRunResult",
+              idtask,
+              stopped: false,
+              reason: "NOT_RUNNING",
+            }),
+          );
+          break;
+        }
+
+        abortedByOperator.add(idtask);
+        entry.abort();
+        parentPort.postMessage(
+          JSON.stringify({ action: "abortRunResult", idtask, stopped: true }),
+        );
+        break;
+      }
 
       case "shutdown":
         shutdown();
@@ -264,6 +316,11 @@ async function finishTask(task, outcome) {
 async function runFetchTask(task, runningState = {}) {
   const started_at = runningState.last_run || new Date();
   const start = performance.now();
+  const key = String(task.idtask);
+
+  // Cada corrida empieza limpia: un aborto del operador pertenece a este fetch y no
+  // puede arrastrarse a la siguiente ejecución de la misma tarea.
+  abortedByOperator.delete(key);
 
   emitTaskEvent({
     idtask: task.idtask,
@@ -331,11 +388,30 @@ async function runFetchTask(task, runningState = {}) {
       return;
     }
 
-    const resp_task = await uF[verb]({
-      data,
-      headers,
-      timeout,
-    });
+    // La corrida entra en vuelo: se registra el controller para que un stop selectivo
+    // (`abortRun`) pueda cortar este fetch. La entrada se borra en cuanto la llamada
+    // resuelve o rechaza —un stop que llegue después ya no tiene nada que abortar, la
+    // corrida está cerrando y no en vuelo—.
+    const controller = new AbortController();
+    runAbort.set(key, controller);
+
+    let resp_task;
+    try {
+      resp_task = await uF[verb]({
+        data,
+        headers,
+        timeout,
+        // uFetch solo reenvía `signal` como parte de `options` (la propiedad a nivel
+        // raíz de la llamada se descarta: `get/post/...` destructurean url/data/headers/
+        // options/body/timeout). Sin `options.signal`, un stop selectivo llamaba a
+        // `controller.abort()` pero el fetch pendiente nunca se enteraba: la corrida
+        // seguía hasta el `exec_time_limit` y se registraba TIMEOUT en vez de ABORTED —
+        // el ack del worker llegaba con `stopped: true` aun sin haber cortado nada.
+        options: { signal: controller.signal },
+      });
+    } finally {
+      runAbort.delete(key);
+    }
 
     const duration_ms = performance.now() - start;
 
@@ -378,22 +454,35 @@ async function runFetchTask(task, runningState = {}) {
       });
     }
   } catch (error) {
+    // Un aborto por stop selectivo llega como AbortError, igual que un timeout propio:
+    // hay que distinguir quién cortó antes de decidir el estado. El operador queda como
+    // ABORTED y sin castigo de backoff; el timeout como TIMEOUT con su reintento
+    // creciente. Lo distingue `abortedByOperator`, que solo marca el `abortRun` real.
+    const operatorAbort = abortedByOperator.has(key);
     const duration_ms = performance.now() - start;
     const timedOut = isTimeoutError(error);
 
-    if (!timedOut) console.error("Error:", error);
+    if (!timedOut && !operatorAbort) console.error("Error:", error);
 
     await finishTask(task, {
-      status: timedOut ? TASK_STATUS.TIMEOUT : TASK_STATUS.ERROR,
-      result: {
-        error: timedOut
-          ? `Execution exceeded exec_time_limit (${task.exec_time_limit}s)`
-          : error.message,
-      },
+      status: operatorAbort
+        ? TASK_STATUS.ABORTED
+        : timedOut
+          ? TASK_STATUS.TIMEOUT
+          : TASK_STATUS.ERROR,
+      result: operatorAbort
+        ? { error: "Stopped by operator" }
+        : timedOut
+          ? { error: `Execution exceeded exec_time_limit (${task.exec_time_limit}s)` }
+          : { error: error.message },
       duration_ms,
       started_at,
-      error: error.message,
+      error: operatorAbort ? "Stopped by operator" : error.message,
     });
+  } finally {
+    // El aborto del operador pertenece a esta corrida: se limpia siempre, corra bien o
+    // mal, para que la siguiente ejecución de la misma tarea empiece limpia.
+    abortedByOperator.delete(key);
   }
 }
 

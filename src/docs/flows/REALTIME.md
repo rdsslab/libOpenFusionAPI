@@ -69,7 +69,7 @@ flowchart TD
 | Event(s) | Producer | Payload highlights |
 |---|---|---|
 | `request_start`, `request_completed` | EndpointRequestFlowService | endpoint metadata, statusCode, responseTime |
-| `interval_task` | timer worker via TasksInterval | task id, status (RUNNING/DONE/ERROR/TIMEOUT), duration |
+| `interval_task` | timer worker via TasksInterval | task id, status (RUNNING/DONE/ERROR/TIMEOUT/ABORTED), duration |
 | `database_hook` | model hooks | model/table changed |
 | `cache_set`, `cache_released` | cache | app/resource/key |
 | `system_information` | SystemInfoTask | only when >1 WS client connected |

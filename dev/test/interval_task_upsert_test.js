@@ -17,8 +17,9 @@ import {
   INTERVAL_TASK_RUNTIME_ATTRIBUTES,
   updateIntervalTaskStatus,
 } from "../../src/lib/db/interval_task.js";
-import { Endpoint, IntervalTask } from "../../src/lib/db/models.js";
+import { Endpoint, IntervalTask, IntervalTaskRun } from "../../src/lib/db/models.js";
 import { defaultApps } from "../../src/lib/db/app.js";
+import { getIntervalTaskRuns } from "../../src/lib/db/interval_task_run.js";
 import { TASK_STATUS } from "../../src/lib/timer/schedule.js";
 import { closeDb } from "./close_db.js";
 
@@ -53,7 +54,7 @@ async function runTests() {
 
   try {
     // 1. INSERT
-    console.log("[STEP 1/9] Insert stores the payload and defaults to disabled...");
+    console.log("[STEP 1/12] Insert stores the payload and defaults to disabled...");
     const inserted = await upsertIntervalTask({
       idendpoint: endpointId,
       interval: 900,
@@ -76,7 +77,7 @@ async function runTests() {
     assert.strictEqual(Number(afterInsert.exec_time_limit), 120);
 
     // 2. UPDATE parcial
-    console.log("[STEP 2/9] Partial update keeps the fields that were not sent...");
+    console.log("[STEP 2/12] Partial update keeps the fields that were not sent...");
     await upsertIntervalTask({ idtask: created_idtask, enabled: true });
 
     const afterPartial = await getIntervalTaskById(created_idtask);
@@ -107,7 +108,7 @@ async function runTests() {
     );
 
     // 3. null explícito
-    console.log("[STEP 3/9] An explicit null clears the field...");
+    console.log("[STEP 3/12] An explicit null clears the field...");
     await upsertIntervalTask({ idtask: created_idtask, dateend: null, note: null });
 
     const afterNull = await getIntervalTaskById(created_idtask);
@@ -115,7 +116,7 @@ async function runTests() {
     assert.strictEqual(afterNull.note, null, "note should be cleared");
 
     // 4. La telemetría del scheduler no es configurable desde el upsert
-    console.log("[STEP 4/9] Scheduler telemetry sent in the payload is ignored...");
+    console.log("[STEP 4/12] Scheduler telemetry sent in the payload is ignored...");
     await IntervalTask.update(
       { failed_attempts: 4, status: 3 },
       { where: { idtask: created_idtask } }
@@ -146,7 +147,7 @@ async function runTests() {
     );
 
     // 5. Cambiar la programación recalcula la próxima ejecución
-    console.log("[STEP 5/9] Changing the schedule recomputes next_run...");
+    console.log("[STEP 5/12] Changing the schedule recomputes next_run...");
     const farFuture = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
     await IntervalTask.update(
       { next_run: farFuture },
@@ -162,7 +163,7 @@ async function runTests() {
     );
 
     // 6. La transición devuelve los mismos campos que persiste para publicarlos en vivo
-    console.log("[STEP 6/9] Runtime transition exposes the persisted live patch...");
+    console.log("[STEP 6/12] Runtime transition exposes the persisted live patch...");
     const runningTransition = await updateIntervalTaskStatus(
       created_idtask,
       TASK_STATUS.RUNNING
@@ -173,7 +174,7 @@ async function runTests() {
     assert.ok(runningTransition.runtime.next_run instanceof Date);
 
     // 7. La validación usa la fila fusionada, también en updates parciales
-    console.log("[STEP 7/9] Partial cron updates validate the merged schedule...");
+    console.log("[STEP 7/12] Partial cron updates validate the merged schedule...");
     await upsertIntervalTask({
       idtask: created_idtask,
       schedule_mode: "cron",
@@ -190,7 +191,7 @@ async function runTests() {
     );
 
     // 8. Un idtask inexistente no crea una fila con ese id
-    console.log("[STEP 8/9] An unknown idtask is rejected instead of inserted...");
+    console.log("[STEP 8/12] An unknown idtask is rejected instead of inserted...");
     const GHOST_IDTASK = 987654322;
     await assert.rejects(
       () => upsertIntervalTask({ idtask: GHOST_IDTASK, idendpoint: endpointId }),
@@ -202,7 +203,7 @@ async function runTests() {
     assert.strictEqual(ghost, null, "No row should have been created with that id");
 
     // 9. Una segunda pasada de seed no debe pisar ni duplicar una tarea
-    console.log("[STEP 9/9] A second seed pass does not clobber an existing task...");
+    console.log("[STEP 9/12] A second seed pass does not clobber an existing task...");
     // defaultApps() corre en CADA arranque, no solo con BUILD_DB. El seed declara los
     // `idtask` del sistema con UUIDs fijos, así que cada pasada encuentra las mismas
     // tareas por su id y las actualiza en su sitio: no hay ids que reasignar y no hay
@@ -249,7 +250,7 @@ async function runTests() {
     // un INSERT. Por eso esto se comprueba con `upsert` saboteado y no con la
     // base de datos: si el alta volviera a pasar por `upsert`, esta prueba falla
     // en los tres motores, no solo en el que sufria el crash.
-    console.log("[STEP 10/10] A new task is created without going through upsert...");
+    console.log("[STEP 10/12] A new task is created without going through upsert...");
     const upsertReal = IntervalTask.upsert;
     const createReal = IntervalTask.create;
     let upsertTocado = false;
@@ -277,6 +278,85 @@ async function runTests() {
     assert.strictEqual(alta.previous, null, "un alta no tiene una version previa");
     assert.ok(alta.result?.idtask, "el alta debe traer el id que asigno la base");
     created_idtask = alta.result.idtask;
+
+    // 11. Un aborto del operador (stop_interval_task_run) transiciona a ABORTED sin
+    //     castigo: no toca `failed_attempts`, no dispara backoff y no deshabilita.
+    //     Es la semantica que el worker pide al cerrar una corrida cortada por stop,
+    //     distinta de un timeout (TIMEOUT, si castiga) y de un error (ERROR, si castiga).
+    console.log("[STEP 11/12] An operator abort transitions to ABORTED without penalties...");
+
+    // Estado de partida: en ejecucion, con 3 fallos acumulados de una serie previa. El
+    // aborto ni los incrementa (no es un fallo) ni los resetea (eso corresponde a
+    // reset_interval_task_attempts).
+    const beforeAbort = await getIntervalTaskById(created_idtask);
+    await IntervalTask.update(
+      { status: TASK_STATUS.RUNNING, failed_attempts: 3 },
+      { where: { idtask: created_idtask } }
+    );
+
+    const abortedTransition = await updateIntervalTaskStatus(
+      created_idtask,
+      TASK_STATUS.ABORTED,
+      { error: "Stopped by operator" },
+      1234
+    );
+    assert.strictEqual(abortedTransition.success, true);
+    assert.strictEqual(abortedTransition.runtime.status, TASK_STATUS.ABORTED);
+    assert.strictEqual(
+      Number(abortedTransition.runtime.last_exec_time),
+      1234,
+      "the persisted transition should expose the run duration"
+    );
+
+    const afterAbort = await getIntervalTaskById(created_idtask);
+    assert.strictEqual(
+      afterAbort.status,
+      TASK_STATUS.ABORTED,
+      "status must become ABORTED (5)"
+    );
+    assert.strictEqual(
+      Number(afterAbort.failed_attempts),
+      3,
+      "an operator abort must not count as a failure"
+    );
+    assert.strictEqual(
+      afterAbort.enabled,
+      beforeAbort.enabled,
+      "an operator abort must not disable the task"
+    );
+
+    // 12. El historial permite filtrar por corridas abortadas (status 5).
+    console.log("[STEP 12/12] Run history filters aborted runs by status 5...");
+    const tareaId = created_idtask;
+    await IntervalTaskRun.create({
+      idtask: tareaId,
+      started_at: new Date(Date.now() - 5000),
+      finished_at: new Date(),
+      duration_ms: 1234,
+      status: TASK_STATUS.ABORTED,
+      error: "Stopped by operator",
+    });
+    await IntervalTaskRun.create({
+      idtask: tareaId,
+      started_at: new Date(Date.now() - 9000),
+      finished_at: new Date(),
+      duration_ms: 45,
+      status: TASK_STATUS.DONE,
+      http_status: 200,
+    });
+
+    const abortedRuns = await getIntervalTaskRuns(tareaId, {
+      status: TASK_STATUS.ABORTED,
+      include_response: true,
+    });
+    assert.ok(
+      abortedRuns.every((run) => run.status === TASK_STATUS.ABORTED),
+      "filtering by status 5 must return only aborted runs"
+    );
+    assert.ok(
+      abortedRuns.some((run) => run.error === "Stopped by operator"),
+      "the aborted run must carry its reason"
+    );
 
     console.log("--- All Interval Task Upsert Tests Passed Successfully! ---");
   } finally {

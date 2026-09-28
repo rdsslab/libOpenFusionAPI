@@ -42,7 +42,7 @@ flowchart TD
     TOKEN --> T1{"token resolved<br/>or access <= 0?"}
     T1 -- "no" --> ET["finish ERROR 'Missing credentials (idkey)'"]
     T1 -- "yes" --> OPT["buildRequestOptions → {data, headers}<br/>timeout = exec_time_limit * 1000 (default 30 s)"]
-    OPT --> CALL["uF.method({ data, headers, timeout })<br/>Bearer token if app/system"]
+    OPT --> CALL["controller = new AbortController()<br/>runAbort.set(idtask, controller)<br/>uF.method({ data, headers, timeout, signal })<br/>Bearer token if app/system"]
 
     CALL --> OK{"HTTP 200?"}
     OK -- "yes" --> BODY{"Content-Type json?"}
@@ -59,7 +59,9 @@ flowchart TD
     DROP --> EC["finish ERROR + http_status N"]
 
     CALL -- "throws" --> TO{"TimeoutError / AbortError?"}
-    TO -- "yes" --> FT["finish TIMEOUT<br/>'Executed exceeded exec_time_limit'"]
+    TO -- "yes" --> OP{"aborted by operator<br/>(stop_interval_task_run)?"}
+    OP -- "yes" --> FA["finish ABORTED<br/>'Stopped by operator'"]
+    OP -- "no" --> FT["finish TIMEOUT<br/>'Executed exceeded exec_time_limit'"]
     TO -- "no" --> FX["finish ERROR (message)"]
 
     FD --> FIN
@@ -67,6 +69,7 @@ flowchart TD
     EC --> FIN
     FT --> FIN
     FX --> FIN
+    FA --> FIN
     EF --> FIN
     ET --> FIN
     FIN["finishTask: updateIntervalTaskStatus<br/>history row + prune (history_limit)<br/>emit interval_task event → WS clients"]

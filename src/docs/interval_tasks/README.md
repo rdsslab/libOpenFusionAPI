@@ -21,6 +21,7 @@ logic lives in the endpoint, which stays callable by hand exactly as before.
 | `/interval_tasks/skill` | GET | `get_interval_task_skill` |
 | `/interval_tasks/upsert` | POST | `upsert_interval_task` |
 | `/interval_tasks/run_now` | POST | `run_interval_task_now` |
+| `/interval_tasks/stop` | POST | `stop_interval_task_run` |
 | `/interval_tasks/reset_attempts` | POST | `reset_interval_task_attempts` |
 | `/interval_tasks/delete` | DELETE | `delete_interval_task` |
 
@@ -55,3 +56,10 @@ logic lives in the endpoint, which stays callable by hand exactly as before.
   not drift to every 32 minutes precisely when the system it watches is down), and
   `max_failed_attempts: 0` means never auto-disable — the task keeps running and keeps logging
   however many failures accumulate.
+- **A run in flight can be cut on demand.** `stop_interval_task_run` reaches into the scheduler and
+  aborts the real HTTP call it is making, recording the run as `5` (aborted). It is the only thing
+  that touches an execution already started: disabling the task only prevents future ones. The cut
+  goes through an `AbortController` the worker registers per in-flight run (`src/lib/timer/worker.js`)
+  and reaches the worker through `TasksInterval.abortRun`, which waits for the worker's ack so the
+  API never promises an abort that was not confirmed. An aborted run is deliberately not a failure:
+  no `failed_attempts`, no backoff, no auto-disable, schedule unchanged.

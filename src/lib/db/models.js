@@ -1754,7 +1754,8 @@ export const IntervalTask = dbsequelize.define(
       type: DataTypes.SMALLINT,
       allowNull: false,
       defaultValue: 0,
-      comment: "Status of the task: 0 waiting, 1 running, 2 ok, 3 error, 4 timeout",
+      comment:
+        "Status of the task: 0 waiting, 1 running, 2 ok, 3 error, 4 timeout, 5 aborted (stopped by operator)",
     },
     allow_concurrent: {
       type: DataTypes.BOOLEAN,
@@ -1891,7 +1892,7 @@ export const IntervalTaskRun = dbsequelize.define(
     status: {
       type: DataTypes.SMALLINT,
       allowNull: false,
-      comment: "2 completado, 3 error, 4 timeout",
+      comment: "2 completado, 3 error, 4 timeout, 5 abortada por el operador",
     },
     http_status: {
       type: DataTypes.SMALLINT,

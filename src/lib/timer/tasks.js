@@ -21,6 +21,10 @@ export function safeStringify(obj, space = 2) {
     space
   );
 }
+
+/** Cuánto espera `abortRun` el ack del worker antes de rendirse. */
+const ABORT_ACK_TIMEOUT_MS = 2500;
+
 export class TasksInterval {
   constructor({
     WorkerClass = Worker,
@@ -43,6 +47,40 @@ export class TasksInterval {
      * @type {(payload: any) => void}
      */
     this.onIntervalTaskEvent = null;
+
+    /**
+     * Promesas de `abortRun` a la espera del ack del worker.
+     * @type {Map<string, {resolve: Function, timer: NodeJS.Timeout}>}
+     */
+    this.pendingAborts = new Map();
+  }
+
+  /**
+   * Pide al worker que aborte la corrida en vuelo de una tarea.
+   *
+   * Resuelve con `{stopped, reason}`: el worker solo dice `stopped: true` cuando tenía
+   * una corrida pendiente que abortar de verdad. El ack se espera con tope para que una
+   * llamada no cuelgue si el worker está cerrando: pasado el tope se responde
+   * `NO_ACK`, que es un falso conservador (no se promete un aborto que no se confirmó).
+   *
+   * @param {string} idtask
+   * @returns {Promise<{stopped: boolean, reason?: string}>}
+   */
+  abortRun(idtask) {
+    const key = String(idtask);
+    if (!this.worker) {
+      return Promise.resolve({ stopped: false, reason: "WORKER_UNAVAILABLE" });
+    }
+
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.pendingAborts.delete(key);
+        resolve({ stopped: false, reason: "NO_ACK" });
+      }, ABORT_ACK_TIMEOUT_MS);
+
+      this.pendingAborts.set(key, { resolve, timer });
+      this.worker.postMessage(safeStringify({ action: "abortRun", idtask: key }));
+    });
   }
 
   pushLog(log) {
@@ -86,6 +124,19 @@ export class TasksInterval {
           return;
         }
 
+        if (data?.action === "abortRunResult") {
+          const pending = this.pendingAborts.get(String(data.idtask));
+          if (pending) {
+            clearTimeout(pending.timer);
+            this.pendingAborts.delete(String(data.idtask));
+            pending.resolve({
+              stopped: data.stopped === true,
+              reason: data.reason || null,
+            });
+          }
+          return;
+        }
+
         console.log("Mensaje recibido del worker:", msg);
       } catch (error) {
         console.log("Mensaje recibido del worker:", msg);
@@ -102,6 +153,10 @@ export class TasksInterval {
     worker.on("exit", (code) => {
       if (this.worker !== worker) return;
       this.worker = null;
+
+      // Un worker caído no va a confirmar abortos pendientes: se resuelven con falso
+      // conservador en vez de dejar colgada la llamada hasta el timeout.
+      this._flushPendingAborts("WORKER_UNAVAILABLE");
 
       if (this.stopping) return;
 
@@ -137,5 +192,19 @@ export class TasksInterval {
     await exited;
     clearTimeout(forceTimer);
     if (this.worker === worker) this.worker = null;
+  }
+
+  /**
+   * Resuelve todos los `abortRun` pendientes con un falso conservador. Se llama cuando
+   * el worker se cae o se apaga, porque entonces no hay quien emita el ack.
+   * @private
+   * @param {string} reason
+   */
+  _flushPendingAborts(reason) {
+    for (const [key, pending] of this.pendingAborts) {
+      clearTimeout(pending.timer);
+      pending.resolve({ stopped: false, reason });
+    }
+    this.pendingAborts.clear();
   }
 }

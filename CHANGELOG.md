@@ -20,6 +20,26 @@ proyecto, ver [MIGRATION.md](./MIGRATION.md).
 
 ## [13.11.31] - 2026-09-27
 
+### Added
+
+- **`stop_interval_task_run`: detener una corrida de interval task ya lanzada.**
+  Antes no había forma de cortar una ejecución en vuelo: `exec_time_limit` (timeout) era el único
+  backstop y deshabilitar la tarea solo evitaba corridas futuras. Ahora el worker registra un
+  `AbortController` por corrida en vuelo y la nueva herramienta (POST `/interval_tasks/stop`,
+  tool `stop_interval_task_run`) pide cortar el fetch real, con ack del worker para no prometer un
+  aborto que no se confirmó. La corrida queda registrada como **estado 5 (aborted)** tanto en la
+  tarea como en `ofapi_intervaltask_run`, y el filtro de historial lo acepta. Un aborto NO cuenta
+  como fallo: no toca `failed_attempts`, no dispara backoff y no puede auto-deshabilitar; el
+  horario se mantiene. Si la corrida ya terminó, responde `stopped: false` con
+  `reason: "NOT_RUNNING"`.
+
+  **Para el operador:** nada que migrar: el worker (`src/lib/timer/worker.js`), el supervisor
+  (`src/lib/timer/tasks.js`) y el seed del endpoint van con el despliegue normal.
+
+  **Para agentes y clientes:** nueva herramienta de escritura con contrato `{stopped, reason,
+  message}`; 400 si falta `idtask`, 404 si no existe o no es UUID. Detalle en
+  `src/docs/interval_tasks/AI_SKILL.md`.
+
 ### Changed
 
 - **La versión del proyecto dejó de vivir en dos ficheros: `src/lib/server/version.js`
@@ -34,6 +54,19 @@ proyecto, ver [MIGRATION.md](./MIGRATION.md).
 
   **Para el operador:** nada que hacer en el despliegue. Quien consuma la versión sigue
   leyéndola del mismo endpoint; solo cambia el origen interno del número.
+
+### Fixed
+
+- **Los handlers FUNCTION no podían llegar al worker: el wake de `run_interval_task_now`
+  (y `reset_interval_task_attempts` y `delete_interval_task`) era un no-op silencioso.**
+  `reply.openfusionapi.server` solo se adjuntaba cuando `handler == "JS"`, así que
+  cualquier handler FUNCTION del app `system` (incluido el nuevo `stop_interval_task_run`)
+  veía `TasksInterval === undefined` y la orden se descartaba sin error: `run_now` seguía
+  funcionando pero la corrida solo arrancaba en el siguiente ciclo (hasta 60 s después),
+  y el stop habría respondido `WORKER_UNAVAILABLE`. Ahora `serverApi` se expone a todos
+  los handlers y la orden llega al worker de inmediato.
+
+  **Para el operador:** nada que migrar; es un cambio de flujo que va con el despliegue.
 
 ## [13.11.30] - 2026-09-27
 

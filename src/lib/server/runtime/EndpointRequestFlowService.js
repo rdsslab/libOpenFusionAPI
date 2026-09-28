@@ -147,9 +147,14 @@ export class EndpointRequestFlowService {
         reply.openfusionapi = {};
       }
 
-      if (handlerEndpoint.params.handler == "JS") {
-        reply.openfusionapi.server = this.serverApi;
-      }
+      // `serverApi` se expone a CUALQUIER handler, no solo a los JS. Los handlers
+      // FUNCTION del app system (interval_tasks, user, ...) lo usan directamente vía
+      // `params.reply.openfusionapi.server` para hablar con el worker (`TasksInterval`):
+      // si solo se adjuntara para JS, la orden de `TasksInterval.wake()` de
+      // `run_interval_task_now` llegaría a `undefined` y el worker no se despertaría
+      // (lo que sí pasaba en silencio: la petición respondía 200 y la tarea solo corría
+      // al siguiente ciclo de 60 s del scheduler).
+      reply.openfusionapi.server = this.serverApi;
 
       let server_data = {};
 

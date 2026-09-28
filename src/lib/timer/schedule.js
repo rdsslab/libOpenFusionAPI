@@ -21,6 +21,7 @@ export const TASK_STATUS = {
   DONE: 2,
   ERROR: 3,
   TIMEOUT: 4,
+  ABORTED: 5,
 };
 
 /** Tope del backoff exponencial: no esperar más de una hora entre reintentos. */

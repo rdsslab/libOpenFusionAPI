@@ -63,6 +63,8 @@ becomes the request body. Always include `data` when sending `headers`.
 - **Last result — OK**: the last run completed successfully.
 - **Last result — Error**: the endpoint or authentication failed.
 - **Last result — Timeout**: execution exceeded the configured limit.
+- **Last result — Aborted**: an operator stopped the execution while it was in flight. Unlike Error
+  or Timeout it is not counted as a failure.
 
 The task list uses **Waiting/Running** for what is happening now. Open the task or its History to
 see the result of the previous execution; a task can correctly be **Waiting** with **Last result: OK**.
@@ -86,6 +88,15 @@ the run is recorded as a 504 from the endpoint rather than as a task timeout —
 never gets to be the safety net it looks like. Keep the task's execution time limit above the
 endpoint's timeout.
 
+## Stopping a run that is executing
+
+A task that is **Running** can be stopped right now: **Stop run** asks the scheduler to cut the HTTP
+call it is making and records the run as **Aborted**. It only works while the call is actually in
+flight — if the run already finished there is nothing left to abort. An aborted run does not count as
+a failure, so it does not feed the auto-disable, and it does not change the schedule: the next planned
+run still happens. What the endpoint already did before the cutoff stays done. To stop **future** runs
+instead, turn off **Enabled**; do not rely on it to cut the one already executing.
+
 ## Cron examples
 
 | Requirement | Expression |
@@ -104,6 +115,7 @@ Use Interval rather than cron when the requirement is an elapsed cadence such as
 - If history is empty, the task has not run or History limit is `0`.
 - If the task disabled itself, inspect History, fix the cause and then reset attempts.
 - To pause without losing configuration, turn off Enabled. Delete only when the schedule is no longer needed.
+- To cut a run that is executing right now, use **Stop run** instead of disabling the task.
 
 For API and MCP details, see [AI_SKILL.md](AI_SKILL.md). For runtime architecture and source locations,
 see [README.md](README.md).

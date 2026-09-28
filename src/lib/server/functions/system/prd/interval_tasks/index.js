@@ -4,6 +4,8 @@ import {
   deleteIntervalTask,
   runNowIntervalTask,
   resetIntervalTaskAttempts,
+  getIntervalTaskById,
+  esUUIDTask,
 } from "../../../../../db/interval_task.js";
 import { getIntervalTaskRuns } from "../../../../../db/interval_task_run.js";
 import { getEndpointById } from "../../../../../db/endpoint.js";
@@ -258,6 +260,63 @@ export async function fnResetIntervalTaskAttempts(params) {
     r.data = result;
     r.code = result.success ? 200 : 400;
     if (result.success) wakeIntervalTaskWorker(params);
+  } catch (error) {
+    r.data = error;
+    r.code = 500;
+  }
+  return r;
+}
+
+export async function fnStopIntervalTaskRun(params) {
+  let r = { code: 200, data: undefined };
+  try {
+    const body = params.request.body || {};
+    const idtask = body.idtask;
+
+    if (idtask === undefined || idtask === null) {
+      r.data = { error: "idtask is required", code: "MISSING_IDTASK" };
+      r.code = 400;
+      return r;
+    }
+
+    // El `idtask` de una tarea es un string UUID. Consultar la columna uuid con un
+    // entero heredado de antes de la migración lanza 22P02 en PostgreSQL y tumbaría la
+    // llamada entera, así que un id no-UUID se responde igual que uno inexistente.
+    if (!esUUIDTask(idtask)) {
+      r.data = {
+        error: `No existe la tarea ${idtask}`,
+        code: "INTERVAL_TASK_NOT_FOUND",
+      };
+      r.code = 404;
+      return r;
+    }
+
+    const task = await getIntervalTaskById(idtask);
+    if (!task) {
+      r.data = {
+        error: `No existe la tarea ${idtask}`,
+        code: "INTERVAL_TASK_NOT_FOUND",
+      };
+      r.code = 404;
+      return r;
+    }
+
+    // La orden va al worker a través del supervisor de tareas (`TasksInterval`), que es
+    // quien habla con el hilo que ejecuta los fetch. El resultado tiene que ser
+    // conservador: si no llega ack, no se promete un aborto que no se confirmó.
+    const tasksInterval = params?.reply?.openfusionapi?.server?.TasksInterval;
+    const outcome = tasksInterval?.abortRun
+      ? await tasksInterval.abortRun(idtask)
+      : { stopped: false, reason: "WORKER_UNAVAILABLE" };
+
+    r.data = {
+      stopped: outcome.stopped === true,
+      reason: outcome.reason || null,
+      message: outcome.stopped
+        ? "La ejecución en vuelo fue detenida."
+        : "La tarea no tiene una ejecución en vuelo que detener.",
+    };
+    r.code = 200;
   } catch (error) {
     r.data = error;
     r.code = 500;

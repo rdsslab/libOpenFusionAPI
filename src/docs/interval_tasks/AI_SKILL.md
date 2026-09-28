@@ -37,6 +37,7 @@ endpoint workflow rather than the scheduler.
 | `upsert_interval_task` | write | Create a task or change an existing one. |
 | `run_interval_task_now` | write | Set an **enabled** task due and wake the scheduler immediately. It answers 400 when the task does not exist or when it is already running with `allow_concurrent: false`, and 409 `TASK_DISABLED` when the task is off. |
 | `reset_interval_task_attempts` | write | Clear the failure counter and re-enable a task the backoff disabled. |
+| `stop_interval_task_run` | write | Abort the execution of a task that is currently in flight: the scheduler cuts the in-flight HTTP call and records the run as `5` (aborted). Answers `stopped: false` with `reason: "NOT_RUNNING"` when there is no run left to abort. Does **not** touch `failed_attempts`, backoff or future runs — use `upsert_interval_task` with `enabled: false` to stop those instead. |
 | `delete_interval_task` | write | Remove the schedule permanently. The endpoint is not touched. |
 
 There is no "list all tasks of the server" tool: tasks are always listed per application.
@@ -88,9 +89,11 @@ Telemetry the scheduler owns — read it, never write it:
 
 `status`, `failed_attempts`, `last_run`, `next_run`, `last_exec_time`, `last_response`.
 
-`status`: `0` waiting · `1` running · `2` completed · `3` error · `4` timeout. Values `2`–`4`
-are terminal results of the previous run; they do not mean the task is still executing. Operationally,
-only `1` is running, while any other enabled task with a future `next_run` is waiting.
+`status`: `0` waiting · `1` running · `2` completed · `3` error · `4` timeout · `5` aborted. Values
+`2`–`5` are terminal results of the previous run; they do not mean the task is still executing.
+Operationally, only `1` is running, while any other enabled task with a future `next_run` is waiting.
+`5` means an operator cut the execution in flight with `stop_interval_task_run`; unlike `3` and `4`
+it does not count as a failure.
 
 > In the response of `list_interval_tasks` the task's own `enabled` flag is returned as
 > **`task_enabled`**, because `enabled` there belongs to the endpoint and to the application.
@@ -158,6 +161,13 @@ fine: the headers are applied and no payload is sent.
 - Outside the execution window the task is rescheduled to the next window opening, not retried.
 - A run that exceeds `exec_time_limit` is aborted and recorded with status `4` (timeout). A task
   left as `running` by a dead process is released once that limit plus a grace period passes.
+- An operator can also cut the run **in flight** on demand with `stop_interval_task_run`. That asks
+  the scheduler to abort the real HTTP call it is currently making and records the run as `5`
+  (aborted). It only reaches the run the scheduler has in flight for that task right now: a stop
+  that arrives after the call already finished answers `stopped: false`. Unlike a failure or a
+  timeout, an aborted run does **not** increment `failed_attempts`, does not apply backoff and cannot
+  auto-disable the task; the schedule is unchanged, so the next planned run still happens. Disabling
+  the task (`enabled: false`) prevents future runs but never cuts one already executing.
 - There are **two** clocks, and they live on different objects. `exec_time_limit` belongs to the
   task and is what the worker and the reaper enforce. The endpoint's `timeout` belongs to the
   endpoint and is enforced inside it. If the endpoint's timeout is the smaller one, the endpoint
@@ -221,9 +231,20 @@ larger than the endpoint `timeout` so the task's timeout stays reachable as a ba
 **"`get_interval_task_runs` returns an empty list."**
 `history_limit` is `0`, or the task has never run.
 
+**"I want to stop the run that is executing right now."**
+Use `stop_interval_task_run` with `{idtask}`. It cuts the in-flight HTTP call and the run is
+recorded as `5` (aborted). Check the answer: `stopped: true` means a run was actually in flight;
+with `reason: "NOT_RUNNING"` the run had already finished and there was nothing to abort — read
+`get_interval_task_runs` to see what it did. An aborted run is not counted as a failure, so nothing
+to reset afterwards. It cannot undo what the endpoint already did before the cutoff; if the endpoint
+carried side effects, handle them outside the scheduler.
+
 **"I want to stop it temporarily."**
 `upsert_interval_task` with `{idtask, enabled: false}`. Do not delete it — `delete_interval_task`
-loses the whole configuration.
+loses the whole configuration. Note this only prevents **future** runs: the scheduler wakes up fast,
+but an execution that is already in flight when you disable the task keeps going until it finishes
+or reaches `exec_time_limit`. If you need to also cut that one, call `stop_interval_task_run`
+first, then disable.
 
 ---
 

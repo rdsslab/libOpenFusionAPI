@@ -113,7 +113,7 @@ export const getIntervalTaskRuns = async (idtask, options = {}) => {
   const where = { idtask };
   if (options.status !== undefined && options.status !== null) {
     const status = Number(options.status);
-    if (Number.isInteger(status) && [2, 3, 4].includes(status)) {
+    if (Number.isInteger(status) && [2, 3, 4, 5].includes(status)) {
       where.status = status;
     }
   }

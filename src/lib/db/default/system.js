@@ -1877,6 +1877,9 @@ export const system_app = {
                   "interval_tasks_reset_attempts": {
                     "type": "string"
                   },
+                  "interval_tasks_stop": {
+                    "type": "string"
+                  },
                   "interval_task_skill": {
                     "type": "string"
                   },
@@ -1919,6 +1922,7 @@ export const system_app = {
                 "interval_tasks_upsert": "/interval_tasks/upsert",
                 "interval_tasks_run_now": "/interval_tasks/run_now",
                 "interval_tasks_reset_attempts": "/interval_tasks/reset_attempts",
+                "interval_tasks_stop": "/interval_tasks/stop",
                 "interval_tasks_delete": "/interval_tasks/delete"
               }
             }
@@ -1941,7 +1945,7 @@ export const system_app = {
       "price_kb_request": 0,
       "price_kb_response": 0,
       "keywords": "onboarding,guide,agent,AI,best practices",
-      "code": "const trace_id = request?.headers?.['ofapi-trace-id'] || '';\n$_RETURN_DATA_ = {\n  summary: \`1. Always inspect each tool description and input schema first; treat the system catalog as source of truth. 2. Every resource belongs to an application: start with apps_list to resolve the target idapp before creating endpoints, application variables or bots. 3. For endpoint creation/updates, choose handler first and match payload shape to that handler. 4. Read current endpoint data before updates and patch incrementally. 5. Validate JSON Schema with validate_json_schema_for_mcp before publishing. 6. Use trace_id in logs to follow one execution path end to end. 6b. Admin and security workflows: use audit_log_search (and audit_log_stats) to see who did what — every user action through these tools is recorded in the audit trail (ofapi_audit_log); correlate rows with get_system_logs via trace_id. 7. OpenFusionAPI supports recurring interval tasks: a task schedules an EXISTING endpoint to run unattended and holds no code of its own, so it is never created with endpoint_upsert. If the user asks to schedule an endpoint or to diagnose a task that is not running, call get_interval_task_skill FIRST; then inspect with list_interval_tasks and get_interval_task_runs (read-only) and, only with explicit user authorization, write with upsert_interval_task, run_interval_task_now, reset_interval_task_attempts or delete_interval_task. 8. OpenFusionAPI also runs long-lived messaging bots (Telegram today). Bots are NOT endpoints: they live in their own ofapi_bot table and are managed with list_bots, upsert_bot, enable_disable_bot and delete_bot. If the user asks for a bot, call get_bot_skill FIRST and then get_bot_provider_skill; never try to build a bot with endpoint_upsert. 9. CORS is enforced per endpoint: a browser request only reads an endpoint's response if its Origin matches the endpoint's 'cors' allowlist. To let a known frontend call an endpoint cross-origin, set cors: [\"https://app.example.com\"] or an object {\"origin\": [...], \"credentials\": true} when creating it with endpoint_upsert; omitting cors keeps the deployment-wide default policy. Origins outside the allowlist are denied and no Access-Control-Allow-Origin header is emitted. 10. OpenFusionAPI throttles repeated failed authentication attempts: after several 401 responses from the same source, the IP (and IP+username pair) enters a lockout with exponential backoff and the API answers 429 with Retry-After until it cools down, logging {type:'possible_attack'} entries at log level 3 in ofapi_log. A 429 means the caller (or the IP behind it) hit that limit: wait for Retry-After instead of retrying or changing credentials blindly, and check ofapi_log for 'possible_attack' entries to distinguish a brute-force attack from a misconfigured client.\`,\n  links: {\n    handler_documentation: '/api/handler/documentation',\n    handler_skill: '/api/handler/skill',\n    endpoint_upsert: '/api/endpoint',\n    endpoint_migrate: '/api/endpoints/migrate',\n    appvar_migrate: '/api/appvars/migrate',\n    audit_log_search: '/api/system/audit/log',\n    get_system_logs: '/api/system/logs',\n    apps_list: '/api/system/api/apps-list',\n    bot_skill: '/bots/skill',\n    interval_task_skill: '/interval_tasks/skill',\n    interval_tasks_byidapp: '/interval_tasks/byidapp',\n    interval_tasks_runs: '/interval_tasks/runs',\n    interval_tasks_upsert: '/interval_tasks/upsert',\n    interval_tasks_run_now: '/interval_tasks/run_now',\n    interval_tasks_reset_attempts: '/interval_tasks/reset_attempts',\n    interval_tasks_delete: '/interval_tasks/delete'\n  },\n  trace_id\n};",
+      "code": "const trace_id = request?.headers?.['ofapi-trace-id'] || '';\n$_RETURN_DATA_ = {\n  summary: \`1. Always inspect each tool description and input schema first; treat the system catalog as source of truth. 2. Every resource belongs to an application: start with apps_list to resolve the target idapp before creating endpoints, application variables or bots. 3. For endpoint creation/updates, choose handler first and match payload shape to that handler. 4. Read current endpoint data before updates and patch incrementally. 5. Validate JSON Schema with validate_json_schema_for_mcp before publishing. 6. Use trace_id in logs to follow one execution path end to end. 6b. Admin and security workflows: use audit_log_search (and audit_log_stats) to see who did what — every user action through these tools is recorded in the audit trail (ofapi_audit_log); correlate rows with get_system_logs via trace_id. 7. OpenFusionAPI supports recurring interval tasks: a task schedules an EXISTING endpoint to run unattended and holds no code of its own, so it is never created with endpoint_upsert. If the user asks to schedule an endpoint or to diagnose a task that is not running, call get_interval_task_skill FIRST; then inspect with list_interval_tasks and get_interval_task_runs (read-only) and, only with explicit user authorization, write with upsert_interval_task, run_interval_task_now, reset_interval_task_attempts, stop_interval_task_run or delete_interval_task. 8. OpenFusionAPI also runs long-lived messaging bots (Telegram today). Bots are NOT endpoints: they live in their own ofapi_bot table and are managed with list_bots, upsert_bot, enable_disable_bot and delete_bot. If the user asks for a bot, call get_bot_skill FIRST and then get_bot_provider_skill; never try to build a bot with endpoint_upsert. 9. CORS is enforced per endpoint: a browser request only reads an endpoint's response if its Origin matches the endpoint's 'cors' allowlist. To let a known frontend call an endpoint cross-origin, set cors: [\"https://app.example.com\"] or an object {\"origin\": [...], \"credentials\": true} when creating it with endpoint_upsert; omitting cors keeps the deployment-wide default policy. Origins outside the allowlist are denied and no Access-Control-Allow-Origin header is emitted. 10. OpenFusionAPI throttles repeated failed authentication attempts: after several 401 responses from the same source, the IP (and IP+username pair) enters a lockout with exponential backoff and the API answers 429 with Retry-After until it cools down, logging {type:'possible_attack'} entries at log level 3 in ofapi_log. A 429 means the caller (or the IP behind it) hit that limit: wait for Retry-After instead of retrying or changing credentials blindly, and check ofapi_log for 'possible_attack' entries to distinguish a brute-force attack from a misconfigured client.\`,\n  links: {\n    handler_documentation: '/api/handler/documentation',\n    handler_skill: '/api/handler/skill',\n    endpoint_upsert: '/api/endpoint',\n    endpoint_migrate: '/api/endpoints/migrate',\n    appvar_migrate: '/api/appvars/migrate',\n    audit_log_search: '/api/system/audit/log',\n    get_system_logs: '/api/system/logs',\n    apps_list: '/api/system/api/apps-list',\n    bot_skill: '/bots/skill',\n    interval_task_skill: '/interval_tasks/skill',\n    interval_tasks_byidapp: '/interval_tasks/byidapp',\n    interval_tasks_runs: '/interval_tasks/runs',\n    interval_tasks_upsert: '/interval_tasks/upsert',\n    interval_tasks_run_now: '/interval_tasks/run_now',\n    interval_tasks_reset_attempts: '/interval_tasks/reset_attempts',\n    interval_tasks_stop: '/interval_tasks/stop',\n    interval_tasks_delete: '/interval_tasks/delete'\n  },\n  trace_id\n};",
       "cache_time": 3600,
       "createdAt": "2026-05-19T00:00:00.000Z",
       "updatedAt": "2026-05-19T00:00:00.000Z"
@@ -14292,6 +14296,112 @@ export const system_app = {
       "price_kb_response": 1,
       "keywords": "interval_tasks,reset,attempts,system,prd",
       "code": "fnResetIntervalTaskAttempts",
+      "cache_time": 0,
+      "createdAt": "2026-08-12T12:00:00.000Z",
+      "updatedAt": "2026-08-12T12:00:00.000Z"
+    },
+    {
+      "ctrl": {},
+      "cors": {},
+      "mcp": {
+        "enabled": true,
+        "name": "stop_interval_task_run",
+        "title": "Stop Interval Task Run",
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nAborts the execution of an interval task that is currently in flight, if any. The scheduler runs each task as a real HTTP call to the endpoint; this tool asks the scheduler to cut that call and records the run as ABORTED (status 5) both on the task and in its run history. It is the only way to stop a run once it has started: disabling the task only prevents future runs, it does not touch the execution already in flight.\nIt does NOT count as a failure: `failed_attempts` is not touched, no backoff is applied and a stop cannot auto-disable the task. The schedule is unchanged, so the next planned run still happens. A stop that arrives after the call already finished answers `stopped: false` with `reason: \"NOT_RUNNING\"` — there is nothing left to abort. To prevent FUTURE runs instead (or as well), use `upsert_interval_task` with `{idtask, enabled: false}`; do not delete the task.\nErrors: 400 when `idtask` is missing; 404 when the task does not exist or `idtask` is not a UUID. Response: `{stopped, reason, message}` — `stopped: true` means a run was in flight and was aborted.",
+        "operation_mode": "write",
+        "requires_explicit_confirmation": true,
+        "destructive": false,
+        "side_effects": "Cuts the in-flight HTTP call the scheduler is making to the target endpoint and records the run as ABORTED; whatever real effects the endpoint already produced up to the moment of the cutoff remain.",
+        "safe_alternative": "Call 'list_interval_tasks' first to confirm the task and its current status, and 'get_interval_task_runs' afterwards to see the aborted run."
+      },
+      "json_schema": {
+        "in": {
+          "enabled": true,
+          "schema": {
+            "title": "IntervalTaskStopRunRequest",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "idtask"
+            ],
+            "properties": {
+              "idtask": {
+                "type": "string",
+                "format": "uuid",
+                "description": "Id of the interval task whose in-flight execution should be aborted."
+              }
+            }
+          }
+        },
+        "out": {
+          "enabled": false,
+          "schema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": true
+          }
+        }
+      },
+      "custom_data": {},
+      "headers_test": {},
+      "data_test": {
+        "query": [
+          {
+            "enabled": false,
+            "key": "",
+            "value": "",
+            "internal_hash_row": "c5c647b00670bea65a11ab75bf3c77407cc89d1e12a5a013b5fa8146d30f9368"
+          }
+        ],
+        "body": {
+          "selection": 0,
+          "json": {
+            "code": {}
+          },
+          "xml": {
+            "code": ""
+          },
+          "text": {
+            "value": ""
+          },
+          "form": {}
+        },
+        "headers": [
+          {
+            "enabled": false,
+            "key": "",
+            "value": "",
+            "internal_hash_row": "c5c647b00670bea65a11ab75bf3c77407cc89d1e12a5a013b5fa8146d30f9368"
+          }
+        ],
+        "auth": {
+          "basic": {
+            "username": "",
+            "password": ""
+          },
+          "bearer": {
+            "token": ""
+          },
+          "selection": 0
+        }
+      },
+      "idendpoint": "8e3a71a5-6177-474a-a5f3-3b575d595586",
+      "rowkey": 1001,
+      "enabled": true,
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "environment": "prd",
+      "timeout": 30,
+      "resource": "/interval_tasks/stop",
+      "method": "POST",
+      "handler": "FUNCTION",
+      "access": 2,
+      "title": "Stop interval task run",
+      "description": "Aborts the in-flight execution of an interval task, if any.",
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "keywords": "interval_tasks,stop,abort,system,prd",
+      "code": "fnStopIntervalTaskRun",
       "cache_time": 0,
       "createdAt": "2026-08-12T12:00:00.000Z",
       "updatedAt": "2026-08-12T12:00:00.000Z"

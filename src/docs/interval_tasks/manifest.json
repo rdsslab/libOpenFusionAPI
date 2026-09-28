@@ -54,7 +54,8 @@
     "1": "running",
     "2": "completed",
     "3": "error",
-    "4": "timeout"
+    "4": "timeout",
+    "5": "aborted"
   },
   "runtime_attributes": [
     "status",
@@ -70,6 +71,7 @@
       "upsert_interval_task",
       "run_interval_task_now",
       "reset_interval_task_attempts",
+      "stop_interval_task_run",
       "delete_interval_task"
     ],
     "skill": ["get_interval_task_skill"]

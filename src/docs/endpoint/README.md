@@ -26,6 +26,7 @@ Recurring automation is also supported. After creating an endpoint, you can sche
 | `/interval_tasks/skill` | GET | `get_interval_task_skill` |
 | `/interval_tasks/upsert` | POST | `upsert_interval_task` |
 | `/interval_tasks/run_now` | POST | `run_interval_task_now` |
+| `/interval_tasks/stop` | POST | `stop_interval_task_run` |
 | `/interval_tasks/reset_attempts` | POST | `reset_interval_task_attempts` |
 | `/interval_tasks/delete` | DELETE | `delete_interval_task` |
 
