@@ -26,7 +26,7 @@ export const system_app = {
   "updatedAt": "2025-11-22T00:11:41.979Z",
   "vrs": [
     {
-      "value": "\"\\\"\\\\\\\"ok\\\\\\\"\\\"\"",
+      "value": "ok",
       "idvar": "d384f7ac-2dc1-4fa2-9b11-325e65d671c3",
       "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
       "name": "$_VAR_ZZ_TEST_PROBE",
@@ -36,7 +36,7 @@ export const system_app = {
       "updatedAt": "2026-03-28T23:51:38.957Z"
     },
     {
-      "value": "\"\\\"\\\\\\\"ok\\\\\\\"\\\"\"",
+      "value": "ok",
       "idvar": "1862a5f1-c691-4296-9e68-def58fbe2dbb",
       "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
       "name": "$_VAR_ZZ_TEST_PROBE_CLEANUP",
@@ -46,7 +46,7 @@ export const system_app = {
       "updatedAt": "2026-03-28T23:51:44.917Z"
     },
     {
-      "value": "\"\\\"\\\\\\\"before_create_app\\\\\\\"\\\"\"",
+      "value": "before_create_app",
       "idvar": "4ba8bd0a-24b3-4301-93c6-d366fd8e7e14",
       "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
       "name": "$_VAR_ZZ_FLOW_MARKER",
@@ -56,7 +56,11 @@ export const system_app = {
       "updatedAt": "2026-03-28T23:51:55.035Z"
     },
     {
-      "value": "true",
+      // Booleano JSON de verdad, no el string "true". Antes se sembraba como texto:
+      // la columna quedaba en `json_typeof = string` y el runtime entregaba la cadena,
+      // que en JavaScript es truthy aunque valga "false". Un flag de recuperacion
+      // de contrasena apagado se leia como encendido. Ver src/lib/db/appvarType.js.
+      "value": true,
       "idvar": "c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f",
       "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
       "name": "$_VAR_RESET_EMAIL_ENABLED",
@@ -66,7 +70,8 @@ export const system_app = {
       "updatedAt": "2026-09-06T00:00:00.000Z"
     },
     {
-      "value": "true",
+      // Booleano JSON de verdad, igual que $_VAR_RESET_EMAIL_ENABLED.
+      "value": true,
       "idvar": "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e",
       "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
       "name": "$_VAR_RESET_TELEGRAM_ENABLED",

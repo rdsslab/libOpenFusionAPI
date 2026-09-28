@@ -1,5 +1,6 @@
 import { AppVars } from "./models.js";
 import { validateAppVarName } from "./appvarName.js";
+import { validateAppVarType, APPVAR_TYPES } from "./appvarType.js";
 
 /**
  * Error thrown when an AppVar name does not follow the `$_VAR_NAME` convention.
@@ -14,6 +15,18 @@ export const createInvalidAppVarNameError = (check, name) => {
   return error;
 };
 
+/**
+ * Error thrown when an AppVar `type` is not one of the canonical types.
+ * Same 400 shape as the name error above.
+ */
+export const createInvalidAppVarTypeError = (check, type) => {
+  const error = new Error(check.message);
+  error.statusCode = 400;
+  error.code = "INVALID_APPVAR_TYPE";
+  error.details = { type, suggestion: check.suggestion, valid_types: APPVAR_TYPES };
+  return error;
+};
+
 export const upsertAppVar = async (
   /** @type {import("sequelize").Optional<any, string>} */ data
 ) => {
@@ -23,6 +36,25 @@ export const upsertAppVar = async (
   const check = validateAppVarName(data?.name);
   if (!check.valid) {
     throw createInvalidAppVarNameError(check, data?.name);
+  }
+
+  // Same reasoning as the name above: the model validator is the real guarantee,
+  // but this turns an unknown type into a 400 that names the valid ones instead of
+  // a Sequelize blob in a 500.
+  //
+  // An absent `type` is NOT a rejection here: `null`/`undefined` is left alone so
+  // the column default ("json") still applies. Only a type that is present and
+  // wrong is refused. That matters for the restore path, which reconstructs
+  // AppVars from backups that predate the validator and may omit the field.
+  if (data?.type !== undefined && data?.type !== null) {
+    const typeCheck = validateAppVarType(data.type);
+    if (!typeCheck.valid) {
+      throw createInvalidAppVarTypeError(typeCheck, data.type);
+    }
+    // Normalize here as well as in the model, so that `object` is rewritten before
+    // it reaches the conflict-resolution query and callers that read back the
+    // returned row see the canonical spelling.
+    data.type = typeCheck.canonical;
   }
 
   try {

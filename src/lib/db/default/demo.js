@@ -30,7 +30,7 @@ export const demo_app = {
       "updatedAt": "2025-11-24T04:07:40.239Z"
     },
     {
-      "value": "\"\\\"https://fakestoreapi.com/carts\\\"\"",
+      "value": "https://fakestoreapi.com/carts",
       "idvar": "4973d67c-1d3a-4a84-b935-4442c964f453",
       "idapp": "c4ca4238-a0b9-2382-0dcc-509a6f75849b",
       "name": "$_VAR_FETCH",
@@ -85,7 +85,7 @@ export const demo_app = {
       "updatedAt": "2025-11-24T04:07:40.239Z"
     },
     {
-      "value": "\"\\\"https://fakestoreapi.com/carts\\\"\"",
+      "value": "https://fakestoreapi.com/carts",
       "idvar": "5d0264de-6920-4c12-8fcf-a435ac2a8b05",
       "idapp": "c4ca4238-a0b9-2382-0dcc-509a6f75849b",
       "name": "$_VAR_FETCH",
@@ -95,7 +95,7 @@ export const demo_app = {
       "updatedAt": "2025-11-24T04:07:40.240Z"
     },
     {
-      "value": "\"\\\"ok amigo\\\"\"",
+      "value": "ok amigo",
       "idvar": "ebcef503-7e6c-4268-9cb6-4d2106b8f54a",
       "idapp": "c4ca4238-a0b9-2382-0dcc-509a6f75849b",
       "name": "$_VAR_TEST",
@@ -213,7 +213,7 @@ export const demo_app = {
       "updatedAt": "2025-11-24T04:07:40.239Z"
     },
     {
-      "value": "\"\\\"https://fakestoreapi.com/carts\\\"\"",
+      "value": "https://fakestoreapi.com/carts",
       "idvar": "ddb38211-eaaf-47d9-a4c0-cbf1044f55be",
       "idapp": "c4ca4238-a0b9-2382-0dcc-509a6f75849b",
       "name": "$_VAR_FETCH",
@@ -276,7 +276,7 @@ export const demo_app = {
       "updatedAt": "2025-11-24T04:07:40.240Z"
     },
     {
-      "value": "\"{}\"",
+      "value": "{}",
       "idvar": "0cad1b1f-1c22-439a-bf7b-b00d54398ba6",
       "idapp": "c4ca4238-a0b9-2382-0dcc-509a6f75849b",
       "name": "$_VAR_TEST_1",

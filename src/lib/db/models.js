@@ -5,6 +5,7 @@ import { v4 as uuidv4 } from "uuid";
 import { emitHook } from "../server/utils.js";
 import { validateAppName } from "../server/validation.js";
 import { validateAppVarName } from "./appvarName.js";
+import { validateAppVarType } from "./appvarType.js";
 
 const { TABLE_NAME_PREFIX_API } = process.env;
 const IS_MSSQL = ["mssql", "sqlite"].includes(dbsequelize.getDialect());
@@ -568,6 +569,32 @@ export const AppVars = dbsequelize.define(
       type: DataTypes.STRING(25),
       allowNull: false,
       defaultValue: "json",
+      // Enforced at the model layer on purpose, for the same reason as `name`
+      // above: this is the only place that also covers AppVars.create /
+      // AppVars.bulkCreate, the seeds and the restore path, not just the
+      // upsertAppVar choke point.
+      //
+      // `type` had no validator at all until now, which is how four different type
+      // lists drifted apart and how a `boolean` flag ended up stored as the string
+      // "true" — truthy in JavaScript even when it reads "false". See
+      // src/lib/db/appvarType.js for the full story.
+      validate: {
+        isAppVarType(value) {
+          const check = validateAppVarType(value);
+          if (!check.valid) {
+            throw new Error(check.message);
+          }
+
+          // Normalize instead of rejecting when the type is merely spelled
+          // differently: `JSON` -> `json`, and the `object` alias -> `json`.
+          // Sequelize binds `this` to the model instance inside a custom validator
+          // (verified for both create and upsert), so this is the one place that
+          // can keep the column from accumulating non-canonical spellings.
+          if (check.canonical && check.canonical !== value) {
+            this.type = check.canonical;
+          }
+        },
+      },
     },
     environment: {
       type: DataTypes.STRING(10),

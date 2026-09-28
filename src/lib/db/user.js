@@ -8,6 +8,7 @@ import dbsequelize from "./sequelize.js";
 import { Op } from "sequelize";
 import { createHmac, randomInt } from "crypto";
 import { getAppVarsByIdApp } from "./appvars.js";
+import { parseAppVarBoolean } from "./appvarType.js";
 
 const DEFAULT_TOKEN_SECONDS = 3600; // 1 hora
 const REFRESH_TOKEN_SECONDS = 3600; // 1 hora
@@ -34,10 +35,17 @@ const findVar = (rows, name, environment) => {
 
 const isFlagEnabled = (rows, name, environment) => {
   const row = findVar(rows, name, environment);
+  // Una variable ausente o vacia mantiene el comportamiento de siempre (fail-open:
+  // la recuperacion de contrasena funciona si nadie ha configurado el flag). Esa es
+  // una pregunta de EXISTENCIA de la fila, no de valor, y por eso vive aqui y no en
+  // `parseAppVarBoolean`: un flag de recuperacion ausente debe dejar la recuperacion
+  // funcionando, mientras que un valor escrito que no se entiende debe ser `false`.
   if (!row || row.value === undefined || row.value === null) return true;
-  if (typeof row.value === "boolean") return row.value;
-  const s = String(row.value).trim().toLowerCase();
-  return ["true", "1", "yes", "on"].includes(s);
+  // El vocabulario "true/1/yes/on" es el mismo que usa `parseAppVarBoolean` para la
+  // rama `boolean` de `parseAppVar`, y antes vivia duplicado en los dos sitios: el
+  // seed guardaba el string "true", el runtime lo devolvia tal cual, y cualquier
+  // consumidor con `if ($_VAR_RESET_...)` veía "false" como truthy.
+  return parseAppVarBoolean(row.value);
 };
 
 const parseTransport = (value) => {

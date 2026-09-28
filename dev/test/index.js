@@ -433,6 +433,35 @@ async function runAllTests() {
         command: "node",
         args: ["code_validator_callback_chain_test.js"],
       },
+      {
+        // Puro: el contrato de los tipos de AppVar. `type` era un STRING(25) sin
+        // validador, y por eso cuatro listas distintas se separaron —los seeds, el
+        // switch de parseAppVar, el desplegable de la GUI y el modelo— sin que nada
+        // lo notara. Ese desajuste produjo dos defectos reales: un `boolean` sembrado
+        // como el string "true", que en JavaScript es truthy aunque valga "false", y
+        // tres AppVars de tipo `string` en los seeds con 2 y 3 capas de comillas, la
+        // huella del defecto de 13.12.1 escrita en un fichero fuente.
+        //
+        // Esta suite ata las tres listas entre si, de modo que un tipo nuevo tiene
+        // que declararse en todas, y fija que `parseAppVar` entrega el valor SIN
+        // entrecomillar: sin eso, volver a poner `JSON.stringify` en la rama
+        // `default` pasaria inadvertido.
+        label: "appvar_types_test.js",
+        command: "node",
+        args: ["appvar_types_test.js"],
+      },
+      {
+        // Necesita la BD. Lo que la suite pura no puede ver: si el modelo y el
+        // runtime se ponen de acuerdo de verdad. El caso central son tres ciclos
+        // seguidos de backup y restore, que es la via por la que el defecto de
+        // 13.12.1 se realimentaba —el backup serializa el arbol ya parseado y el
+        // restore lo escribe de vuelta en la columna json—. Y que un boolean
+        // almacenado como el string "false" llegue al runtime como false, no como
+        // una cadena truthy.
+        label: "appvar_end_to_end_test.js",
+        command: "node",
+        args: ["appvar_end_to_end_test.js"],
+      },
     ];
 
     // Se recorren TODAS las suites aunque alguna falle: con `break` en el primer

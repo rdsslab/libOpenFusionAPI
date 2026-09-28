@@ -18,6 +18,82 @@ proyecto, ver [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [13.12.2] - 2026-09-28
+
+### Fixed
+
+- **`type` de una AppVar no estaba cerrado en ningún sitio, y el desajuste ya había
+  costado datos reales.** `type` era un `STRING(25)` sin validador —a diferencia de
+  `name`, que sí lo tiene—, así que cualquier cliente (GUI, MCP, `curl`) podía
+  escribir cualquier cadena y nada la rechazaba. De ahí que existieran **cuatro listas
+  de tipos sin coincidir en nada**:
+
+  | Dónde | Tipos que conocía |
+  |---|---|
+  | Semillas reales de AppVars | `json` · `string` · `number` · **`boolean`** |
+  | `switch` de `parseAppVar` | `number` · `json` · `object` · `js` + `default` |
+  | Desplegable Lang de la GUI | `none` · `html` · `js` · `json` · `sql` · `xml` · `string` · `number` |
+  | `object` | Exactamente duplicado de la rama `json`. No lo producía ni lo ofrecía nadie. |
+
+  Ahora hay un conjunto canónico en `src/lib/db/appvarType.js`, un validador en el
+  modelo que **cubre todos los caminos de escritura** —los seeds, el restore, `create`,
+  `bulkCreate`—, y un 400 con sugerencia desde `upsertAppVar`:
+
+  ```
+  POST /api/system/app/var/prd   { "type": "strin" }
+  → 400 INVALID_APPVAR_TYPE
+      Invalid AppVar type "strin": valid types are boolean, html, js, json, none,
+      number, sql, string, xml, object. ... Did you mean "string"?
+  ```
+
+  `object` se acepta y se reescribe a `json` en vez de rechazarse: no lo produce nadie,
+  pero una fila que lo traiga en un backup debe poder restaurarse, y rechazarla
+  convertiría un backup existente en un restore parcial.
+
+- **Un flag `boolean` sembrado como el string `"true"` se leía como encendido estando
+  apagado.** La app `system` siembra `$_VAR_RESET_EMAIL_ENABLED` y
+  `$_VAR_RESET_TELEGRAM_ENABLED` con `type: "boolean"`, y el seed las guardaba como el
+  **texto** `"true"`: `json_typeof(value)` devolvía `string`. `parseAppVar` no tenía
+  rama para `boolean`, así que entregaba esa cadena al runtime, y en JavaScript
+  **el string `"false"` es *truthy***. Cualquier consumidor que escribiera
+  `if ($_VAR_RESET_EMAIL_ENABLED)` habría visto el flag apagado como encendido.
+
+  El seed ahora siembra un booleano JSON de verdad, y `parseAppVar` tiene rama para
+  `boolean` que entrega siempre un booleano. El vocabulario (`true` / `1` / `yes` /
+  `on`) estaba **duplicado** entre `parseAppVar` y `isFlagEnabled` en `src/lib/db/user.js`;
+  ahora los dos leen la misma constante, que es lo que evita que vuelvan a separarse.
+
+  Esto **no cambia** el fail-open de `isFlagEnabled` ante una fila ausente: esa es una
+  pregunta de existencia, no de valor, y sigue viviendo donde estaba.
+
+- **Los seeds traían el defecto de 13.12.1 escrito dentro.** Tres AppVars de tipo
+  `string` estaban sembradas con 2 y 3 capas de comillas acumuladas:
+
+  ```
+  $_VAR_ZZ_FLOW_MARKER       "\"\\\"\\\\\\\"before_create_app\\\"\\\"\"\""   → "before_create_app"
+  $_VAR_ZZ_TEST_PROBE        3 capas                                          → "ok"
+  $_VAR_FETCH                2 capas                                          → "https://fakestoreapi.com/carts"
+  ```
+
+  Un despliegue nuevo las sembraba **dañadas de fábrica**. Corregidas.
+
+### Added
+
+- `dev/test/appvar_types_test.js` y `dev/test/appvar_end_to_end_test.js` (46 casos).
+  Fijan el contrato por tipo, atan las cuatro listas entre sí para que un tipo nuevo
+  tenga que declararse en todas, y cubren lo que ninguna de las dos anteriores comprobaba:
+  que `parseAppVar` entrega el valor **sin entrecomillar**, y que tres ciclos seguidos de
+  backup y restore no mueven la columna. Sin esto, volver a poner `JSON.stringify` en la
+  rama `default` pasaba inadvertido.
+
+### Changed
+
+- Un AppVar con un tipo desconocido ahora devuelve **400** en lugar de aceptarse en
+  silencio. Es un cambio de comportamiento observable por quien llame al endpoint, pero
+  solo afecta a tipos que ya estaban rotos: nadie podía leerlos ni editarlos.
+
+---
+
 ## [13.12.1] - 2026-09-28
 
 ### Fixed

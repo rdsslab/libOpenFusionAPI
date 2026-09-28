@@ -22,6 +22,7 @@ import { default_apps } from "./default/index.js";
 import { mapConCierre, crearCierraDePaso, limiteDesdeEntorno } from "./concurrency.js";
 import { system_app } from "./default/system.js";
 import { validateEndpointCode } from "../validation/codeValidator.js";
+import { parseAppVarBoolean } from "./appvarType.js";
 
 /**
  * Puerta de paso de las escrituras del arranque.
@@ -1683,6 +1684,15 @@ export function parseAppVar(appvar) {
           typeof appvar.value === "object"
             ? appvar.value
             : JSON.parse(appvar.value);
+        break;
+      case "boolean":
+        // Un `boolean` se entrega como boolean DE VERDAD, nunca como la cadena que
+        // hay en la columna. El seed de `system` siembra estos flags con el string
+        // "true", y `ensureAppVarOnce` no sobrescribe una fila ya existente, asi que
+        // en cualquier instalacion real la columna suele contener texto. Sin esta
+        // rama el runtime recibia "false" —una cadena que en JavaScript es truthy—
+        // y un flag apagado se leia como encendido. Ver src/lib/db/appvarType.js.
+        v = parseAppVarBoolean(appvar.value);
         break;
       default:
         // `string`, `none` y cualquier tipo desconocido (html, sql, xml...).
