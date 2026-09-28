@@ -206,6 +206,18 @@ async function runAllTests() {
         args: ["mcp_conflict_on_restore_test.js"],
       },
       {
+        // Puro: el numero de version vive en dos sitios y solo uno lo regenera
+        // `set_version.js`. Medido en el arbol tal cual estaba: `package.json` decia
+        // 13.11.29 y `GET /api/system/server/version/prd` respondia 13.11.15, catorce
+        // parches de retraso, sin que nada en el repo lo delatara. El paso 2 no compara
+        // dos ficheros: llama a `fnGetServerVersion` de verdad, porque la deriva importaba
+        // justo por lo que sale por la API. El paso 3 ata el bump a su entrada de
+        // CHANGELOG, que es la otra mitad del mismo commit.
+        label: "version_sync_test.js",
+        command: "node",
+        args: ["version_sync_test.js"],
+      },
+      {
         // Puro: el seed de metodos tiene que estar terminado cuando su promesa resuelve,
         // no solo haber lanzado las escrituras. Con `forEach(async)` dentro de una
         // funcion que no era `async` el arranque continuaba con 11 `MERGE INTO

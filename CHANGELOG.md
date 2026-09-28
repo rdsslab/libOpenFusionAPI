@@ -18,6 +18,47 @@ proyecto, ver [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [13.11.30] - 2026-09-27
+
+### Fixed
+
+- **La versión que informaba la plataforma era falsa.** `GET /api/system/server/version/prd`
+  —el endpoint que el README documenta para comprobar qué se ha instalado— respondía
+  `13.11.15` con el árbol en `13.11.29`: **catorce parches de retraso**, y nada en el repo
+  lo delataba.
+
+  La causa es que el número de versión vive en dos sitios y solo uno se regenera.
+  `set_version.js` lee `package.json`, le suma uno al parche, lo escribe ahí **y escribe a
+  mano `src/lib/server/version.js`**. Ese segundo fichero es el que importa el endpoint, a
+  través de la constante de `fnGetServerVersion` (`src/lib/server/functions/system/prd/index.js`).
+  Basta con subir la versión en `package.json` sin pasar por `npm run set_version` para que
+  el commit parezca completo y la plataforma siga diciendo otra cosa. Ninguna vez en catorce
+  commits alguien se dio cuenta, porque no había nada que lo dijera.
+
+  Medido antes y después, no deducido:
+
+  ```
+  $ curl localhost:3999/api/system/server/version/prd
+  {"version":"13.11.15","ddbb":"sqlite"}
+  $ node -p "require('./package.json').version"
+  13.11.29
+  ```
+
+  Con `13.11.30` los tres sitios —`package.json`, `src/lib/server/version.js` y la entrada
+  más reciente de este CHANGELOG— dicen lo mismo, y el endpoint responde
+  `{"version":"13.11.30",...}`.
+
+  Consecuencia práctica más allá de la trazabilidad: si el despliegue compara la versión que
+  devuelve la API con la que espera para continuar, esa comparación llevaba catorce parches
+  decidiendo sobre un número que no era el del código.
+
+- `dev/test/version_sync_test.js`: suite pura, registrada en el packet, que vigila los tres
+  sitios. No se queda en comparar dos ficheros: el paso 2 llama a `fnGetServerVersion` de
+  verdad y comprueba que lo que sale por la API es esa versión, porque la deriva importaba
+  justo por eso. Con `version.js` desincronizado da `13.11.15` contra `13.11.29`; con el
+  endpoint desconectado de la constante da `0.0.0` contra la de `package.json`; y con el
+  bump sin entrada en este CHANGELOG, el paso 3. Los tres se comprobaron en rojo.
+
 ## [13.11.29] - 2026-09-27
 
 ### Documentation
