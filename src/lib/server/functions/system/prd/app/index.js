@@ -13,7 +13,7 @@ import {
   getApplicationsTreeByFilters,
 } from "../../../../../db/app.js";
 import { generateDocumentation } from "../../../../doc_generator.js";
-import { version } from "../../../../version.js";
+import { version } from "../../../../getVersion.js";
 import {
   recordAudit,
   AUDIT_ACTIONS,

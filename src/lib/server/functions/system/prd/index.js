@@ -1,5 +1,5 @@
 import { listFunctionsVars } from "../../../functionVars.js";
-import { version } from "../../../version.js";
+import { version } from "../../../getVersion.js";
 import  dbsequelize  from "../../../../db/sequelize.js";
 
 export * from "./user/index.js";

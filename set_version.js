@@ -1,9 +1,14 @@
-// bump-version.js
+// Sube un parche a la versión del proyecto.
+//
+// La versión vive en un solo sitio, `package.json`. Antes había que escribir además
+// `src/lib/server/version.js` a mano, y cada bump que no pasara por este script dejaba la
+// plataforma sirviendo una versión que no era la del código instalado. Como el servidor
+// lee directamente `package.json` (`getVersion.js`), subir la versión es subir este
+// fichero y anotar la entrada del CHANGELOG — que es lo que vigila `version_sync_test.js`.
 import fs from "fs";
 import path from "path";
 
 const packagePath = path.resolve("package.json");
-const versionFilePath = path.resolve("./src/lib/server/version.js");
 
 // Leer package.json
 const packageData = JSON.parse(fs.readFileSync(packagePath, "utf8"));
@@ -19,11 +24,5 @@ let newVersion = parts.join(".");
 // Actualizar package.json
 packageData.version = newVersion;
 fs.writeFileSync(packagePath, JSON.stringify(packageData, null, 2) + "\n", "utf8");
-
-// Asegurarse que la carpeta existe
-fs.mkdirSync(path.dirname(versionFilePath), { recursive: true });
-
-// Crear version.js
-fs.writeFileSync(versionFilePath, `export const version = '${newVersion}';\n`, "utf8");
 
 console.log(`Versión actualizada a ${newVersion}`);

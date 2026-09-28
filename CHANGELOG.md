@@ -18,6 +18,23 @@ proyecto, ver [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [13.11.31] - 2026-09-27
+
+### Changed
+
+- **La versión del proyecto dejó de vivir en dos ficheros: `src/lib/server/version.js`
+  desapareció.** La única fuente es `package.json`, que ahora lee `getVersion.js` en el
+  arranque (`import.meta.url`, no el cwd). El modo de fallo que cerró la entrada `Fixed` de
+  la versión anterior —un bump que no pasaba por `npm run set_version` dejaba el
+  `version.js` desincronizado y la plataforma servía otra versión— ya no es representable:
+  no hay segundo fichero que olvidar. `set_version.js` solo sube el parche en
+  `package.json`, y `version_sync_test.js` sigue atando los tres sitios que importan (la
+  constante exportada, lo que responde `/api/system/server/version/prd` y la entrada más
+  reciente del CHANGELOG), porque el tercero sigue siendo la otra mitad del mismo commit.
+
+  **Para el operador:** nada que hacer en el despliegue. Quien consuma la versión sigue
+  leyéndola del mismo endpoint; solo cambia el origen interno del número.
+
 ## [13.11.30] - 2026-09-27
 
 ### Fixed

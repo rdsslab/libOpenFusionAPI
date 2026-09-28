@@ -30,7 +30,7 @@ import { Bot } from "../../../../../db/models.js";
 import { fnGetSystemHealthStats } from "../logs/index.js";
 import { sendTelegramMessage } from "../user/sendTelegramMessage.js";
 import { fnGetUsersList } from "../user/index.js";
-import { version } from "../../../../version.js";
+import { version } from "../../../../getVersion.js";
 import { getExposedEnvironmentsList } from "../../../../envExposure.js";
 
 const SYSTEM_APP_ID = "cfcd2084-95d5-65ef-66e7-dff9f98764da";

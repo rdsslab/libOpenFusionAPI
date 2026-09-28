@@ -1,36 +1,29 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { version } from "../../src/lib/server/version.js";
+import { version } from "../../src/lib/server/getVersion.js";
 import { fnGetServerVersion } from "../../src/lib/server/functions/system/prd/index.js";
 
 /**
- * La version que se sirve iba catorce parches por detras de la que se instala.
+ * La version que se sirve debe ser la que se instala, siempre.
  *
- * Hay tres sitios donde vive el numero de version y solo dos los regenera `set_version.js`:
- * `package.json`, que es de donde lo lee npm, y `src/lib/server/version.js`, que es un
- * fichero escrito a mano por ese script. El tercero es la entrada del CHANGELOG. Nada
- * comparaba los tres, asi que un bump de version en el arbol sin pasar por
- * `npm run set_version` no dejaba ninguna huella: el commit parecia completo y la plataforma
- * seguia diciendo otra cosa.
+ * La version vive en UN solo sitio, `package.json`. `getVersion.js` la lee en el arranque
+ * y la exporta como constante, y ya no existe `src/lib/server/version.js` que pudiera
+ * desincronizarse: no hay segundo fichero que mantener. Aqui ya no se puede "olvidar"
+ * reescribir nada.
  *
- * Medido antes del arreglo, con el arbol tal cual estaba:
+ * Lo que esta suite sigue vigilando es que nadie vuelva a partir esa fuente:
+ *   1. que la constante que exporta `getVersion.js` sea exactamente la de `package.json`
+ *      y tenga forma usable;
+ *   2. que el endpoint `/server/version` la sirva de verdad —si dejara de usar la
+ *      constante, o la leyera de otro sitio, esto caeria aunque `package.json` estuviera
+ *      bien—;
+ *   3. que la entrada mas reciente del CHANGELOG documente ese numero, porque un bump que
+ *      no se anota es invisible para quien tiene que saber que cambio.
  *
- *   $ curl localhost:3999/api/system/server/version/prd
- *   {"version":"13.11.15","ddbb":"sqlite"}          <-- 14 parches atras
- *   $ node -p "require('./package.json').version"
- *   13.11.29
- *
- * Y lo que hace eso con un despliegue: el endpoint que el README documenta para comprobar
- * que se ha instalado la version correcta (`GET /api/system/server/version/prd`, el ejemplo
- * del "First login" sale de ahi) responde con una version que no es la del codigo que esta
- * corriendo. No es un problema de trazabilidad interior: es el numero que mira un operador
- * para decidir si reinstalar, y el que puede usar un script de despliegue para decidir si
- * continue.
- *
- * Los tests son puros —importan la version real y llaman a la funcion real del endpoint, sin
- * abrir conexion— porque lo que hay que fijar es que los tres sitios digan lo mismo, y eso se
- * puede comprobar sin base de datos. `fnGetServerVersion` solo lee `getDialect()`, que no
- * conecta: el `ddbb` que devuelve sale de la configuracion, no de la base.
+ * Es el mismo trio que ya vigilaba la version anterior de esta suite, pero en vez de
+ * comparar dos ficheros ahora compara la fuente con lo que se sirve. Sigue siendo pura:
+ * `fnGetServerVersion` solo lee `getDialect()`, que no conecta; el `ddbb` que devuelve
+ * sale de la configuracion, no de la base.
  */
 
 const PAQUETE = JSON.parse(
@@ -56,7 +49,7 @@ function versionDeLaEntradaMasReciente() {
 
 async function runTests() {
   // ---------------------------------------------------------------- STEP 1
-  console.log("[STEP 1/3] package.json and src/lib/server/version.js say the same...");
+  console.log("[STEP 1/3] getVersion.js serves exactly the package.json version...");
 
   assert.ok(
     FORMA_VERSION.test(PAQUETE.version),
@@ -64,30 +57,29 @@ async function runTests() {
   );
   assert.ok(
     FORMA_VERSION.test(version),
-    `src/lib/server/version.js exports an unusable version: ${JSON.stringify(version)}. ` +
+    `getVersion.js exports an unusable version: ${JSON.stringify(version)}. ` +
       `It has to be a plain 'x.y.z' string, because that is what set_version.js writes and ` +
       `what every caller expects.`,
   );
 
-  // La comparacion es la del fallo: hoy version.js va 14 parches atras y package.json no se
-  // entera. El mensaje dice que se ve, porque la consecuencia es justamente la del despliegue.
+  // La fuente es package.json y la constante se lee de ahi: si discrepan, alguien volvio a
+  // meter una segunda fuente de verdad. El mensaje recuerda la consecuencia del modo de
+  // fallo viejo: el endpoint servia una version que no era la del codigo instalado.
   assert.equal(
     version,
     PAQUETE.version,
     `The served version is ${version} and package.json is ${PAQUETE.version}. ` +
       `GET /api/system/server/version/prd answers ${version} while the installed code is ` +
-      `${PAQUETE.version}, so the endpoint an operator uses to check what is installed ` +
-      `reports a version that is not the one running. Run 'npm run set_version' to rewrite ` +
-      `src/lib/server/version.js from package.json.`,
+      `${PAQUETE.version}. package.json is the only source of truth: run 'npm run set_version' ` +
+      `to bump it, and check what getVersion.js imports.`,
   );
 
   // ---------------------------------------------------------------- STEP 2
   console.log("[STEP 2/3] ... and the /server/version endpoint answers with it...");
 
-  // No basta con que los dos ficheros digan lo mismo: hay que comprobar que el numero que
-  // sale por la API es ese. Si el endpoint dejara de usar la constante —o la leyera de otro
-  // sitio— este paso caeria aunque los ficheros estuvieran sincronizados, que es el otro
-  // modo de fallo de este hallazgo.
+  // No basta con que la constante diga lo de package.json: hay que comprobar que el numero
+  // que sale por la API es ese. Si el endpoint dejara de usar la constante —o la leyera de
+  // otro sitio— este paso caeria, que es el otro modo de fallo de este hallazgo.
   const respuesta = await fnGetServerVersion({});
 
   assert.equal(
@@ -104,7 +96,7 @@ async function runTests() {
     respuesta.data.version,
     PAQUETE.version,
     `The /server/version endpoint answered ${JSON.stringify(respuesta.data.version)} while ` +
-      `package.json is ${PAQUETE.version}. The constant is in sync but the endpoint does not ` +
+      `package.json is ${PAQUETE.version}. getVersion.js is in sync but the endpoint does not ` +
       `report it, so an operator still cannot tell what is installed.`,
   );
 
@@ -125,7 +117,7 @@ async function runTests() {
       `These are the two halves of the same bump, so they belong to the same commit.`,
   );
 
-  console.log(`Version ${PAQUETE.version} is in sync in all three places.`);
+  console.log(`Version ${PAQUETE.version} is in sync: package.json, getVersion.js and the API.`);
 }
 
 runTests()

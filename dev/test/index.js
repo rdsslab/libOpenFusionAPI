@@ -206,8 +206,9 @@ async function runAllTests() {
         args: ["mcp_conflict_on_restore_test.js"],
       },
       {
-        // Puro: el numero de version vive en dos sitios y solo uno lo regenera
-        // `set_version.js`. Medido en el arbol tal cual estaba: `package.json` decia
+        // Puro: la version del proyecto vive en un solo sitio, `package.json`, y
+        // `getVersion.js` la lee en el arranque. Antes vivia ademas en un `version.js`
+        // generado a mano: medido en el arbol tal cual estaba, `package.json` decia
         // 13.11.29 y `GET /api/system/server/version/prd` respondia 13.11.15, catorce
         // parches de retraso, sin que nada en el repo lo delatara. El paso 2 no compara
         // dos ficheros: llama a `fnGetServerVersion` de verdad, porque la deriva importaba

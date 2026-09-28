@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { jsonSchemaToZod } from "./utils.js";
-import {version} from "../version.js";
+import { version } from "../getVersion.js";
 
 function getServer() {
   // Create an MCP server
