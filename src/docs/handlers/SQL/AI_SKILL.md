@@ -74,6 +74,56 @@ You are an expert **Relational Database Administrator and Multi-Dialect SQL Deve
 
 ---
 
+## Comments and `$param` in literals
+
+Two rules that apply to **every** dialect, because they are properties of the substitution
+and not of the database.
+
+### Comments are safe, including a variable name inside one
+
+You can write `-- …` and `/* … */` anywhere, and you can mention anything inside them:
+
+```sql
+/* sale de $_VAR_MSSQL_TEST, de custom_data */
+-- filtro real: $name
+SELECT id, name FROM items WHERE name <> $name
+```
+
+`$_VAR_…` inside `code` is not resolved (variables are resolved in `custom_data`, never in
+`code`), and it has the exact shape of a named bind, so this used to fail the whole query
+with `Named bind parameter "$_VAR_MSSQL_TEST" has no value in the given object`. That no
+longer happens: the handler neutralizes bind-shaped text inside comments before the
+substitution runs. A comment that mentions a name which is *also* a real parameter in the
+query is fine too, as long as the real one is written as a placeholder outside the comment.
+
+### A `$param` inside a string literal or a quoted identifier is rejected with 400
+
+This is not a style rule, it is a correctness one. Sequelize substitutes every `$name` it
+finds in the text, whatever quotes surround it, so `SELECT 'coste: $name'` used to answer
+**200 with `coste: @name`** — the caller got data that was not what the query said, with no
+signal at all. Renaming it did not help: with a name that matched no parameter the query
+failed instead.
+
+```sql
+SELECT 'coste: $name'          -- 400 SQL_BIND_INSIDE_LITERAL
+SELECT 1 AS "col $name"        -- 400 as well
+SELECT $$ f $name $$           -- 400 as well (PostgreSQL)
+```
+
+Build that text outside the SQL, or give the parameter a different name:
+
+```sql
+-- instead of 'coste: $name'
+SELECT 'coste: ' + $name          -- MSSQL
+SELECT 'coste: ' || $name         -- PostgreSQL / SQLite
+SELECT CONCAT('coste: ', $name)   -- MySQL / MariaDB
+```
+
+Only the `$param` style is affected. `:param` has never had this problem: its substitution
+path already understands literals, quoted identifiers, comments and dollar-quoted bodies.
+
+---
+
 ## Dialect Particularities & Reference Sheet
 
 ### Microsoft SQL Server (MSSQL / T-SQL)

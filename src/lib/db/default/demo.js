@@ -335,6 +335,63 @@ export const demo_app = {
       "environment": "dev",
       "createdAt": "2026-09-12T00:00:00.000Z",
       "updatedAt": "2026-09-12T00:00:00.000Z"
+    },
+    {
+      "value": {
+        "database": "sqltest",
+        "username": "sa",
+        "password": "Of@piMs!2026#Db",
+        "options": {
+          "host": "localhost",
+          "port": 1433,
+          "dialect": "mssql"
+        }
+      },
+      "idvar": "7c1d9e42-58ab-4f30-9a6d-2b7e4c1f0a83",
+      "idapp": "c4ca4238-a0b9-2382-0dcc-509a6f75849b",
+      "name": "$_VAR_MSSQL_TEST",
+      "type": "json",
+      "environment": "dev",
+      "createdAt": "2026-09-28T00:00:00.000Z",
+      "updatedAt": "2026-09-28T00:00:00.000Z"
+    },
+    {
+      "value": {
+        "database": "sqltest",
+        "username": "sa",
+        "password": "Of@piMs!2026#Db",
+        "options": {
+          "host": "localhost",
+          "port": 1433,
+          "dialect": "mssql"
+        }
+      },
+      "idvar": "1f8b2a57-3d64-4c19-b0e8-7a5c9d2e4f60",
+      "idapp": "c4ca4238-a0b9-2382-0dcc-509a6f75849b",
+      "name": "$_VAR_MSSQL_TEST",
+      "type": "json",
+      "environment": "qa",
+      "createdAt": "2026-09-28T00:00:00.000Z",
+      "updatedAt": "2026-09-28T00:00:00.000Z"
+    },
+    {
+      "value": {
+        "database": "sqltest",
+        "username": "sa",
+        "password": "Of@piMs!2026#Db",
+        "options": {
+          "host": "localhost",
+          "port": 1433,
+          "dialect": "mssql"
+        }
+      },
+      "idvar": "5e0c3b18-6a97-4d52-8f31-9b2d4e7a6c05",
+      "idapp": "c4ca4238-a0b9-2382-0dcc-509a6f75849b",
+      "name": "$_VAR_MSSQL_TEST",
+      "type": "json",
+      "environment": "prd",
+      "createdAt": "2026-09-28T00:00:00.000Z",
+      "updatedAt": "2026-09-28T00:00:00.000Z"
     }
   ],
   "bots": [
@@ -7381,6 +7438,156 @@ export const demo_app = {
       "cache_time": 0,
       "createdAt": "2026-09-12T00:00:00.000Z",
       "updatedAt": "2026-09-12T00:00:00.000Z"
+    },
+    {
+      "ctrl": {
+        "admin": true,
+        "users": [],
+        "log": {}
+      },
+      "cors": {},
+      "mcp": {},
+      "json_schema": {
+        "in": {
+          "enabled": false,
+          "schema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": true
+          }
+        },
+        "out": {
+          "enabled": false,
+          "schema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": true
+          }
+        }
+      },
+      "custom_data": "$_VAR_MSSQL_TEST",
+      "headers_test": {},
+      "data_test": {},
+      "idendpoint": "b1d7f0a3-5c48-4e26-9f13-2d8a6b4c7e90",
+      "rowkey": 991,
+      "enabled": true,
+      "idapp": "c4ca4238-a0b9-2382-0dcc-509a6f75849b",
+      "environment": "dev",
+      "timeout": 30,
+      "resource": "/ofapi/examples/sql/mssql_sin_comentarios",
+      "method": "GET",
+      "handler": "SQL",
+      "access": 0,
+      "title": "MSSQL sin comentarios (control)",
+      "description": "Control de la prueba de comentarios: la MISMA consulta que los otros dos endpoints, sin ningun comentario. Sirve de referencia para saber que cualquier diferencia posterior la caused el comentario y no la consulta.",
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "keywords": "example,sql,mssql,comentarios,control",
+      "code": "SELECT TOP 5 id, name, qty, price FROM dbo.items WHERE name <> $name ORDER BY id",
+      "cache_time": 0,
+      "createdAt": "2026-09-28T00:00:00.000Z",
+      "updatedAt": "2026-09-28T00:00:00.000Z"
+    },
+    {
+      "ctrl": {
+        "admin": true,
+        "users": [],
+        "log": {}
+      },
+      "cors": {},
+      "mcp": {},
+      "json_schema": {
+        "in": {
+          "enabled": false,
+          "schema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": true
+          }
+        },
+        "out": {
+          "enabled": false,
+          "schema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": true
+          }
+        }
+      },
+      "custom_data": "$_VAR_MSSQL_TEST",
+      "headers_test": {},
+      "data_test": {},
+      "idendpoint": "c4e8a1b6-7d39-4f52-b028-6c1e5f9d3a74",
+      "rowkey": 992,
+      "enabled": true,
+      "idapp": "c4ca4238-a0b9-2382-0dcc-509a6f75849b",
+      "environment": "dev",
+      "timeout": 30,
+      "resource": "/ofapi/examples/sql/mssql_comentarios",
+      "method": "GET",
+      "handler": "SQL",
+      "access": 0,
+      "title": "MSSQL con comentarios en el query",
+      "description": "La MISMA consulta del endpoint de control, con comentarios de linea (--) y de bloque (/* */) antes, entre y despues de las clausulas. Comprueba que los comentarios no cambian ni el resultado ni la deteccion del bind $name.",
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "keywords": "example,sql,mssql,comentarios,comment",
+      "code": "-- Prueba del handler SQL: comentarios dentro de la consulta\n/* Comentario de bloque de una linea */\nSELECT TOP 5 id, name, qty, price\nFROM dbo.items\n/* Filtro por parametro, el comentario va justo antes */\nWHERE name <> $name\nORDER BY id",
+      "cache_time": 0,
+      "createdAt": "2026-09-28T00:00:00.000Z",
+      "updatedAt": "2026-09-28T00:00:00.000Z"
+    },
+    {
+      "ctrl": {
+        "admin": true,
+        "users": [],
+        "log": {}
+      },
+      "cors": {},
+      "mcp": {},
+      "json_schema": {
+        "in": {
+          "enabled": false,
+          "schema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": true
+          }
+        },
+        "out": {
+          "enabled": false,
+          "schema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": true
+          }
+        }
+      },
+      "custom_data": "$_VAR_MSSQL_TEST",
+      "headers_test": {},
+      "data_test": {},
+      "idendpoint": "8a2f5c9e-1b64-4d37-95c8-3e7d0a6b2f51",
+      "rowkey": 993,
+      "enabled": true,
+      "idapp": "c4ca4238-a0b9-2382-0dcc-509a6f75849b",
+      "environment": "dev",
+      "timeout": 30,
+      "resource": "/ofapi/examples/sql/mssql_comentario_appvar",
+      "method": "GET",
+      "handler": "SQL",
+      "access": 0,
+      "title": "MSSQL con nombre de AppVar dentro de un comentario",
+      "description": "La MISMA consulta del endpoint de control, con el nombre de la variable de aplicacion $_VAR_MSSQL_TEST escrito DENTRO de comentarios, de linea y de bloque. El nombre debe viajar literal: no se resuelve (la AppVar solo se resuelve en custom_data) y no se cuenta como bind $... aunque este escrito con el prefijo de las AppVars.",
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "keywords": "example,sql,mssql,comentarios,appvar",
+      "code": "/* La conexion sale de la AppVar $_VAR_MSSQL_TEST,\n   declarada en custom_data. Este comentario NO debe\n   resolverse ni alterar la consulta. */\n-- El mismo nombre de AppVar en un comentario de linea: $_VAR_MSSQL_TEST\nSELECT TOP 5 id, name, qty, price\nFROM dbo.items\nWHERE name <> $name\nORDER BY id",
+      "cache_time": 0,
+      "createdAt": "2026-09-28T00:00:00.000Z",
+      "updatedAt": "2026-09-28T00:00:00.000Z"
     }
   ]
 }

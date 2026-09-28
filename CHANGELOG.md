@@ -18,6 +18,70 @@ proyecto, ver [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [13.11.32] - 2026-09-28
+
+### Fixed
+
+- **Un `$nombre` escrito dentro de un comentario tumbaba la consulta entera en el handler
+  `SQL` y `SQL_BULK_I`.** Escribir el nombre de una variable de aplicación en un comentario
+  —`/* sale de $_VAR_MSSQL_TEST */`— hacía que el endpoint devolviera **500** con
+  `Named bind parameter "$_VAR_MSSQL_TEST" has no value in the given object`, aunque el
+  comentario no significara nada para el motor. La causa era que el escáner del handler ya
+  sabía distinguir un `$nombre` real de uno que vive en un comentario, pero ese
+  conocimiento nunca llegaba a la sustitución: la hace Sequelize, con una regex
+  (`sql.replace(/\B\$(\$|\w+)/g, …)`, en `dialects/abstract/query.js`) que no ve
+  comentarios. El otro camino de sustitución de Sequelize, `injectReplacements` (`:nombre`,
+  `?`), nunca sufre esto porque es un escáner a mano; esa asimetría era el defecto entero.
+
+  Lo que se hace es intercalar un espacio entre el `$` y el nombre **dentro del comentario**
+  (`$_VAR_X` → `$ _VAR_X`), que es justo lo que hace que la regex deje de casar, y que para
+  la base de datos es inerte: el comentario sigue siendo un comentario con el mismo texto.
+  El espacio tiene que ir detrás del `$`; puesto delante, el `$` sigue pegado al
+  identificador y la regex casa igual.
+
+  El parche se instala en `ConnectionPool.js`, en `buildSequelize()` —el único sitio del
+  proyecto donde nace una instancia Sequelize de endpoint—, así que cubre los endpoints que
+  ya existen y los que se creen después sin tocar la definición de ninguno. Se sombrea
+  `dialect.Query` con una subclase **de esa instancia** y no se asigna
+  `dialect.Query.formatBindParameters`, porque `Query` vive en el prototipo de la clase del
+  dialecto y las instancias del mismo motor comparten ese mismo objeto: una asignación
+  normal las cambiaría a todas, incluida `lib/db/sequelize.js`, que es la conexión propia de
+  la plataforma.
+
+  **Para el autor de endpoints:** se acabaron los 500 por menciones en comentarios. Da igual
+  si el comentario es de línea, de bloque, multilínea, o si menciona un nombre que también
+  es un parámetro real de la consulta.
+
+- **Un `$nombre` dentro de un literal de texto devolvía 200 con el dato cambiado.** El caso
+  hermano, que era peor porque no se veía: `SELECT 'coste: $name'` contestaba HTTP 200 y el
+  literal volvía como `coste: @name` — Sequelize sustituye el `$nombre` del literal por el
+  valor del parámetro, y quien consume la respuesta no tenía forma de saber que lo que leyó
+  no es lo que se escribió. Con un `"identificador entrecomillado"` igual, y con un cuerpo
+  `$$…$$` de PostgreSQL.
+
+  Aquí **no** se neutraliza, porque neutralizarlo exigiría reescribir el literal con
+  concatenación —`+` en T-SQL, `||` en el resto—, que depende del dialecto, cambia el texto
+  que recibe el cliente, y no se puede aplicar ni a un identificador entrecomillado ni
+  dentro de un cuerpo `$$…$$`, donde no hay por dónde partirlo. En su lugar, la consulta se
+  **rechaza con un 400** explicando el conflicto. Para las consultas que ya fallaban, es una
+  mejora; para las que "funcionaban" con el dato alterado, es el fin de un 200 que mentía.
+
+  **Para el cliente que llama a un endpoint:** es un cambio observable. Una consulta con un
+  `$nombre` dentro de un literal o de un identificador entrecomillado que antes respondía 200
+  ahora responde 400, con el motivo en el campo `error`. Para llegar a ese 400 antes
+  tenía que venir en el `bind` de la petición el nombre del parámetro; si no coincidía con
+  ninguno, la consulta reventaba con otro 500. El error lleva internamente
+  `code: "SQL_BIND_INSIDE_LITERAL"`, que va al log del servidor; el cuerpo de la respuesta
+  es `{ error, trace_id }` como el de cualquier otro error del handler.
+
+  **Para el operador:** nada que migrar. La lista es el texto de los comentarios de las
+  consultas, que ahora llevan un espacio de más delante del nombre; solo lo nota quien mire
+  el log de consultas del motor, y ese log antes no era citable porque la consulta no llegaba
+  a ejecutarse.
+
+  Pruebas: `dev/test/sql_comments_test.js` (contra MSSQL real, 19 casos) y los 48 casos de
+  `dev/test/sql_param_detection_test.js` para la parte pura.
+
 ## [13.11.31] - 2026-09-27
 
 ### Added

@@ -232,6 +232,78 @@ the file. The last full run, with all three engines up, was **52 handlers passin
 failing**; it needs port 30015 (HANA) reachable, so it is not something to re-run
 casually.
 
+## Comments in the SQL of the `SQL` handler
+
+[`sql_comments_test.js`](./sql_comments_test.js) is outside the packet for the same reason
+as the matrix: it needs a SQL Server container with the `sqltest` database, and the packet
+runs against whatever the project's `.env` says. It also needs the platform already
+running, which the packet does not do for out-of-packet suites.
+
+It checks that a comment written in the query — `-- …` or `/* … */` — changes nothing:
+not the rows, not the autodetected query type, not the detection of `$name` / `:name`. The
+three endpoints it exercises that live in the app `demo`
+(`/ofapi/examples/sql/mssql_sin_comentarios`, `…_comentarios`, `…_comentario_appvar`) are
+the same query with and without comments on top, so the comment is the only variable in
+the experiment.
+
+**As of 13.11.32 it reports 19 of 19 passing.** Before the fix it was 11 of 18, with 7
+known defects and one root cause.
+
+### What the defect was
+
+`src/lib/handler/utils.js` knew which `$name` were real placeholders and which were only
+text inside a comment, but that knowledge never reached the substitution. Sequelize does
+the substitution with a regex that sees no comments —
+`sql.replace(/\B\$(\$|\w+)/g, …)` in `dialects/abstract/query.js` — so:
+
+- a `$_VAR_…` in a comment, with no bind of that name in the request, was a **500**
+  `Named bind parameter "$_VAR_MSSQL_TEST" has no value in the given object`. The name
+  happens to look exactly like a named bind, which is why this is the case people hit.
+- a `$name` inside a **string literal** whose name collided with a real bind was
+  **silent corruption**: HTTP 200 and the literal came back rewritten (`'coste: $name'`
+  returned `coste: @name`).
+
+The trigger was the request, not the endpoint: with no bind parameters in the request the
+handler passed no `bind` to Sequelize, `formatBindParameters` was skipped, and the same
+endpoint answered 200. So the same query worked or failed depending on the payload.
+
+The other Sequelize substitution path, `injectReplacements` (`:name`, `?`), was never
+affected — it is a hand-written scanner that tracks literals, quoted identifiers,
+comments and `$$…$$` bodies. That asymmetry between the two paths *was* the whole defect.
+
+### What the fix is
+
+Two pieces, in two files, neither of them in the SQL handler itself:
+
+- `prepararSqlParaBinds()` in `src/lib/handler/utils.js` walks the query and, for every
+  `$name` that lives in a comment, inserts a space **between the `$` and the name**:
+  `$_VAR_X` becomes `$ _VAR_X`. That is what the regex needs to stop matching, and it is
+  inert for the database — the comment is still a comment with the same text. The space
+  has to go *after* the `$`; put before, `$` stays glued to the identifier and the regex
+  matches anyway.
+- `parchearBindsDeComentarios()` in `src/lib/handler/ConnectionPool.js` installs that on
+  the instance. It shadows `dialect.Query` with a subclass **of that instance** rather
+  than assigning to `dialect.Query.formatBindParameters`, because `Query` lives on the
+  dialect's *prototype* (`MssqlDialect.prototype.Query = Query`): two instances of the
+  same engine share the very same object, and a plain assignment patches every one of
+  them, including `lib/db/sequelize.js` — the platform's own connection, which has
+  nothing to do with this.
+
+The patch is in `buildSequelize()`, the only place in the project where a per-endpoint
+Sequelize instance is created, so every existing endpoint and every future one gets it
+without its definition being touched, and both `SQL` and `SQL_BULK_I` are covered.
+
+Literals are **not** neutralized. That would mean rewriting the literal with
+concatenation — `+` in T-SQL, `||` elsewhere — which depends on the dialect, changes the
+text the client receives, and cannot be applied at all to a quoted identifier or a
+`$$…$$` body, where there is nowhere to split. So instead a `$name` inside a literal or a
+quoted identifier is now **rejected with a 400** explaining the conflict. That is a change
+for the better even for queries that were already failing: the previous behaviour for a
+colliding literal was a 200 carrying data that was not what the endpoint said.
+
+`sql_param_detection_test.js` covers the pure half of this and is in the packet: 48 cases
+for the scanner and for `prepararSqlParaBinds()`, plus adversarial inputs.
+
 ## Adding a suite
 
 1. Write the file.

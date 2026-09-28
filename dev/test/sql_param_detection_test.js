@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   detectSqlParamStyle,
+  prepararSqlParaBinds,
   scanSqlPlaceholders,
 } from "../../src/lib/handler/utils.js";
 
@@ -97,6 +98,41 @@ const cases = [
     query: "/*\n :param\n $otro\n*/\nSELECT $x",
     style: "bind",
     bind: ["x"],
+    replacements: [],
+  },
+  // El nombre de una AppVar en un comentario: `$_VAR_X` tiene la forma de un
+  // bind nombrado ($ seguido de un identificador), asi que el escaner TIENE que
+  // descartarlo. El escaner lo hace; el defecto que queda abierto esta en otra
+  // parte — Sequelize sustituye con una regex que no ve comentarios
+  // (abstract/query.js:78) — y por eso estos casos son una guarda de regresión
+  // del escaner, no la prueba de que el handler entero funciona. La prueba de
+  // extremo a extremo, contra MSSQL, está en sql_comments_test.js.
+  {
+    name: "nombre de AppVar en comentario de bloque no cuenta como bind",
+    query: "/* sale de $_VAR_MSSQL_TEST */\nSELECT $x",
+    style: "bind",
+    bind: ["x"],
+    replacements: [],
+  },
+  {
+    name: "nombre de AppVar en comentario de línea no cuenta como bind",
+    query: "-- sale de $_VAR_MAIN_DB\nSELECT $x",
+    style: "bind",
+    bind: ["x"],
+    replacements: [],
+  },
+  {
+    name: "AppVar en comentario y consulta sin placeholders reales",
+    query: "-- $_VAR_MAIN_DB\nSELECT 1 AS uno",
+    style: "bind",
+    bind: [],
+    replacements: [],
+  },
+  {
+    name: "AppVar entre $ reales no los arrastra",
+    query: "/* $_VAR_A */ SELECT $x /* $_VAR_B */ WHERE y = $z",
+    style: "bind",
+    bind: ["x", "z"],
     replacements: [],
   },
 
@@ -231,6 +267,158 @@ for (const c of cases) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// `prepararSqlParaBinds`: lo que se le hace al SQL justo antes de que lo
+// sustituya Sequelize.
+//
+// El escaner de arriba ya descartaba los `$name` de los comentarios, y aun así la
+// consulta llegaba a MSSQL y moría con «Named bind parameter has no value»:
+// `scanSqlPlaceholders` decide QUÉ se manda, y la sustitución la hace Sequelize con
+// su propia regex (`\B\$(\$|\w+)`, en `dialects/abstract/query.js`), que es ciega a
+// los comentarios. Estos casos cubren el texto que se le pasa a esa regex.
+// ---------------------------------------------------------------------------
+
+/** @type {{name: string, query: string, sql: string, comentados: number, rechazados: string[]}[]} */
+const prepararCasos = [
+  {
+    name: "sin comentarios: el SQL no se toca",
+    query: "SELECT id FROM t WHERE n <> $name",
+    sql: "SELECT id FROM t WHERE n <> $name",
+    comentados: 0,
+    rechazados: [],
+  },
+  {
+    name: "comentario de bloque: espacio entre el $ y el nombre",
+    query: "/* sale de $_VAR_X */\nSELECT id FROM t",
+    sql: "/* sale de $ _VAR_X */\nSELECT id FROM t",
+    comentados: 1,
+    rechazados: [],
+  },
+  {
+    name: "comentario de línea: igual que el de bloque",
+    query: "-- sale de $_VAR_X\nSELECT id FROM t",
+    sql: "-- sale de $ _VAR_X\nSELECT id FROM t",
+    comentados: 1,
+    rechazados: [],
+  },
+  {
+    name: "el espacio va detrás del $, no delante (si fuera delante, la regex casaría igual)",
+    query: "/*$_VAR_X*/SELECT 1",
+    sql: "/*$ _VAR_X*/SELECT 1",
+    comentados: 1,
+    rechazados: [],
+  },
+  {
+    name: "varios $ en un comentario multilínea",
+    query: "/* l1 $_VAR_A\n l2 $b */\nSELECT 1",
+    sql: "/* l1 $ _VAR_A\n l2 $ b */\nSELECT 1",
+    comentados: 2,
+    rechazados: [],
+  },
+  {
+    name: "dos comentarios de línea en la misma línea",
+    query: "-- a $x -- b $y\nSELECT 1",
+    sql: "-- a $ x -- b $ y\nSELECT 1",
+    comentados: 2,
+    rechazados: [],
+  },
+  {
+    name: "comentario con $ que coincide con un bind real: el de código no se toca",
+    query: "/* filtro $name */\nSELECT id FROM t WHERE n <> $name",
+    sql: "/* filtro $ name */\nSELECT id FROM t WHERE n <> $name",
+    comentados: 1,
+    rechazados: [],
+  },
+  {
+    name: "comentario con : no hace nada: replacements ya era ciego a comentarios",
+    query: "/* legacy :name */\nSELECT id FROM t WHERE n <> $name",
+    sql: "/* legacy :name */\nSELECT id FROM t WHERE n <> $name",
+    comentados: 0,
+    rechazados: [],
+  },
+  {
+    name: "sin comentarios ni nada que hacer: devuelve la misma referencia",
+    query: "SELECT 1",
+    sql: "SELECT 1",
+    comentados: 0,
+    rechazados: [],
+  },
+
+  // --- Los literales no se neutralizan: se rechazan -------------------------
+  {
+    name: "literal con $name → rechazado, el SQL intacto",
+    query: "SELECT 'coste: $name' AS txt",
+    sql: "SELECT 'coste: $name' AS txt",
+    comentados: 0,
+    rechazados: ["name:literal"],
+  },
+  {
+    name: "comilla simple escapada: el $name sigue dentro del literal",
+    query: "SELECT 'it''s $name'",
+    sql: "SELECT 'it''s $name'",
+    comentados: 0,
+    rechazados: ["name:literal"],
+  },
+  {
+    name: "identificador entrecomillado con $name → rechazado",
+    query: 'SELECT 1 AS "col $name"',
+    sql: 'SELECT 1 AS "col $name"',
+    comentados: 0,
+    rechazados: ["name:identificador"],
+  },
+  {
+    name: "cuerpo dollar-quoted con $name → rechazado",
+    query: "SELECT $$ f $name $$",
+    sql: "SELECT $$ f $name $$",
+    comentados: 0,
+    rechazados: ["name:dollar_quoted"],
+  },
+  {
+    name: "un comentario y un literal a la vez: el comentario se neutraliza y el literal se rechaza",
+    query: "/* $_VAR_A */ SELECT 'x $name'",
+    sql: "/* $ _VAR_A */ SELECT 'x $name'",
+    comentados: 1,
+    rechazados: ["name:literal"],
+  },
+  {
+    name: "el $$ de un literal no se confunde con un nombre",
+    query: "SELECT '$$ $name'",
+    sql: "SELECT '$$ $name'",
+    comentados: 0,
+    rechazados: ["name:literal"],
+  },
+];
+
+for (const c of prepararCasos) {
+  const r = prepararSqlParaBinds(c.query);
+  const rechazo = r.rechazados.map((x) => `${x.name}:${x.contenedor}`);
+
+  try {
+    assert.strictEqual(r.sql, c.sql, `sql de "${c.query}"`);
+    assert.strictEqual(r.comentados, c.comentados, `comentados de "${c.query}"`);
+    assert.deepStrictEqual(rechazo, c.rechazados, `rechazados de "${c.query}"`);
+  } catch (error) {
+    failures++;
+    console.error(`FALLA: ${c.name}`);
+    console.error(`  ${error.message}`);
+  }
+}
+
+// Tampoco debe degradarse: siempre termina, y siempre con el contrato.
+for (const weird of [
+  "'", '"', "$$", "$tag$", "/*", "*/", "--", "SELECT $",
+  "/* $_VAR_X", "-- $_VAR_X", "'$_VAR_X", '"$_VAR_X', "$$$_VAR_X$$",
+  "/*".repeat(400) + " $_VAR_X " + "*/".repeat(400),
+  "$".repeat(2000),
+]) {
+  const r = prepararSqlParaBinds(weird);
+  assert.strictEqual(typeof r.sql, "string", `sql debe ser string para ${JSON.stringify(weird.slice(0, 20))}`);
+  assert.ok(Array.isArray(r.rechazados), `rechazados debe ser array para ${JSON.stringify(weird.slice(0, 20))}`);
+  assert.ok(Number.isInteger(r.comentados), `comentados debe ser entero para ${JSON.stringify(weird.slice(0, 20))}`);
+}
+
+const total = cases.length + prepararCasos.length;
+
 // El escáner no debe degradarse ante entradas adversariales (SQL de terceros,
 // AppVars, etc.): siempre termina y siempre devuelve el contrato esperado.
 for (const weird of [
@@ -247,8 +435,18 @@ for (const weird of [
   "::::",
   "SELECT $",
   "SELECT :",
+  // Un nombre de AppVar es `$` + identificador, o sea la forma exacta de un
+  // bind. Truncado a media palabra sigue siendo texto que no debe colgarse.
+  "$_VAR_",
+  "$_",
+  "/* $_VAR_MSSQL_TEST",
+  "-- $_VAR_MSSQL_TEST",
+  "'$_VAR_MSSQL_TEST",
+  '"$_VAR_MSSQL_TEST',
+  "$$$_VAR_MSSQL_TEST$$",
   "a".repeat(5000),
   "$$" + ":x".repeat(2000) + "$$",
+  "/* ".repeat(500) + " $_VAR_X " + "*/ ".repeat(500),
 ]) {
   const r = scanSqlPlaceholders(weird);
   assert.ok(Array.isArray(r.bind), `bind debe ser array para ${JSON.stringify(weird.slice(0, 20))}`);
@@ -260,8 +458,8 @@ for (const weird of [
 
 console.log(
   failures === 0
-    ? `OK  sql_param_detection_test: ${cases.length} casos + entradas adversariales`
-    : `FALLO sql_param_detection_test: ${failures} de ${cases.length} casos`,
+    ? `OK  sql_param_detection_test: ${total} casos + entradas adversariales`
+    : `FALLO sql_param_detection_test: ${failures} de ${total} casos`,
 );
 
 if (failures > 0) process.exit(1);

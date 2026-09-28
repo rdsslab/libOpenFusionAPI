@@ -395,15 +395,52 @@ export const parseJsonConfig = (
 // Detección de placeholders SQL
 // ------------------------------------------------------------------
 
+/** Contenedores en los que puede aparecer un placeholder, según dónde lo encontró el escáner. */
+const EN_CODIGO = "codigo";
+const EN_COMENTARIO_LINEA = "comentario_linea";
+const EN_COMENTARIO_BLOQUE = "comentario_bloque";
+const EN_LITERAL = "literal";
+const EN_IDENTIFICADOR = "identificador";
+const EN_DOLLAR_QUOTED = "dollar_quoted";
+
 /**
- * Analiza un SQL y separa los placeholders reales de los `:` que son sintaxis del
- * dialecto. Devuelve los nombres encontrados en cada estilo:
- *   - `bind`:       `$nombre` (param named de Sequelize)
- *   - `replacements`: `:nombre` (param posicional de Sequelize)
+ * Busca los `$nombre` que hay dentro de un trozo ya delimitado (un comentario, un
+ * literal…) y los etiqueta con el trozo que los contiene.
  *
- * Por qué hace falta un escáner y no una regex: una regex que busque `:nombre` sobre
- * el SQL crudo confunde sintaxis de PostgreSQL con placeholders. Los tres falsos
- * positivos reales son:
+ * El trozo se recorre con una copia propia de la regex y con el flag `g`, no con el
+ * `y` pegajoso del escáner principal: pegajosa solo prueba en `lastIndex` y no busca
+ * hacia delante, así que se encontraría con el espacio inicial de `/* sale de
+ * $_VAR_X *\/` y no avanzaría nunca. La copia es por `lastIndex`, que es estado
+ * compartido entre los dos recorridos.
+ *
+ * @param {object[]} tokens
+ * @param {RegExp} patron regex del escáner principal; se re-instancia en cada uso
+ * @param {string} query
+ * @param {number} desde inicio del trozo, inclusive
+ * @param {number} hasta fin del trozo, exclusive
+ * @param {string} contenedor
+ */
+const anotar = (tokens, patron, query, desde, hasta, contenedor) => {
+  if (desde >= hasta) return;
+  const re = new RegExp(patron.source, "g");
+  re.lastIndex = desde;
+  let m;
+  while ((m = re.exec(query)) !== null && m.index < hasta) {
+    tokens.push({ name: m[0].slice(1), estilo: "bind", contenedor, inicio: m.index, fin: m.index + m[0].length });
+    re.lastIndex = m.index + m[0].length;
+  }
+};
+
+/**
+ * Escáner carácter a carácter del SQL. Recorre la consulta una sola vez y anota
+ * cada placeholder que encuentra junto con **dónde** está, que es la información
+ * que después necesita tanto `scanSqlPlaceholders` (solo quiere los de código) como
+ * `prepararSqlParaBinds` (quiere distinguirlos de los que viven en un comentario o
+ * en un literal).
+ *
+ * Por qué un escáner y no una regex: una regex que busque `:nombre` o `$nombre` sobre
+ * el SQL crudo confunde sintaxis del dialecto con placeholders. Los falsos positivos
+ * reales son:
  *   - casts `::tipo`      → en `$event::json`, `:json` parece un placeholder
  *   - literales de texto  → en `to_char(now(), 'HH24:MI')`, `:MI` no lo es
  *   - comentarios y cuerpos `$$…$$` → un `:param` mencionado en un comentario de
@@ -415,16 +452,17 @@ export const parseJsonConfig = (
  * fallo es determinista: **toda** consulta PostgreSQL que mezcle `$param` con un
  * cast falla siempre.
  *
- * El escáner recorre el SQL carácter a carácter y salta por completo el contenido
- * de literales, comentarios y cadenas dollar-quoted, de modo que solo se reportan
- * los `:` y `$` que están en posición de placeholder.
+ * El escáner salta por completo el contenido de literales, identificadores
+ * entrecomillados, comentarios y cadenas dollar-quoted, de modo que solo se reportan
+ * los `:` y `$` que están en posición de placeholder, y los que sí aparecen dentro
+ * de esos trozos quedan etiquetados con el trozo que los contiene.
  *
  * @param {string} query
- * @returns {{bind: string[], replacements: string[]}}
+ * @returns {{name: string, estilo: "bind"|"replacements", contenedor: string, inicio: number, fin: number}[]}
  */
-export const scanSqlPlaceholders = (query) => {
-  const found = { bind: [], replacements: [] };
-  if (typeof query !== "string" || query.length === 0) return found;
+const scanSqlTokens = (query) => {
+  const tokens = [];
+  if (typeof query !== "string" || query.length === 0) return tokens;
 
   // Sticky (`y`) + `lastIndex` para anclar cada intento al cursor del escáner.
   const DOLLAR_QUOTED = /\$[A-Za-z_][A-Za-z0-9_]*\$|\$\$/y;
@@ -440,20 +478,25 @@ export const scanSqlPlaceholders = (query) => {
 
     // Comentario de línea: `-- …` hasta el fin de línea.
     if (c === "-" && next === "-") {
+      const desde = i + 2;
       while (i < n && query[i] !== "\n") i++;
+      anotar(tokens, NAMED_BIND, query, desde, i, EN_COMENTARIO_LINEA);
       continue;
     }
 
     // Comentario de bloque: `/* … */`.
     if (c === "/" && next === "*") {
+      const desde = i + 2;
       i += 2;
       while (i < n && !(query[i] === "*" && query[i + 1] === "/")) i++;
+      anotar(tokens, NAMED_BIND, query, desde, i, EN_COMENTARIO_BLOQUE);
       i += 2;
       continue;
     }
 
     // Literal de texto: `'…'`, con `''` como escape de comilla simple.
     if (c === "'") {
+      const desde = i + 1;
       i++;
       while (i < n) {
         if (query[i] === "'") {
@@ -466,11 +509,13 @@ export const scanSqlPlaceholders = (query) => {
         }
         i++;
       }
+      anotar(tokens, NAMED_BIND, query, desde, i, EN_LITERAL);
       continue;
     }
 
     // Identificador entrecomillado: `"…"`, con `""` como escape.
     if (c === '"') {
+      const desde = i + 1;
       i++;
       while (i < n) {
         if (query[i] === '"') {
@@ -483,6 +528,7 @@ export const scanSqlPlaceholders = (query) => {
         }
         i++;
       }
+      anotar(tokens, NAMED_BIND, query, desde, i, EN_IDENTIFICADOR);
       continue;
     }
 
@@ -494,7 +540,9 @@ export const scanSqlPlaceholders = (query) => {
       if (quoted) {
         const tag = quoted[0];
         const end = query.indexOf(tag, i + tag.length);
+        const desde = i + tag.length;
         i = end === -1 ? n : end + tag.length;
+        anotar(tokens, NAMED_BIND, query, desde, i, EN_DOLLAR_QUOTED);
         continue;
       }
 
@@ -503,7 +551,7 @@ export const scanSqlPlaceholders = (query) => {
       NAMED_BIND.lastIndex = i;
       const bind = NAMED_BIND.exec(query);
       if (bind) {
-        found.bind.push(bind[0].slice(1));
+        tokens.push({ name: bind[0].slice(1), estilo: "bind", contenedor: EN_CODIGO, inicio: i, fin: i + bind[0].length });
         i += bind[0].length;
         continue;
       }
@@ -522,7 +570,7 @@ export const scanSqlPlaceholders = (query) => {
       COLON_PARAM.lastIndex = i;
       const colon = COLON_PARAM.exec(query);
       if (colon) {
-        found.replacements.push(colon[0].slice(1));
+        tokens.push({ name: colon[0].slice(1), estilo: "replacements", contenedor: EN_CODIGO, inicio: i, fin: i + colon[0].length });
         i += colon[0].length;
         continue;
       }
@@ -534,7 +582,123 @@ export const scanSqlPlaceholders = (query) => {
     i++;
   }
 
+  return tokens;
+};
+
+/**
+ * Analiza un SQL y separa los placeholders reales de los `:` que son sintaxis del
+ * dialecto. Devuelve los nombres encontrados en cada estilo:
+ *   - `bind`:       `$nombre` (param named de Sequelize)
+ *   - `replacements`: `:nombre` (param posicional de Sequelize)
+ *
+ * Solo cuenta los que están en posición de placeholder; los que viven dentro de un
+ * literal, un identificador entrecomillado, un comentario o un cuerpo `$$…$$` se
+ * descartan, y para eso está `scanSqlTokens`, que además sabe dónde los encontró.
+ *
+ * @param {string} query
+ * @returns {{bind: string[], replacements: string[]}}
+ */
+export const scanSqlPlaceholders = (query) => {
+  const found = { bind: [], replacements: [] };
+  for (const token of scanSqlTokens(query)) {
+    if (token.contenedor !== EN_CODIGO) continue;
+    found[token.estilo].push(token.name);
+  }
   return found;
+};
+
+/**
+ * Deja el SQL listo para que lo sustituya Sequelize sin que los comentarios le
+ * confundan y sin que se esconda un `$nombre` dentro de un literal.
+ *
+ * ## Por qué hace falta
+ *
+ * Sequelize tiene dos caminos de sustitución y solo uno está ciego a los comentarios:
+ *
+ *   - `replacements` (`:nombre`, `?`) → `injectReplacements` (`lib/utils/sql.js`) es un
+ *     escáner a mano que lleva la cuenta de si está dentro de un literal, un
+ *     identificador entrecomillado, un comentario o un cuerpo `$$…$$`.
+ *   - `bind` (`$nombre`) → `formatBindParameters`
+ *     (`lib/dialects/abstract/query.js`) es una línea: `sql.replace(/\B\$(\$|\w+)/g, …)`.
+ *     Una regex no puede distinguir "un `$nombre` en el SQL" de "un `$nombre` que
+ *     alguien escribió en un comentario", así que cuenta los dos.
+ *
+ * La consecuencia es que escribir el nombre de una variable de aplicación dentro de
+ * un comentario —`/* sale de $_VAR_MSSQL_TEST *\/`— lo convierte en un parámetro que
+ * no existe, y la consulta entera falla con «Named bind parameter has no value in
+ * the given object». Da igual que el handler ya supiera ignorarlo: el escáner de
+ * `scanSqlPlaceholders` decide *qué se manda*, y la sustitución la hace Sequelize con
+ * su propia regex, que es ciega. Por eso esto se corrige aquí y no solo en el handler.
+ *
+ * ## Lo que se hace con los comentarios: neutralizarlos, no reescribirlos
+ *
+ * Se inserta un espacio entre el `$` y el nombre: `$_VAR_X` pasa a ser `$ _VAR_X`. La
+ * regex de Sequelize exige `\w+` justo detrás del `$`, así que deja de hacer match — y
+ * para el motor el comentario sigue siendo un comentario con el mismo texto. El
+ * espacio tiene que ir detrás del `$` y no delante: ` $VAR_X` deja el `$` pegado al
+ * identificador y la regex casa igual. Es inerte por construcción: no cambia ni una
+ * palabra de la consulta que el usuario escribió, y sirve igual para `--`, para
+ * `/* … *\/` y para comentarios multilínea.
+ *
+ * El precio es que el SQL que llega al servidor ya no es byte a byte el del endpoint:
+ * el texto de los comentarios lleva un espacio de más. Solo lo nota quien mire el log
+ * de consultas del motor, y ese log no tenía nada de lo que fiarse: antes de esto
+ * fallaba la consulta entera.
+ *
+ * ## Lo que se hace con los literales: no tocarlos, pero no dejarlos pasar
+ *
+ * Un `$nombre` dentro de un literal es un caso distinto y peor. Neutralizarlo también
+ * exigiría reescribir el literal con concatenación —`+` en T-SQL, `||` en el resto—,
+ * lo que cambia el texto que el cliente recibe, depende del dialecto y no se puede
+ * aplicar ni a un identificador entrecomillado ni dentro de un cuerpo `$$…$$`, donde no
+ * hay por dónde partirlo. Peor aún es lo que pasa hoy sin hacer nada: si el `$nombre`
+ * del literal coincide con un parámetro real, Sequelize lo sustituye y el endpoint
+ * responde **200 con el dato cambiado**. `SELECT 'coste: $name'` devuelve
+ * `coste: @name`, y quien consume la respuesta no tiene forma de saber que lo que
+ * leyó no es lo que se escribió. Un error es un problema; un 200 con el dato
+ * corrupto, no.
+ *
+ * Así que aquí no se neutraliza: se devuelve el aviso en `rechazados` y quien llama
+ * lanza un error explicando el conflicto. El autor del endpoint decide si renombra el
+ * parámetro o construye ese texto fuera del SQL.
+ *
+ * @param {string} query
+ * @returns {{sql: string, rechazados: {name: string, contenedor: string}[], comentados: number}}
+ */
+export const prepararSqlParaBinds = (query) => {
+  const sinNadaQueHacer = { sql: query, rechazados: [], comentados: 0 };
+  // Sin un solo `$` no hay ni bind que confundir ni nada que neutralizar: es el
+  // caso de la mayoría de las consultas, y evita recorrerlas enteras.
+  if (typeof query !== "string" || query.indexOf("$") === -1) return sinNadaQueHacer;
+
+  const tokens = scanSqlTokens(query);
+  if (tokens.length === 0) return sinNadaQueHacer;
+
+  const rechazados = [];
+  const neutralizar = [];
+  for (const token of tokens) {
+    if (token.estilo !== "bind") continue;
+    if (token.contenedor === EN_COMENTARIO_LINEA || token.contenedor === EN_COMENTARIO_BLOQUE) {
+      neutralizar.push(token);
+    } else if (token.contenedor !== EN_CODIGO) {
+      rechazados.push({ name: token.name, contenedor: token.contenedor });
+    }
+  }
+
+  if (rechazados.length === 0 && neutralizar.length === 0) return sinNadaQueHacer;
+
+  // De derecha a izquierda, para que los índices de los parches siguientes sigan
+  // apuntando al sitio correcto del texto original. El espacio va DESPUÉS del `$`
+  // —`$ _VAR_X`, no ` $VAR_X`— porque lo que hay que interrumpir es el `\w+` que la
+  // regex exige justo detrás del `$`. Puesto delante, `$` seguiría pegado al
+  // identificador y la regex casaría igual.
+  neutralizar.sort((a, b) => b.inicio - a.inicio);
+  let sql = query;
+  for (const token of neutralizar) {
+    sql = sql.slice(0, token.inicio + 1) + " " + sql.slice(token.inicio + 1);
+  }
+
+  return { sql, rechazados, comentados: neutralizar.length };
 };
 
 /**

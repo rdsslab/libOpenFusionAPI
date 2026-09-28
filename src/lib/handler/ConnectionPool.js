@@ -4,6 +4,7 @@ import Request from "tedious/lib/request.js";
 import BulkLoad from "tedious/lib/bulk-load.js";
 import { TYPES } from "tedious/lib/data-type.js";
 import { ISOLATION_LEVEL } from "tedious/lib/transaction.js";
+import { prepararSqlParaBinds } from "./utils.js";
 
 const tediousDialectModule = {
   Connection,
@@ -149,6 +150,94 @@ function wrapConnectionError(err, configHash) {
   return error;
 }
 
+/**
+ * Enseña a una instancia de Sequelize a no contar los comentarios como parámetros.
+ *
+ * ## El defecto
+ *
+ * `sequelize.query(sql, { bind })` sustituye los `$nombre` con
+ * `formatBindParameters` (`lib/dialects/abstract/query.js`), que es una regex:
+ * `sql.replace(/\B\$(\$|\w+)/g, …)`. Una regex no distingue "un `$nombre` en el SQL" de
+ * "un `$nombre` que alguien escribió en un comentario", así que cuenta los dos, y si
+ * el segundo no tiene valor lanza «Named bind parameter has no value in the given
+ * object». Basta con que el comentario mencione el nombre de una variable de
+ * aplicación —`/* sale de $_VAR_MSSQL_TEST *\/`— para que la consulta entera devuelva
+ * 500, aunque el comentario no signifique nada para el motor.
+ *
+ * El otro camino de sustitución de Sequelize, `injectReplacements` (`:nombre`, `?`),
+ * no sufre esto: es un escáner a mano que sí lleva la cuenta de literales,
+ * identificadores y comentarios. La asimetría entre los dos es todo el defecto.
+ *
+ * ## Por qué aquí y no en el handler
+ *
+ * Porque el escáner de `scanSqlPlaceholders` ya lo ignoraba, y aun así la consulta
+ * fallaba: ese escáner decide *qué* se manda, y la sustitución la hace Sequelize con
+ * su propia regex, que es ciega. Arreglarlo en el handler no arregla nada; el
+ * sitio donde la sustitución ocurre es esta instancia.
+ *
+ * ## Por qué una subclase y no un `dialect.Query.formatBindParameters = …`
+ *
+ * Porque `Query` está en el **prototipo** de la clase del dialecto
+ * (`MssqlDialect.prototype.Query = Query`, en `lib/dialects/mssql/index.js`): dos
+ * instancias del mismo motor comparten exactamente el mismo objeto, y asignarle el
+ * método a una las cambia a todas. Se comprobó: con A y B del mismo motor,
+ * `A.dialect.Query === B.dialect.Query` es `true`, y tras parchear A, B lo ve.
+ *
+ * Eso además arrastraría a `lib/db/sequelize.js`, la conexión propia de la
+ * plataforma, que no tiene nada que ver con esto. Aquí se sombrea con una subclase
+ * propia de **esta** instancia: las demás —incluida la de la plataforma— siguen con
+ * la clase original intacta.
+ *
+ * @param {import("sequelize").Sequelize} sequelize
+ */
+function parchearBindsDeComentarios(sequelize) {
+  const Original = sequelize?.dialect?.Query;
+  if (typeof Original !== "function") return;
+
+  class QueryConComentariosNeutros extends Original {
+    static formatBindParameters(sql, values, dialect, ...resto) {
+      // Sin `values` no hay sustitución que hacer y el camino rápido de Sequelize
+      // ya devuelve el SQL tal cual; no hace falta recorrerlo.
+      if (!values) return Original.formatBindParameters.call(this, sql, values, dialect, ...resto);
+
+      const { sql: limpio, rechazados } = prepararSqlParaBinds(sql);
+
+      if (rechazados.length > 0) {
+        // Un `$nombre` dentro de un literal no se puede neutralizar sin reescribir el
+        // literal con concatenación —`+` en T-SQL, `||` en el resto—, que depende del
+        // dialecto y no se puede aplicar ni a un identificador entrecomillado ni
+        // dentro de un cuerpo `$$…$$`. Y si no se hace nada, cuando el nombre del
+        // literal coincide con un parámetro real Sequelize lo sustituye y el endpoint
+        // responde 200 con el dato cambiado: `SELECT 'coste: $name'` devuelve
+        // `coste: @name`, sin ninguna señal para quien lo consume. Un 400 explícito
+        // es peor para el cliente y mucho mejor para quien escribe el endpoint.
+        const detalle = rechazados
+          .map((r) => `$${r.name} (${r.contenedor.replace(/_/g, " ")})`)
+          .join(", ");
+        const error = new Error(
+          `This query uses ${detalle} inside a quoted string or identifier. Sequelize ` +
+          `replaces every $name it finds in the text with the value of the parameter of ` +
+          `the same name, whatever quotes surround it, so the endpoint would answer 200 ` +
+          `with altered data. Rename the parameter, or build that text outside the SQL.`,
+        );
+        error.code = "SQL_BIND_INSIDE_LITERAL";
+        // Lo lee `replyException`, que toma el status de `error.statusCode`.
+        error.statusCode = 400;
+        throw error;
+      }
+
+      return Original.formatBindParameters.call(this, limpio, values, dialect, ...resto);
+    }
+  }
+
+  // Sombra propia de la instancia: no toca `MssqlDialect.prototype.Query`.
+  Object.defineProperty(sequelize.dialect, "Query", {
+    value: QueryConComentariosNeutros,
+    configurable: true,
+    writable: true,
+  });
+}
+
 class ConnectionPool {  constructor(maxConnections = getMaxConnections()) {
     this.connections = new Map();
     this.MAX_CONNECTIONS = maxConnections;
@@ -275,12 +364,21 @@ class ConnectionPool {  constructor(maxConnections = getMaxConnections()) {
     // `parse_bigint: true` devolvía el mismo texto que `false`. Se retiró la opción
     // entera en 13.11.10 en vez de dejarla cableada a algo que no hacía nada.
 
-    const buildSequelize = (options) => new Sequelize(
-      paramsSQL.config.database,
-      paramsSQL.config.username,
-      paramsSQL.config.password,
-      options
-    );
+    // Aquí es donde nace la instancia Sequelize de un endpoint, y es el único sitio
+    // del proyecto donde pasa: los endpoints que ya existen y los que se creen
+    // después pasan todos por esta función, sin tocar su definición. El parche va
+    // aquí y no en `sqlFunction` porque lo que falla es la sustitución de binds, que
+    // ocurre dentro de Sequelize y no en el handler.
+    const buildSequelize = (options) => {
+      const instancia = new Sequelize(
+        paramsSQL.config.database,
+        paramsSQL.config.username,
+        paramsSQL.config.password,
+        options
+      );
+      parchearBindsDeComentarios(instancia);
+      return instancia;
+    };
 
     let sequelize = buildSequelize(sequelizeOptions);
 
