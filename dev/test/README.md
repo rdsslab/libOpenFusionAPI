@@ -344,7 +344,45 @@ the `?` in place, so the comment text reaches the driver **byte for byte** as wr
 Getting at that loop at all required extracting it out of `executeQuery` into an exported
 `construirComandoHana()`. It is pure string work with no pool access, so it can be tested
 without a HANA server — which is the only reason this is covered by a test suite at all
-today, and the reason the second defect above was found.
+today.
+
+## Comments in the SQL of the `HANA` handler, against a real HANA
+
+[`hana_comments_live_test.js`](./hana_comments_live_test.js) is the second layer: same
+cases, but through HTTP against a live HANA, so it checks what the **engine** does with the
+text, not just what the substitutor hands to the driver. It is outside the packet for the
+usual reason, and it needs more setup than the others — the `items` / `counters` tables have
+to exist first. Unlike PostgreSQL and MSSQL, where the matrix creates them on startup, in
+HANA they have to be seeded by hand; the reference script is `hana_setup.mjs`. Without them
+every endpoint answers 500 and the failure looks like a credentials problem.
+
+**21 of 21 pass. Reverting just the comment state in the substitutor makes 10 of them fail
+against the real HANA**, which is the only proof that the fix is what makes them pass.
+
+That run turned up a third symptom that neither layer had found, and it is the nastiest of
+the three because it is the one that looks like something else entirely:
+
+```
+/* el filtro real es $name */  SELECT ... WHERE name <> $name
+→ HTTP 500  Too many parameters for the SQL statement
+```
+
+When the comment named something that was *also* a real placeholder, both got substituted,
+so the statement arrived with one more `?` than HANA counted. The same name is harmless
+unless it collides with a parameter in the request, so whether an endpoint broke depended on
+the payload it was called with. A test on the substituted text cannot catch it, because the
+arithmetic happens in the driver.
+
+Two more things the live run settled that the pure suite could not:
+
+- **`uid` / `pwd` work**, the pair the `AI_SKILL` documents, not just the `user` /
+  `password` pair the driver prefers. The pure suite never connects, so it could not have
+  found out.
+- **The apostrophe defect needs an *odd* number of quote characters in the comment to
+  bite.** `/* don't, really don't */` has two apostrophes, so the old toggle happened to
+  re-balance and the query worked; `/* it's a note */` has one and did not. Two of the
+  cases in the suite pass against the broken parser purely by luck, which is a fair measure
+  of how thin that code was.
 
 ## Adding a suite
 

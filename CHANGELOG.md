@@ -41,6 +41,14 @@ proyecto, ver [MIGRATION.md](./MIGRATION.md).
      `$a` suelto y la respuesta era un error de sintaxis de HANA, en lugar del fallo claro
      del caso 1. Un comentario neutro convertía un filtro en un error de sintaxis.
 
+  3. **El tercer síntoma solo aparecía al live, y es el más difícil de diagnosticar.**
+     Si el comentario mencionaba un nombre que **también** era un marcador real de la
+     consulta, los dos se sustituían: `/* el filtro real es $name */` con
+     `WHERE name <> $name` mandaba dos `?` para una sentencia que HANA contaba como de
+     uno, y la respuesta era `Too many parameters for the SQL statement`. O sea, el mismo
+     nombre exactamente que no daba ningún problema, y lo que fallaba dependía de si
+     por casualidad colisionaba con un parámetro de la petición.
+
   El arreglo añade al bucle el estado de comentario (`--` hasta el fin de línea, `/* … */`
   de bloque), de modo que dentro de un comentario no se lee ni una comilla ni un marcador.
   Aquí **no** hace falta neutralizar nada, al contrario que en `SQL`: HANA ya recibe los
@@ -48,15 +56,18 @@ proyecto, ver [MIGRATION.md](./MIGRATION.md).
   escribió el autor.
 
   **Para el autor de endpoints:** los comentarios vuelven a ser seguros en HANA, y da igual
-  si mencionan el nombre de una AppVar, un `:nombre`, un `$nombre` repetido, o si llevan
-  comillas y apóstrofos dentro. Un `$nombre` o `:nombre` dentro de un literal o de un
-  identificador entrecomillado nunca se tocó y se sigue sin tocar: es lo que escribió el
-  autor. `@nombre` no es marcador en este handler —el `@` solo se quita de las **claves**
-  del body, no del SQL— y eso tampoco cambia.
+  si mencionan el nombre de una AppVar, un `:nombre`, un `$nombre` repetido, el mismo
+  nombre que ya usas como parámetro, o si llevan comillas y apóstrofos dentro. Un
+  `$nombre` o `:nombre` dentro de un literal o de un identificador entrecomillado nunca se
+  tocó y se sigue sin tocar: es lo que escribió el autor. `@nombre` no es marcador en este
+  handler —el `@` solo se quita de las **claves** del body, no del SQL— y eso tampoco cambia.
 
-  Detalle en el `AI_SKILL.md` del handler HANA. Cobertura en
-  `dev/test/sql_hana_comments_test.js` (30 casos, puro, sin HANA delante), que falla 14 de
-  30 contra el bucle anterior.
+  Detalle en el `AI_SKILL.md` del handler HANA. Cobertura en dos capas, y las dos se han
+  visto fallar sin el arreglo: `dev/test/sql_hana_comments_test.js` (30 casos, puro, sin
+  HANA delante, falla 14 de 30 contra el bucle anterior) y
+  `dev/test/hana_comments_live_test.js` (21 casos contra un HANA express real, falla 10 de
+  21). El caso 3 de arriba no apareció hasta la segunda, porque el texto que sale hacia el
+  driver se puede comprobar sin base de datos pero el recuento de parámetros, no.
 
 - **`:nombre` y `@nombre` dentro de un comentario, en el handler `SQL`.** Comprobado que
   nunca fueron un problema y no hacía falta arreglar nada, pero conviene dejarlo escrito
