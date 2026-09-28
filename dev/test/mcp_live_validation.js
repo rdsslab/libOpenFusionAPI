@@ -458,17 +458,21 @@ class MCPValidation {
       params: { data: {} },
     });
     const up = upsertOut.parsed;
-    const idtask = Number(up?.result?.idtask ?? up?.idtask ?? up?.data?.idtask);
-    this._record("task-create", "upsert_interval_task crea la tarea", upsertOut.statusCode < 300 && Number.isFinite(idtask) && idtask > 0,
+    // `idtask` es un UUID (string) desde la migración; antes era un entero.
+    const idtaskRaw = up?.result?.idtask ?? up?.idtask ?? up?.data?.idtask ?? null;
+    const idtask = String(idtaskRaw ?? "");
+    const idtaskValido =
+      idtask.length > 0 && !Number.isFinite(Number(idtask)) && /^[0-9a-f]{8}-/i.test(idtask);
+    this._record("task-create", "upsert_interval_task crea la tarea", upsertOut.statusCode < 300 && idtaskValido,
       `statusCode=${upsertOut.statusCode} idtask=${idtask} parsed=${JSON.stringify(up).slice(0, 250)}`);
 
-    if (idtask > 0) {
+    if (idtaskValido) {
       this.resources.push({ kind: "task", idtask });
 
       const listOut = await this._call("list_interval_tasks", { idapp: DEMO_IDAPP });
       const lp = listOut.parsed;
       const arr = Array.isArray(lp) ? lp : (Array.isArray(lp?.data) ? lp.data : (Array.isArray(lp?.rows) ? lp.rows : []));
-      const found = arr.some(t => Number(t?.idtask) === idtask || t?.idtask === idtask);
+      const found = arr.some(t => String(t?.idtask) === idtask || t?.idtask === idtask);
       this._record("task-list", "list_interval_tasks incluye la tarea", listOut.statusCode < 300 && found,
         `tasks=${arr.length} found=${found}`);
 

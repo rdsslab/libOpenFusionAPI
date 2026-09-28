@@ -14,6 +14,7 @@ import { upsertBot, BOT_RUNTIME_ATTRIBUTES } from "./bot.js";
 import {
   upsertIntervalTask,
   INTERVAL_TASK_RUNTIME_ATTRIBUTES,
+  esUUIDTask,
 } from "./interval_task.js";
 import { upsertApiClient } from "./apiclient.js";
 import { upsertApiKey } from "./apikey.js";
@@ -136,13 +137,26 @@ function replace_Old_FUNCTIONS_NAMES(code) {
  * backup no necesariamente es el que quedó en base de datos. Lo mismo aplica al
  * `idkey`, que se reapunta con el mapa devuelto por restoreApiKeys.
  *
- * `idtask` es autoincremental, así que restaurar el del backup pisaría la tarea que
- * ocupara ese id en el destino —el mismo riesgo que ya se resolvió para ApiKey.idkey—.
- * La fila destino se resuelve en dos pasos: se acepta el `idtask` del backup sólo si esa
- * fila existe Y apunta al mismo endpoint (el caso normal, restaurar sobre la misma
- * instancia), y si no se busca por (idendpoint + note). No se cae a una clave natural más
- * laxa a propósito: emparejar de más fusionaría dos tareas distintas del mismo endpoint,
- * así que ante la duda se inserta dejando que la base asigne un idtask nuevo.
+ * `idtask` es un UUID que viaja en el backup, así que la fila destino se resuelve sin
+ * ambigüedad: si el `idtask` del backup existe y apunta al endpoint remapeado, esa es la
+ * tarea; si no existe, se inserta HONRANDO ese id. Honrarlo es lo que hace que seed y
+ * base concuerden desde el primer arranque y que un segundo arranque del seed no cree
+ * duplicados.
+ *
+ * Antes esto necesitaba una clave natural laxa —(idendpoint + `note`)— porque `idtask` era
+ * autoincremental y el mismo número designaba tareas distintas según el lado que se
+ * preguntara. Un autoincremental solo es único dentro de una base en un instante, y una
+ * identidad que tiene que valer entre instancias no puede serlo. `note` no era una clave
+ * natural: es texto libre, opcional y duplicable, así que dos tareas sin nota colapsaban en
+ * la misma búsqueda (`note IS NULL`, sin `ORDER BY`) y el restore pisaba la fila que le
+ * tocara, heredándole el `idtask` y dejando el historial de `ofapi_intervaltask_run`
+ * apuntando a la tarea equivocada. Ese arbitraje ya no existe porque no hay nada que
+ * arbitrar.
+ *
+ * Un `idtask` entero en el backup es de una base pre-UUID. No se busca: `WHERE idtask = 1`
+ * sobre una columna `uuid` es `ERROR 22P02` en PostgreSQL, y como las promesas se acumulan
+ * y se esperan al final, una sola fila inválida tumba el restore entero. Se descarta y la
+ * tarea se inserta con un UUID nuevo.
  *
  * La telemetría del scheduler (INTERVAL_TASK_RUNTIME_ATTRIBUTES) se descarta: es estado
  * observado, no configuración.
@@ -202,43 +216,35 @@ async function restoreIntervalTasks(tasks, idendpoint_map, idkey_map = new Map()
       }
     }
 
+    // `idtask` de la era UUID: es la identidad, y basta. Si la fila existe pero apunta
+    // a otro endpoint, no es esta tarea —el UUID pudo venir de otra app en un restore
+    // cruzado— y se inserta aparte en vez de pisarla.
+    //
+    // Ya no hace falta el segundo paso que comparaba `note`. Ese paso solo existía
+    // porque el `idtask` autoincremental no podía servir de identidad: el seed declaraba
+    // idtask 2..6 pero el seeder descartaba esos ids y dejaba que la base asignara 1..5,
+    // así que el idtask=3 del seed ("events scan") encontraba la fila idtask=3, que
+    // contenía el digest —el endpoint coincidía, así que la guarda no lo impedía— y la
+    // pisaba. Con un UUID el seed declara el id que la fila tiene, no uno que espera
+    // asignar, y ese escenario no es representable.
     let existing = null;
 
-    if (t.idtask != null) {
+    if (esUUIDTask(t.idtask)) {
       const byId = await IntervalTask.findByPk(t.idtask, {
-        attributes: ["idtask", "idendpoint", "note"],
+        attributes: ["idtask", "idendpoint"],
       });
-      // Sólo vale si apunta al mismo endpoint Y es la misma tarea: en otra instancia
-      // ese id puede ser la tarea de otra aplicación, y aun dentro de la misma
-      // aplicación dos tareas pueden compartir endpoint (las de "Admin Alerts"
-      // comparten `a1b2c3d4`). La `note` es la identidad que esta misma función ya
-      // usa en el fallback de abajo, así que el match por id no puede ser más laxo
-      // que él.
-      //
-      // Sin esta comprobación, el seed declaraba idtask 2..6 pero el seeder descarta
-      // esos ids y deja que la base asigne 1..5, de modo que el seed queda
-      // permanentemente desalineado. En el arranque siguiente, la tarea del seed
-      // idtask=3 ("events scan") encontraba la fila idtask=3, que contenía el
-      // *digest* —el endpoint coincide, así que la guarda anterior no lo impedía— y la
-      // pisaba; el digest se reinsertaba como fila nueva. Resultado: una tarea
-      // "events scan" duplicada disparando cada 60 s y el digest perdiendo su idtask
-      // (y con él la vinculación de su historial en ofapi_intervaltask_run).
-      if (byId && byId.idendpoint === target && (byId.note ?? null) === (t.note ?? null)) {
-        existing = byId;
-      }
-    }
-
-    if (!existing) {
-      existing = await IntervalTask.findOne({
-        where: { idendpoint: target, note: t.note ?? null },
-        attributes: ["idtask"],
-      });
+      if (byId && byId.idendpoint === target) existing = byId;
     }
 
     if (existing) {
       data.idtask = existing.idtask;
+    } else if (esUUIDTask(t.idtask)) {
+      // Se inserta honrando el UUID del backup. Es lo que hace que el restore sea
+      // idempotente y que el seed no se realinee: si el UUID no existe, la tarea es
+      // nueva y ese UUID es su identidad desde ahora.
+      data.idtask = t.idtask;
     } else {
-      // Deja que la base asigne el idtask para no pisar una tarea ajena
+      // Sin `idtask` utilizable: la base asigna uno.
       delete data.idtask;
     }
 
@@ -251,7 +257,13 @@ async function restoreIntervalTasks(tasks, idendpoint_map, idkey_map = new Map()
     // `upsertIntervalTask` es un MERGE con HOLDLOCK en MSSQL, asi que pasa por la
     // puerta: las tareas se acumulan en `pending` mientras este bucle sigue, y sin
     // la puerta salen todas a la vez.
-    const promesa = cierreEscrituras.ejecutar(() => upsertIntervalTask(data));
+    // `permitirIdDeclarado` habilita el alta con el UUID que trae el backup, que es lo
+    // que mantiene seed y restore consistentes. Sin él, `upsertIntervalTask` rechaza un
+    // id inexistente con 404 — el contrato público de `upsert_interval_task` — y el
+    // restore de una tarea nueva fallaría en vez de crearla.
+    const promesa = cierreEscrituras.ejecutar(() =>
+      upsertIntervalTask(data, { permitirIdDeclarado: true }),
+    );
     promesa.catch(() => {});
     pending.push(promesa);
   }
@@ -1555,27 +1567,31 @@ function validateSystemBots(seed_bots, db_bots) {
 }
 
 /**
- * Validación de existencia de las interval tasks sembradas por
- * (idendpoint + note). La clave natural es estable entre instancias porque los
- * endpoints seed usan idendpoints fijos.
+ * Validación de existencia de las interval tasks sembradas, por su `idtask`.
+ *
+ * El seed declara UUIDs fijos, así que la identidad es directa y estable entre
+ * instancias. Antes se armaba una clave con `${idendpoint}::${note}` dentro de un
+ * `Set`, lo que tenía dos fallos: dos tareas del seed comparten endpoint —"Admin
+ * Alerts - events scan" y "Admin Alerts - system digest" van a `a1b2c3d4`—, así que
+ * la clave dependía del texto de la nota; y dos tareas con la misma nota colapsaban
+ * en una sola entrada del `Set`, con lo que el chequeo daba `valid` aunque faltara
+ * una. `note` queda como etiqueta y solo aparece en el mensaje.
  */
 function validateSystemTasks(seed_tasks, db_tasks) {
   const result = { valid: true, differences: [] };
   if (!Array.isArray(seed_tasks) || seed_tasks.length === 0) return result;
 
-  const keys = new Set(
-    (db_tasks || []).map((t) => `${t.idendpoint}::${t.note ?? ""}`),
-  );
+  const presentes = new Set((db_tasks || []).map((t) => t.idtask));
 
   for (const st of seed_tasks) {
-    const key = `${st.idendpoint}::${st.note ?? ""}`;
-    if (!keys.has(key)) {
+    if (!presentes.has(st.idtask)) {
       result.valid = false;
       result.differences.push({
         type: "missing",
+        idtask: st.idtask,
         idendpoint: st.idendpoint,
         note: st.note ?? "",
-        message: `Interval task for endpoint ${st.idendpoint} (${st.note || "no note"}) not found`,
+        message: `Interval task ${st.idtask} for endpoint ${st.idendpoint} (${st.note || "no note"}) not found`,
       });
     }
   }

@@ -324,31 +324,112 @@ async function runTests() {
     "Configuration in the backup should still be applied"
   );
 
-  // 7. A task is matched by (idendpoint, note), not by its autoincremental id, so a
-  // backup taken on another instance cannot overwrite an unrelated task here.
-  console.log("[STEP 7/8] Interval task identity is resolved by natural key...");
+  // 7. La identidad de una tarea es su `idtask` UUID, y el restore la honra: un UUID no
+  // colisiona con otra tarea (a diferencia de un entero de secuencia, que sí podía), así
+  // que el backup siempre se refiere a "la misma tarea". Un `idtask` entero —backup de la
+  // era pre-UUID— no se busca: `WHERE idtask = 987...` sobre una columna uuid es
+  // `ERROR 22P02` en PostgreSQL, así que se descarta y la tarea se inserta con un UUID
+  // nuevo.
+  console.log("[STEP 7/8] Interval task identity is the idtask UUID...");
   const foreignBackup = deepClone(afterBackup);
   const foreignTask = foreignBackup.tasks.find(
     (t) => t.note === "new task from backup"
   );
-  const FOREIGN_IDTASK = 987654321;
-  foreignTask.idtask = FOREIGN_IDTASK;
+  const FOREIGN_UUID = "a1000000-0000-4000-8000-0000000000aa";
+  foreignTask.idtask = FOREIGN_UUID;
   foreignTask.interval = 602;
 
   await restoreAppFromBackup(foreignBackup);
 
-  const foreignRow = await IntervalTask.findByPk(FOREIGN_IDTASK);
-  assert.strictEqual(
+  const foreignRow = await IntervalTask.findByPk(FOREIGN_UUID);
+  assert.ok(
     foreignRow,
-    null,
-    "Restore must not create a row with the idtask coming from the backup"
+    "Restore must honor the idtask UUID coming from the backup"
   );
-  const matchedRow = await IntervalTask.findByPk(restoredTaskId);
   assert.strictEqual(
-    Number(matchedRow.interval),
+    Number(foreignRow.interval),
     602,
-    "The task with the same (idendpoint, note) should have been updated instead"
+    "The task restored with a foreign UUID should carry the backup configuration"
   );
+  const originalRow = await IntervalTask.findByPk(restoredTaskId);
+  assert.strictEqual(
+    Number(originalRow.interval),
+    601,
+    "The pre-existing task must keep its own interval: the foreign UUID did not overwrite it"
+  );
+
+  // Un idtask entero pre-UUID cae al alta con UUID nuevo, sin tocar la columna uuid.
+  const legacyBackup = deepClone(afterBackup);
+  const legacyTask = legacyBackup.tasks.find(
+    (t) => t.note === "new task from backup"
+  );
+  const LEGACY_INTEGER_IDTASK = 987654321;
+  legacyTask.idtask = LEGACY_INTEGER_IDTASK;
+  legacyTask.interval = 603;
+
+  await restoreAppFromBackup(legacyBackup);
+
+  const legacyRow = await IntervalTask.findByPk(Number(LEGACY_INTEGER_IDTASK));
+  assert.strictEqual(
+    legacyRow,
+    null,
+    "A legacy integer idtask must not be used against the UUID column"
+  );
+
+  // 7b. Regresión: dos tareas del mismo endpoint SIN nota (y un restore que trae una
+  // tercera sin nota) deben sobrevivir sin pisarse. Antes, `note` era la clave natural
+  // de reemplazo y `note = NULL` matcheaba todas las filas del endpoint: `findOne`
+  // sin `ORDER BY` elegía una arbitraria y el restore le heredaba el idtask — el
+  // escenario exacto de "dos filas sin nota, vuelve el problema inicial".
+  console.log("[STEP 7b/8] Tasks sharing an endpoint and a NULL note stay distinct...");
+  const nullEndpoint = chatEndpoint.idendpoint;
+  const nullA = await IntervalTask.create({
+    idendpoint: nullEndpoint,
+    enabled: true,
+    interval: 111,
+    note: null,
+  });
+  const nullB = await IntervalTask.create({
+    idendpoint: nullEndpoint,
+    enabled: true,
+    interval: 222,
+    note: null,
+  });
+
+  const nullBackup = await getAppBackupById(TEST_APP_ID);
+  const nullTaskC = {
+    idendpoint: nullEndpoint,
+    enabled: true,
+    interval: 333,
+    note: null,
+  };
+  nullBackup.tasks = nullBackup.tasks || [];
+  nullBackup.tasks.push(nullTaskC);
+  await restoreAppFromBackup(nullBackup);
+
+  const rowA = await IntervalTask.findByPk(nullA.idtask);
+  const rowB = await IntervalTask.findByPk(nullB.idtask);
+  assert.ok(rowA, "Task A (note NULL) must still exist after the restore");
+  assert.ok(rowB, "Task B (note NULL) must still exist after the restore");
+  assert.strictEqual(Number(rowA.interval), 111, "Task A must keep its own configuration");
+  assert.strictEqual(Number(rowB.interval), 222, "Task B must keep its own configuration");
+
+  const rowC = await IntervalTask.findOne({
+    where: { idendpoint: nullEndpoint, interval: 333, note: null },
+  });
+  assert.ok(rowC, "Task C from the backup should have been inserted");
+  assert.notStrictEqual(
+    rowC.idtask,
+    nullA.idtask,
+    "Task C must not reuse task A's idtask"
+  );
+  assert.notStrictEqual(
+    rowC.idtask,
+    nullB.idtask,
+    "Task C must not reuse task B's idtask"
+  );
+
+  await IntervalTask.destroy({ where: { idtask: [nullA.idtask, nullB.idtask, rowC.idtask] } });
 
   // 8. Bots round-trip: configuration survives, observed runtime state does not.
   console.log("[STEP 8/8] Bot round-trip through backup and restore...");

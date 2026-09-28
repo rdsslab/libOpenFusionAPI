@@ -31,7 +31,7 @@ schedule, payload and credentials; the endpoint continues to own all business lo
 | Window start/end | Empty | Optional daily `HH:MM` range in the selected timezone. |
 | Days | Empty | Optional weekdays, `1` Monday through `7` Sunday. Example: `1,2,3,4,5`. |
 | Date Start/End | Empty | Optional lifetime boundaries. They do not define frequency. |
-| Note | Descriptive text | Identifies the purpose and helps match tasks during backup restore. |
+| Note | Descriptive text | Free-text label for humans. It is not part of any key: two tasks may share it and a task may have none. |
 | Max failed attempts | 10 | Disables the task after this many consecutive failures. |
 | History limit | 50 | Number of runs retained. `0` disables history. |
 

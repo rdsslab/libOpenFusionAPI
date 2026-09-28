@@ -1676,12 +1676,21 @@ export const ClientTransactions = dbsequelize.define(
 export const IntervalTask = dbsequelize.define(
   ModelNames.IntervalTask,
   {
+    // UUID y no autoincremental, a propósito. La identidad de una tarea tiene que
+    // valer entre instancias: un `idtask` autoincremental designa una fila de ESTA
+    // base, y un backup restaurado en otra —o el mismo seed, que descartaba los ids que
+    // declara— lo encuentra apuntando a otra tarea. Con un UUID generado una sola vez
+    // y que viaja en el backup, el match es determinista. El UUID nace del
+    // `defaultValue: UUIDV4` del modelo —que Sequelize aplica en JS al INSERT, igual
+    // que en las demás PK uuid del repo (auditoría, idendpoint, idbot...), y no como
+    // un DEFAULT de la base, que es justo lo que `sync({alter:true})` no sabe llevar a
+    // MSSQL— o llega declarado en el payload (seed y restore del backup), que es el
+    // caso en que `upsertIntervalTask` y `restoreIntervalTasks` lo honran.
     idtask: {
-      type: DataTypes.BIGINT,
+      type: DataTypes.UUID,
       primaryKey: true,
-      autoIncrement: true,
       allowNull: false,
-      unique: true,
+      defaultValue: DataTypes.UUIDV4,
     },
     iduser: {
       type: DataTypes.BIGINT,
@@ -1826,7 +1835,8 @@ export const IntervalTask = dbsequelize.define(
     note: {
       type: DataTypes.TEXT,
       allowNull: true,
-      comment: "Notes",
+      comment:
+        "Texto libre para el usuario. NO es parte de ninguna llave: dos tareas pueden compartirla y una tarea puede no tenerla",
     },
   },
   {
@@ -1859,7 +1869,7 @@ export const IntervalTaskRun = dbsequelize.define(
       unique: true,
     },
     idtask: {
-      type: DataTypes.BIGINT,
+      type: DataTypes.UUID,
       allowNull: false,
       comment: "Tarea a la que pertenece la ejecución",
     },

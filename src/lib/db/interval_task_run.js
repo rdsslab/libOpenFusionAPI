@@ -41,7 +41,7 @@ export function truncateResponse(response) {
  * Registra una ejecución. Nunca lanza: el historial es observabilidad, no puede tumbar
  * la ejecución de la tarea.
  *
- * @param {{idtask: number|string, started_at: Date, finished_at?: Date, duration_ms?: number, status: number, http_status?: number|null, error?: string|null, response?: any}} data
+ * @param {{idtask: string, started_at: Date, finished_at?: Date, duration_ms?: number, status: number, http_status?: number|null, error?: string|null, response?: any}} data
  * @returns {Promise<object|null>}
  */
 export const createIntervalTaskRun = async (data) => {
@@ -65,7 +65,7 @@ export const createIntervalTaskRun = async (data) => {
 /**
  * Deja solo las `keep` ejecuciones más recientes de la tarea.
  *
- * @param {number|string} idtask
+ * @param {string} idtask
  * @param {number} keep 0 borra todo el historial de la tarea
  * @returns {Promise<number>} filas borradas
  */
@@ -103,7 +103,7 @@ export const pruneIntervalTaskRuns = async (idtask, keep) => {
 /**
  * Últimas ejecuciones de una tarea, de la más reciente a la más antigua.
  *
- * @param {number|string} idtask
+ * @param {string} idtask
  * @param {{limit?: number}} [options]
  * @returns {Promise<object[]>}
  */

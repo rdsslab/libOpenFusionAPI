@@ -14,8 +14,8 @@ ofapi_bot (Admin Notifications Bot)  ── on-demand replies + menu
         ▼
 
 Interval tasks (timer/worker) ──► POST /api/system/admin/alerts/auto
-  idtask 3 "Admin Alerts - events scan"  (interval 60 s)
-  idtask 4 "Admin Alerts - system digest" (interval 86400 s)
+  idtask 5eed0002-0000-4000-8000-000000000003 "Admin Alerts - events scan"  (interval 60 s)
+  idtask 5eed0003-0000-4000-8000-000000000004 "Admin Alerts - system digest" (interval 86400 s)
         │   app system token (getSystemToken), params.data = { mode }
         ▼
 fnAdminAutoAlerts  (src/lib/server/functions/system/prd/alerts/index.js)

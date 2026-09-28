@@ -35,6 +35,27 @@ export const INTERVAL_TASK_RUNTIME_ATTRIBUTES = [
   "last_response",
 ];
 
+/**
+ * Forma de un `idtask` de la era UUID.
+ *
+ * Existe por el restore: un backup tomado antes de la migración trae `idtask`
+ * enteros, y consultar `WHERE idtask = 1` sobre una columna `uuid` no devuelve
+ * vacío — en PostgreSQL es `ERROR 22P02 invalid input syntax for type uuid`, que
+ * aborta la sentencia. Como `restoreIntervalTasks` acumula las promesas y las
+ * espera al final, una sola fila inválida tumba el restore entero. Por eso el
+ * filtro va ANTES de cualquier `findByPk`, no en el `catch`.
+ */
+export const UUID_TASK_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * @param {*} valor
+ * @returns {boolean} si el valor tiene forma de `idtask` de la era UUID
+ */
+export function esUUIDTask(valor) {
+  return UUID_TASK_RE.test(String(valor ?? ""));
+}
+
 /** Campos cuyo cambio invalida el `next_run` ya calculado. */
 const SCHEDULE_FIELDS = [
   "interval",
@@ -58,8 +79,21 @@ const SCHEDULE_FIELDS = [
  * merge, actualizar una tarea enviando sólo `{idtask, note}` devolvía `interval` a 300 y
  * apagaba la tarea. Un UPDATE es por tanto parcial: sólo se tocan las claves presentes,
  * distinguiendo `undefined` (no enviada, se conserva) de `null` (enviada vacía, se limpia).
+ *
+ * `idtask` es UUID (`models.js`). Con una PK autoincremental, un id declarado por el
+ * llamador era un riesgo —podía pisar la fila de otra app— y por eso se rechazaba
+ * siempre. Un UUID no tiene ese problema, así que el alta con id declarado se habilita
+ * solo para el camino interno (`permitirIdDeclarado`), que es el que necesita que seed
+ * y backup conserven la identidad que traen.
+ *
+ * @param {object} data
+ * @param {{permitirIdDeclarado?: boolean}} [opciones] `permitirIdDeclarado` hace que un
+ *   `idtask` UUID que no existe sea un alta en vez de un 404. Solo para seed y restore.
+ * @returns {Promise<{result: object, created: boolean, previous: object|null}>}
  */
-export const upsertIntervalTask = async (data) => {
+export const upsertIntervalTask = async (data, opciones = {}) => {
+  const { permitirIdDeclarado = false } = opciones;
+
   try {
     let payload = { ...data };
     let previous = null;
@@ -68,37 +102,56 @@ export const upsertIntervalTask = async (data) => {
       previous = await getIntervalTaskById(payload.idtask);
 
       if (!previous) {
-        // Sin esto Sequelize insertaría una fila con el idtask forzado, pisando el
-        // autoincremental y, en una BD ajena, la tarea de otra app.
-        const error = new Error(
-          `Interval task ${payload.idtask} does not exist. Omit 'idtask' to create a new task.`,
+        if (permitirIdDeclarado) {
+          // Camino interno (seed / restore del backup): el `idtask` que trae es la
+          // identidad, y un UUID no puede colisionar con otra tarea, así que se honra
+          // sin tocar `payload.idtask` y el `upsert()` de abajo lo inserta tal cual.
+          // Un `idtask` entero es de un backup pre-UUID: no se busca —`WHERE idtask =
+          // 1` sobre una columna uuid aborta con 22P02 en PostgreSQL y con eso caía el
+          // restore entero— y tampoco se intenta insertar como UUID: se descarta y la
+          // base asigna uno nuevo. La telemetría se descarta igual que en el merge:
+          // si el alta trajera `status: running`, la tarea nacería colgada.
+          for (const field of INTERVAL_TASK_RUNTIME_ATTRIBUTES) delete payload[field];
+          if (!esUUIDTask(payload.idtask)) delete payload.idtask;
+        } else {
+          // Contrato público de `upsert_interval_task`: un `idtask` que no existe es
+          // un 404, no un alta. Antes un entero inexistente también caía aquí; hoy un
+          // entero no puede existir, pero se rechaza igual.
+          const error = new Error(
+            `Interval task ${payload.idtask} does not exist. Omit 'idtask' to create a new task.`,
+          );
+          error.code = "INTERVAL_TASK_NOT_FOUND";
+          throw error;
+        }
+      } else {
+        const stored = previous.get({ plain: true });
+
+        for (const field of INTERVAL_TASK_RUNTIME_ATTRIBUTES) delete payload[field];
+
+        // `params` se reemplaza entero a propósito: un merge profundo haría imposible borrar
+        // una clave del payload que viaja al endpoint.
+        const merged = { ...stored };
+        for (const [key, value] of Object.entries(payload)) {
+          if (value !== undefined) merged[key] = value;
+        }
+
+        // `idtask` no puede derivar por el merge: `stored` viene de buscar por
+        // `payload.idtask`, así que ambos son el mismo valor por construcción. Esa es la
+        // diferencia con la época en que la identidad era `(idendpoint, note)`: un update
+        // podía arrastrar la fila equivocada. Hoy la identidad es un UUID que no se mueve.
+
+        // Si cambió la programación, el next_run guardado ya no corresponde a nada: se
+        // recalcula para que el cambio surta efecto sin esperar al ciclo viejo.
+        const scheduleChanged = SCHEDULE_FIELDS.some(
+          (field) => payload[field] !== undefined && payload[field] !== stored[field],
         );
-        error.code = "INTERVAL_TASK_NOT_FOUND";
-        throw error;
+
+        if (scheduleChanged) {
+          merged.next_run = computeNextRun(merged, { from: new Date(), anchor: null });
+        }
+
+        payload = merged;
       }
-
-      const stored = previous.get({ plain: true });
-
-      for (const field of INTERVAL_TASK_RUNTIME_ATTRIBUTES) delete payload[field];
-
-      // `params` se reemplaza entero a propósito: un merge profundo haría imposible borrar
-      // una clave del payload que viaja al endpoint.
-      const merged = { ...stored };
-      for (const [key, value] of Object.entries(payload)) {
-        if (value !== undefined) merged[key] = value;
-      }
-
-      // Si cambió la programación, el next_run guardado ya no corresponde a nada: se
-      // recalcula para que el cambio surta efecto sin esperar al ciclo viejo.
-      const scheduleChanged = SCHEDULE_FIELDS.some(
-        (field) => payload[field] !== undefined && payload[field] !== stored[field],
-      );
-
-      if (scheduleChanged) {
-        merged.next_run = computeNextRun(merged, { from: new Date(), anchor: null });
-      }
-
-      payload = merged;
     }
 
     if (payload.schedule_mode === "cron") {
@@ -116,14 +169,12 @@ export const upsertIntervalTask = async (data) => {
       }
     }
 
-    // Sin `idtask` el pedido es explícito: una tarea nueva, con el id que asigne la
-    // base. Eso no es un `upsert`, es un alta, y `upsert()` no lo expresa en MSSQL:
-    // su `upsertQuery` exige que la carga útil traiga la clave primaria o alguna
-    // única, y si no encuentra ninguna responde "Primary Key or Unique key should
-    // be passed to upsert query". En PostgreSQL y SQLite no fallaba, pero por
-    // casualidad: `upsertKeys` cae a la PK, el conflicto nunca llega a producirse
-    // porque `idtask` lo asigna la secuencia, y el resultado era un INSERT con
-    // otro nombre. `create()` dice exactamente lo mismo en los tres motores.
+    // Alta: sin `idtask`, con el UUID que asigne el modelo (`defaultValue: UUIDV4`), o
+    // con un `idtask` declarado que ya se descartó por no ser de la era UUID. Eso no es
+    // un `upsert`, es un alta, y `upsert()` no lo expresa en MSSQL: su `upsertQuery`
+    // exige que la carga útil traiga la clave primaria o alguna única, y si no
+    // encuentra ninguna responde "Primary Key or Unique key should be passed to upsert
+    // query". `create()` dice exactamente lo mismo en los tres motores.
     if (payload.idtask === undefined || payload.idtask === null) {
       const creada = await IntervalTask.create(payload);
       return { result: creada, created: true, previous: null };
@@ -683,7 +734,7 @@ const camposDeTransicion = (task, new_status, result, exec_ms, now) => {
  * `catch` lo devuelve como `success: false` y la tarea se reintenta en el ciclo
  * siguiente, que es lo correcto.
  *
- * @param {number|string} idtask
+ * @param {string} idtask
  * @param {number} new_status
  * @param {unknown} [result]
  * @param {number} [time_execution_ms]
@@ -841,7 +892,7 @@ export const rescheduleIntervalTask = async (task) => {
  * por máquina y no solo un texto. Para desbloquear una tarea apagada por el backoff
  * existe `reset_interval_task_attempts`, que sí la reactiva.
  *
- * @param {number|string} idtask
+ * @param {string} idtask
  * @returns {Promise<{success: boolean, message: string, code?: number, reason?: string}>}
  */
 export const runNowIntervalTask = async (idtask) => {
@@ -887,7 +938,7 @@ export const runNowIntervalTask = async (idtask) => {
 
 /**
  * Reinicia el contador de fallos y reactiva la tarea si el backoff la deshabilitó.
- * @param {number|string} idtask
+ * @param {string} idtask
  */
 export const resetIntervalTaskAttempts = async (idtask) => {
   try {

@@ -65,7 +65,7 @@ Configuration you own:
 
 | Field | Default | Meaning |
 |---|---|---|
-| `idtask` | auto | Primary key. Omit to create; send it to update. |
+| `idtask` | UUID | Primary key, a UUID generated once and returned on INSERT. Omit to create; send it to update. Stable across backups and instances — it is the task's identity. |
 | `idendpoint` | — | **Required.** The endpoint that gets called. |
 | `enabled` | `false` | Whether the scheduler runs it. **A new task does not run until you set this to `true`.** |
 | `schedule_mode` | `interval` | `interval` or `cron`. |
@@ -82,7 +82,7 @@ Configuration you own:
 | `allow_concurrent` | `false` | Whether a new execution may start while the previous one runs. |
 | `max_failed_attempts` | `10` | Consecutive failures before the task is auto-disabled. |
 | `history_limit` | `50` | Executions kept per task. `0` disables history. |
-| `note` | — | Free text. Also the field used to match a task when restoring an app backup, so keep it stable and descriptive. |
+| `note` | — | Free-text label. Not part of any key: two tasks may share it and a task may have none. To identify a task use its `idtask`, which is stable across backups and instances. |
 
 Telemetry the scheduler owns — read it, never write it:
 
@@ -230,7 +230,9 @@ loses the whole configuration.
 ## 9. Backup and restore
 
 Interval tasks travel inside the application backup, at the root of the payload as `tasks`.
-Telemetry is not restored (the task comes back as waiting, with zero failures), `idtask` and `idkey`
-are remapped to the target instance, and the task is matched to an existing one by
-`(idendpoint, note)`. Tasks that exist in the destination but are absent from the backup are not
+Telemetry is not restored (the task comes back as waiting, with zero failures) and `idkey` is
+remapped to the target instance. `idtask` is the identity: the UUID from the backup is matched
+against the destination as-is, and if the row does not exist it is inserted honoring that UUID —
+there is no numeric id to collide with, so the restore is idempotent by construction. `note` plays
+no part in the match. Tasks that exist in the destination but are absent from the backup are not
 deleted.

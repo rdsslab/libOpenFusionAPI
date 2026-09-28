@@ -181,7 +181,7 @@ export const system_app = {
   ],
   "tasks": [
     {
-      "idtask": 2,
+      "idtask": "5eed0001-0000-4000-8000-000000000002",
       "idendpoint": "6a0e8a10-c0a1-4d2f-b3c4-9e0d8a7b6f05",
       "schedule_mode": "cron",
       "cron": "0 3 * * *",
@@ -198,7 +198,7 @@ export const system_app = {
       "idkey": null
     },
     {
-      "idtask": 3,
+      "idtask": "5eed0002-0000-4000-8000-000000000003",
       "idendpoint": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
       "schedule_mode": "interval",
       "interval": 60,
@@ -217,7 +217,7 @@ export const system_app = {
       "idkey": null
     },
     {
-      "idtask": 4,
+      "idtask": "5eed0003-0000-4000-8000-000000000004",
       "idendpoint": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
       "schedule_mode": "interval",
       "interval": 86400,
@@ -237,7 +237,7 @@ export const system_app = {
       "idkey": null
     },
     {
-      "idtask": 5,
+      "idtask": "5eed0004-0000-4000-8000-000000000005",
       "idendpoint": "b8c9d0e1-f2a3-4b5c-a6d7-e8f9a0b1c2d3",
       "schedule_mode": "interval",
       "interval": 300,
@@ -256,7 +256,7 @@ export const system_app = {
       "idkey": null
     },
     {
-      "idtask": 6,
+      "idtask": "5eed0005-0000-4000-8000-000000000006",
       "idendpoint": "c3d4e5f6-7a8b-4c9d-ab0e-f1a2b3c4d5e6",
       "schedule_mode": "cron",
       "cron": "30 3 * * *",
@@ -303,12 +303,14 @@ export const system_app = {
                 "description": "Task id to delete, or an array of task ids for a batch deletion. Obtain the values from 'list_interval_tasks'.",
                 "anyOf": [
                   {
-                    "type": "integer"
+                    "type": "string",
+                    "format": "uuid"
                   },
                   {
                     "type": "array",
                     "items": {
-                      "type": "integer"
+                      "type": "string",
+                      "format": "uuid"
                     },
                     "minItems": 1
                   }
@@ -7038,7 +7040,7 @@ export const system_app = {
         "enabled": true,
         "name": "upsert_interval_task",
         "title": "Upsert Interval Task",
-        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nSchedules an EXISTING endpoint to run unattended. The task holds no code of its own: the logic stays in the endpoint, which remains callable by hand. Call 'get_interval_task_skill' first if you have not scheduled a task before.\nScheduling: `schedule_mode` is `interval` (every `interval` seconds, the default) or `cron` (a 5 or 6 field expression in `cron`, interpreted in `timezone`). Either mode can be narrowed to an execution window with `window_start`, `window_end` and `window_days`, and bounded in time with `datestart` and `dateend`.\nOperation mode: omit `idtask` for INSERT (the id is generated automatically); send an existing `idtask` for UPDATE. An UPDATE is a PARTIAL merge over the stored row: fields you do not send keep their current value, an explicit null clears the field, and `params` is the one field replaced whole rather than merged key by key. An `idtask` that does not exist is rejected with 404 instead of creating a task with that id.\nIMPORTANT: `enabled` defaults to false, so a task created without `enabled: true` is stored but never runs. That is the recommended way to create one: send `enabled: true` together with a LONG `interval`, so the task is live but will not fire on its own while you verify it, force one execution with 'run_interval_task_now', check the outcome with 'get_interval_task_runs', and only then set the real `interval` or `cron`. Do NOT create it disabled and then try to force it: that combination cannot execute, because the scheduler only picks up tasks with `enabled: true`.\nWarnings: on success the response may carry a `warnings` array with non-blocking observations — currently an `exec_time_limit` that disagrees with the endpoint's own timeout, where the endpoint's timeout is the one that actually aborts the run. The write succeeded either way, so read `warnings` and surface it instead of treating it as an error.\nErrors: 400 with `code: \"MISSING_IDENDPOINT\"` when creating without `idendpoint`; 400 `cron is required when schedule_mode is 'cron'` when the expression is missing, and 400 `Invalid cron expression: <reason>` when it does not parse; 404 with `code: \"INTERVAL_TASK_NOT_FOUND\"` when the `idtask` does not exist. Response: `{result, created}`, where `created` is true only on INSERT.",
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nSchedules an EXISTING endpoint to run unattended. The task holds no code of its own: the logic stays in the endpoint, which remains callable by hand. Call 'get_interval_task_skill' first if you have not scheduled a task before.\nScheduling: `schedule_mode` is `interval` (every `interval` seconds, the default) or `cron` (a 5 or 6 field expression in `cron`, interpreted in `timezone`). Either mode can be narrowed to an execution window with `window_start`, `window_end` and `window_days`, and bounded in time with `datestart` and `dateend`.\nOperation mode: omit `idtask` for INSERT (a UUID is generated and returned for the new task); send an existing `idtask` for UPDATE. An UPDATE is a PARTIAL merge over the stored row: fields you do not send keep their current value, an explicit null clears the field, and `params` is the one field replaced whole rather than merged key by key. An `idtask` that does not exist is rejected with 404 instead of creating a task with that id.\nIMPORTANT: `enabled` defaults to false, so a task created without `enabled: true` is stored but never runs. That is the recommended way to create one: send `enabled: true` together with a LONG `interval`, so the task is live but will not fire on its own while you verify it, force one execution with 'run_interval_task_now', check the outcome with 'get_interval_task_runs', and only then set the real `interval` or `cron`. Do NOT create it disabled and then try to force it: that combination cannot execute, because the scheduler only picks up tasks with `enabled: true`.\nWarnings: on success the response may carry a `warnings` array with non-blocking observations — currently an `exec_time_limit` that disagrees with the endpoint's own timeout, where the endpoint's timeout is the one that actually aborts the run. The write succeeded either way, so read `warnings` and surface it instead of treating it as an error.\nErrors: 400 with `code: \"MISSING_IDENDPOINT\"` when creating without `idendpoint`; 400 `cron is required when schedule_mode is 'cron'` when the expression is missing, and 400 `Invalid cron expression: <reason>` when it does not parse; 404 with `code: \"INTERVAL_TASK_NOT_FOUND\"` when the `idtask` does not exist. Response: `{result, created}`, where `created` is true only on INSERT.",
         "operation_mode": "write",
         "requires_explicit_confirmation": true,
         "destructive": false,
@@ -7072,8 +7074,9 @@ export const system_app = {
             "additionalProperties": false,
             "properties": {
               "idtask": {
-                "type": "integer",
-                "description": "Task id. Omit for INSERT (it is auto-generated); send it to UPDATE an existing task. Obtain it from 'list_interval_tasks'."
+                "type": "string",
+                "format": "uuid",
+                "description": "Task id. Omit for INSERT (a UUID is generated and returned); send it to UPDATE an existing task. Obtain it from 'list_interval_tasks'."
               },
               "idendpoint": {
                 "type": "string",
@@ -7188,7 +7191,7 @@ export const system_app = {
               },
               "note": {
                 "type": "string",
-                "description": "Free-text note describing what this task is for. It is also the field used to match this task against an existing one when restoring an application backup, so keep it stable and descriptive."
+                "description": "Free-text label describing what this task is for. It is not part of any key: two tasks can share it and a task can have none. To identify a task use its `idtask` UUID, which is stable across backups and instances."
               }
             }
           }
@@ -13852,7 +13855,7 @@ export const system_app = {
         "enabled": true,
         "name": "list_interval_tasks",
         "title": "List Interval Tasks",
-        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows. This is the starting point for anything to do with scheduled endpoints: it is the only way to obtain an `idtask`, and every write tool of this family needs one.\nLists the scheduled interval tasks of one application, joined with the endpoint each one runs. Send the target application UUID in `idapp`; obtain it from 'apps_catalog'. Tasks are always listed per application; there is no server-wide listing.\nThe response is a flat projection per task with its configuration (`interval`, `schedule_mode`, `cron`, `timezone`, the window fields, `params`, `idkey`, `exec_time_limit`, `note`), the endpoint it targets (`method`, `resource`, `environment`, `access` and the resolved `url`) and the scheduler telemetry.\nNaming: the task's own on/off flag is returned as `task_enabled`, because `enabled` there belongs to the endpoint (`endpoint_enabled`) and to the application (`app_enabled`). The telemetry fields (`last_run`, `next_run`, `status`, `failed_attempts`, `last_exec_time`, `last_response`) are read-only: the scheduler owns them and 'upsert_interval_task' ignores them. `status` is 0 waiting, 1 running, 2 completed, 3 error, 4 timeout.",
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows. This is the starting point for anything to do with scheduled endpoints: it is the only way to obtain an `idtask`, and every write tool of this family needs one.\nLists the scheduled interval tasks of one application, joined with the endpoint each one runs. Send the target application UUID in `idapp`; obtain it from 'apps_catalog'. Tasks are always listed per application; there is no server-wide listing.\nThe response is a flat projection per task with its configuration (`interval`, `schedule_mode`, `cron`, `timezone`, the window fields, `params`, `idkey`, `exec_time_limit`, `note` — the last one is a free-text label, not part of the task identity), the endpoint it targets (`method`, `resource`, `environment`, `access` and the resolved `url`) and the scheduler telemetry.\nNaming: the task's own on/off flag is returned as `task_enabled`, because `enabled` there belongs to the endpoint (`endpoint_enabled`) and to the application (`app_enabled`). The telemetry fields (`last_run`, `next_run`, `status`, `failed_attempts`, `last_exec_time`, `last_response`) are read-only: the scheduler owns them and 'upsert_interval_task' ignores them. `status` is 0 waiting, 1 running, 2 completed, 3 error, 4 timeout.",
         "operation_mode": "read",
         "requires_explicit_confirmation": false,
         "side_effects": "No persistent write side effects expected.",
@@ -13984,7 +13987,8 @@ export const system_app = {
             ],
             "properties": {
               "idtask": {
-                "type": "integer",
+                "type": "string",
+                "format": "uuid",
                 "description": "Id of the interval task whose executions you want to list. Obtain it from 'list_interval_tasks'."
               },
               "limit": {
@@ -14106,7 +14110,8 @@ export const system_app = {
             ],
             "properties": {
               "idtask": {
-                "type": "integer",
+                "type": "string",
+                "format": "uuid",
                 "description": "Id of the interval task to execute on the next cycle."
               }
             }
@@ -14211,7 +14216,8 @@ export const system_app = {
             ],
             "properties": {
               "idtask": {
-                "type": "integer",
+                "type": "string",
+                "format": "uuid",
                 "description": "Id of the interval task whose failure counter should be cleared."
               }
             }

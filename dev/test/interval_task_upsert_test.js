@@ -24,7 +24,7 @@ import { closeDb } from "./close_db.js";
 
 const TEST_APP_ID = "c4ca4238-a0b9-2382-0dcc-509a6f75849b";
 
-/** Identidad de cada interval task: (idtask, idendpoint, note). */
+/** Identidad de cada interval task: `idtask` (UUID). `note` es etiqueta, se incluye para leerla. */
 const taskIdentities = async () => {
   const rows = await IntervalTask.findAll({
     attributes: ["idtask", "idendpoint", "note"],
@@ -201,15 +201,16 @@ async function runTests() {
     const ghost = await getIntervalTaskById(GHOST_IDTASK);
     assert.strictEqual(ghost, null, "No row should have been created with that id");
 
-    // 9. Una segunda pasada de seed no debe pisar una tarea ya existente
+    // 9. Una segunda pasada de seed no debe pisar ni duplicar una tarea
     console.log("[STEP 9/9] A second seed pass does not clobber an existing task...");
-    // defaultApps() corre en CADA arranque, no solo con BUILD_DB. Como el seeder
-    // descarta los idtask del seed y deja que la base asigne los suyos, los ids del
-    // seed (2..6) quedan desalineados de los de la base (1..5). Al restaurar, el
-    // match por idtask solo comprobaba el endpoint, y las tareas de "Admin Alerts"
-    // comparten endpoint: la del seed idtask=3 ("events scan") encontraba la fila
-    // idtask=3, que contenia el digest, y la pisaba. El digest se reinsertaba como
-    // fila nueva y quedaba una "events scan" duplicada disparando cada 60 s.
+    // defaultApps() corre en CADA arranque, no solo con BUILD_DB. El seed declara los
+    // `idtask` del sistema con UUIDs fijos, así que cada pasada encuentra las mismas
+    // tareas por su id y las actualiza en su sitio: no hay ids que reasignar y no hay
+    // "tareas del mismo endpoint" que dependan de la nota para distinguirse. Antes
+    // esto era el bug de la secuencia desalineada: el seeder descartaba los ids 2..6 y
+    // la base asignaba 1..5, así que el idtask=3 del seed ("events scan") encontraba
+    // la fila 3, que contenia el digest, y la pisaba — las tareas de "Admin Alerts"
+    // comparten endpoint, y la única forma de distinguirlas era el texto de la nota.
     const before = await taskIdentities();
     assert.ok(before.length > 0, "the seed must have created interval tasks");
 
@@ -230,16 +231,12 @@ async function runTests() {
       "A second seed pass must not add interval tasks"
     );
 
-    // La identidad de una tarea es (idendpoint, note): quien la conserva conserva su
+    // La identidad de una tarea es su `idtask` UUID: quien la conserva conserva su
     // idtask, y con el la vinculacion de su historial en ofapi_intervaltask_run.
+    // (La nota queda como etiqueta: puede repetirse o faltar sin romper nada.)
     for (const t of before) {
-      const same = after.find((o) => o.idendpoint === t.idendpoint && o.note === t.note);
+      const same = after.find((o) => o.idtask === t.idtask);
       assert.ok(same, `task "${t.note}" disappeared after a second seed pass`);
-      assert.strictEqual(
-        same.idtask,
-        t.idtask,
-        `task "${t.note}" changed its idtask (${t.idtask} -> ${same.idtask}), orphaning its run history`
-      );
     }
 
     // 10. Un alta NO puede pasar por `upsert()`.

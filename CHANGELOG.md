@@ -59,6 +59,42 @@ proyecto, ver [MIGRATION.md](./MIGRATION.md).
   endpoint desconectado de la constante da `0.0.0` contra la de `package.json`; y con el
   bump sin entrada en este CHANGELOG, el paso 3. Los tres se comprobaron en rojo.
 
+### Changed
+
+- **El `idtask` de las interval tasks dejó de ser un entero autoincremental y es un UUID.**
+  `note` deja de participar en cualquier llave y queda como etiqueta de texto libre para el
+  humano — puede repetirse o faltar sin romper nada.
+
+  La causa: un `idtask` autoincremental designa una fila de *esta* base en *este* instante, y
+  la identidad de una tarea tiene que valer entre instancias. El seed declaraba los ids 2..6
+  y el seeder los descartaba dejando que la base asignara 1..5, así que el arranque siguiente
+  encontraba el idtask=3 del seed ("events scan") apuntando a la fila 3, que contenía el
+  *digest* —ambas tareas comparten endpoint— y la pisaba; el digest se reinsertaba como fila
+  nueva y quedaba una "events scan" duplicada disparando cada 60 s. El restore del backup
+  intentaba arbitrar esto con `(idendpoint, note)` como clave natural, y la `note` no lo es:
+  es opcional y puede repetirse, de modo que dos tareas sin nota colapsaban en el mismo match
+  y el restore les heredaba el idtask a cualquiera de ellas, dejando el historial de
+  `ofapi_intervaltask_run` apuntando a la tarea equivocada.
+
+  Ahora el UUID genera la identidad y viaja en el backup. El restore honra el `idtask` del
+  backup (lo inserta tal cual si no existe), el seed declara los UUIDs fijos de sus 5 tareas
+  y `validateSystemTasks` los comprueba por id en vez de por `(idendpoint, note)`.
+
+  **Para el operador (despliegue):** es un cambio de esquema. Hay que soltar las dos tablas
+  `ofapi_intervaltask` y `ofapi_intervaltask_run` y dejar que el arranque las recree con el
+  esquema UUID; la reconstrucción recrea las 5 tareas del seed con sus UUIDs fijos y el
+  historial de ejecuciones (**`ofapi_intervaltask_run`**) se pierde — era descartable. Un
+  backup de aplicación tomado antes de la migración se restaura igual: trae `idtask`
+  enteros, que no se consultan contra la columna uuid (sería `22P02` en PostgreSQL y
+  tumbaba el restore entero) y se insertan con un UUID nuevo.
+
+  **Para quien llama a la API o al MCP:** `idtask` sale y entra como **string UUID** (los 5
+  esquemas MCP de la app `system` pasaron de `integer` a `string` + `format: uuid`). Un
+  `idtask` inexistente sigue siendo 404 — no se crea una tarea con ese id. Los `dev/test`
+  con el contrato (`interval_task_upsert_test.js`, `backup_restore_test.js`) se actualizaron,
+  y el paso 7b de `backup_restore_test.js` fija la regresión exacta del bug: dos tareas del
+  mismo endpoint sin `note` sobreviven a un restore sin pisarse.
+
 ## [13.11.29] - 2026-09-27
 
 ### Documentation
