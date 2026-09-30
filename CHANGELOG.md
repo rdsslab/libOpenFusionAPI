@@ -18,6 +18,24 @@ proyecto, ver [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [13.12.4] - 2026-09-30
+
+### Fixed
+
+- **Todos los endpoints JS y MONGODB que no usaran `$_RETURN_STATUS_` emitían un
+  warning por petición.** El sandbox declara la variable en el contexto para poder
+  documentarla, y su valor por defecto era el objeto vacío del placeholder (`fn: {}`
+  en `src/lib/server/functionVars.js`). Como el wrapper lee `typeof
+  $_RETURN_STATUS_ !== "undefined"`, ese `{}` contaba como «el endpoint lo asignó» y
+  llegaba a `resolveSuccessStatus` como status: `$_RETURN_STATUS_ = [object Object]
+  on endpoint … is not a valid success status … Falling back to 200`. El status que se
+  enviaba era el correcto (200), pero el log se llenaba de avisos que describían un
+  error de programación inexistente, y sobre todo tapaban los avisos que sí importan:
+  un `"201"` en string o un `400` en el camino de éxito. El centinela de «sin
+  asignar» es ahora `undefined`, y el aviso sigue saliendo —con la aserción que lo
+  cubre en `dev/test/js_return_status_integration.js`— cuando el endpoint se equivoca
+  de verdad.
+
 ## [13.12.3] - 2026-09-29
 
 ### Fixed

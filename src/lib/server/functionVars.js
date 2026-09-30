@@ -1015,7 +1015,16 @@ $_CUSTOM_HEADERS_.set(
       `,
     },
     $_RETURN_STATUS_: {
-      fn: {},
+      // El centinela de "sin asignar" es `undefined`, no `{}` como en
+      // `$_RETURN_DATA_`. El sandbox lee la variable con
+      // `typeof $_RETURN_STATUS_ !== "undefined"`, y cualquier otro valor —incluido
+      // el objeto vacío del placeholder— cuenta como "el endpoint lo asignó": el
+      // `fn` que se inyecta es la propia variable, no un valor por defecto que el
+      // código pueda ignorar. Con `{}` el endpoint que nunca asigna el status
+      // devolvía `{}` como statusCode, `resolveSuccessStatus` lo rechazaba y salía
+      // el warning «$_RETURN_STATUS_ = [object Object] ... Falling back to 200» en
+      // cada petición de cada endpoint JS que no lo usara.
+      fn: undefined,
       description: "Optional success status for JS and MONGODB handlers. Assign an integer between 200 and 399 to answer with something other than 200; leaving it unset keeps 200.",
       web: own_repo,
       return: "number (200-399)",

@@ -57,7 +57,13 @@ const sentIs = (reply, expected, msg) =>
   assert.strictEqual(JSON.stringify(reply.sent), JSON.stringify(expected), msg);
 
 const originalWarn = console.warn;
-console.warn = () => {};
+// El endpoint que NO asigna `$_RETURN_STATUS_` no debe avisar. El warning se
+// silenciaba entero aquí, y con él se tapaba justo el defecto: el sandbox declara
+// la variable para poder documentarla, así que si su valor por defecto no fuera
+// "sin asignar", TODO endpoint JS que no usara `$_RETURN_STATUS_` emitía un
+// «$_RETURN_STATUS_ = [object Object] ... Falling back to 200» por petición.
+let warnings = [];
+console.warn = (...args) => warnings.push(args.join(" "));
 
 // --- 200 implícito: regresión, el camino de siempre ------------------------
 {
@@ -65,6 +71,7 @@ console.warn = () => {};
   assert.strictEqual(reply.statusCode, 200);
   sentIs(reply, { ok: true });
   assert.strictEqual(reply.openfusionapi.statusCodeAtSend, 200);
+  assert.deepStrictEqual(warnings, [], "sin asignar $_RETURN_STATUS_ no debe avisar");
 }
 
 // --- 201 al crear, que es lo que motiva el caso de uso real -----------
@@ -101,9 +108,16 @@ console.warn = () => {};
 
 // --- 400 degrada a 200 y el body sigue siendo el normal -------------------
 {
+  warnings = [];
   const reply = await run(`${S} = 400; ${D} = { ok: 1 };`);
   assert.strictEqual(reply.statusCode, 200, "un 4xx en el camino de éxito degrada a 200");
   sentIs(reply, { ok: 1 }, "los datos no se pierden al degradar");
+  // El aviso sigue siendo obligatorio cuando el endpoint SÍ se equivoca: sin él,
+  // degradar a 200 en silencio dejaría al autor sin enterarse.
+  assert.ok(
+    warnings.some((w) => w.includes("$_RETURN_STATUS_") && w.includes("400")),
+    `un status inválido debe avisar, se capturó: ${JSON.stringify(warnings)}`,
+  );
 }
 
 // --- Un error de runtime sigue yendo por $_EXCEPTION_ ----------------------
