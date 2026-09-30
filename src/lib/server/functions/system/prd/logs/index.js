@@ -44,6 +44,22 @@ export async function fnGetLogs(params) {
     const bodyParams = params?.request?.body || {};
     const merged = { ...queryParams, ...bodyParams };
 
+    // Normalizar `lightweight` a booleano real: por query string llega como
+    // "true"/"false" (string truthy que rompía `lightweight=false`); el body
+    // JSON puede traerlo como booleano real. El body tiene prioridad, igual
+    // que en el merge anterior. Si no se envía, se deja sin tocar para que
+    // getLogs aplique su default (true => lightweight).
+    if (
+      queryParams.lightweight !== undefined ||
+      bodyParams.lightweight !== undefined
+    ) {
+      const raw =
+        bodyParams.lightweight !== undefined
+          ? bodyParams.lightweight
+          : queryParams.lightweight;
+      merged.lightweight = raw === "true" || raw === true;
+    }
+
     let data = await getLogs(merged);
 
     r.data = data;

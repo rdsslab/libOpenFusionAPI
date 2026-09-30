@@ -111,6 +111,30 @@ agents can detect and correct it without a generic 500.
 
 ---
 
+## 7. Reading back what was captured (read path)
+
+The manual read tool is `get_system_logs`. Its `lightweight` flag decides the
+columns each row returns:
+
+| `lightweight` | Columns returned per row |
+|---------------|--------------------------|
+| `true` (default) | Compact: `id, timestamp, idapp, idendpoint, trace_id, url, method, status_code, environment, log_level, response_time` |
+| `false` | Adds `user_agent, client, req_headers, res_headers, query, body, params, response_data, message` (JSON columns already parsed) |
+
+What `query/body/params` and `headers/response_data` contain per row depends on
+the level that generated the log (section 2):
+
+- Level 1 rows: those columns are `null`.
+- Level 2 rows: `query`, `body`, `params` reflect the request inputs.
+- Level 3 rows: additionally `req_headers`, `res_headers` and `response_data`.
+
+So passing `lightweight=false` lets you verify that a configured `ctrl.log` level
+was actually applied. `lightweight=false` is accepted both from the URL query
+string (`?lightweight=false`) and from a JSON body (`{"lightweight": false}`).
+The endpoint responds with a **bare array** of rows (no `{data: []}` envelope).
+
+---
+
 ## See also
 
 - `src/lib/db/endpoint.js` — `validateLogLevelControl` validation.

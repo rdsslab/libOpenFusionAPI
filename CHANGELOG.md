@@ -18,6 +18,35 @@ proyecto, ver [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [13.12.3] - 2026-09-29
+
+### Fixed
+
+- **El read path de los logs no devolvía `query`/`body`/`params`, así que la API no
+  distinguía el nivel 1 del 2.** `getLogs` omitía esas tres columnas de
+  `fullAttributes` (`src/lib/db/log.js:570`): un log de nivel 2/3 guardado con su
+  query, params y body se veía por la API idéntico a uno de nivel 1, con lo que no se
+  podía verificar que `endpoint.ctrl.log` estuviera aplicando los niveles. Ahora se
+  incluyen (ya parseadas) cuando se pide `lightweight=false`.
+- **`?lightweight=false` por query string no funcionaba.** El valor llegaba como el
+  string `"false"` (truthy), así que la API seguía devolviendo las columnas compactas;
+  solo funcionaba el booleano real por body JSON. `fnGetLogs`
+  (`src/lib/server/functions/system/prd/logs/index.js`) normaliza ahora el flag a
+  booleano real y acepta ambos caminos, manteniendo el default compacto si no se envía.
+
+### Changed
+
+- **Contrato MCP y documentación del logging al día con el read path.** La herramienta
+  `get_system_logs` documenta la respuesta como **array plano** (sin envelope
+  `{data: []}`); que con `lightweight=false` las filas incluyen `query`/`body`/`params`
+  (nivel 2+) y `req_headers`/`res_headers`/`response_data`/`message` (nivel 3+); la
+  descripción del parámetro `lightweight` lista esas columnas; y el `out.schema` enumera
+  los 20 campos por fila con su nivel de captura. `src/docs/logging/README.md` gana la
+  sección "Reading back what was captured" y `src/docs/logging/AI_SKILL.md` amplía su
+  "How to inspect".
+
+---
+
 ## [13.12.2] - 2026-09-28
 
 ### Fixed

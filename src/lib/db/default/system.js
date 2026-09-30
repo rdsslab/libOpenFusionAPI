@@ -11252,7 +11252,7 @@ export const system_app = {
         "enabled": true,
         "name": "get_system_logs",
         "title": "Get System Logs",
-        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nSearches logs with optional filters. Prefer trace_id to follow a single execution trace across requests and errors.",
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nSearches logs with optional filters. Prefer trace_id to follow a single execution trace across requests and errors.\nThe response is a BARE ARRAY of log rows (no envelope like {data: [...]}); rows come ordered by timestamp descending by default and each row is a flat object whose JSON columns (query, body, params, req_headers, res_headers, response_data, message) are already parsed.",
         "operation_mode": "read",
         "requires_explicit_confirmation": false,
         "side_effects": "No persistent write side effects expected.",
@@ -11267,9 +11267,9 @@ export const system_app = {
           "When using date windows, send `start_date` and `end_date` together to keep the range explicit.",
           "Use `last_hours` for quick recent searches and reserve broad unfiltered scans for exceptional cases because log volume can be high.",
           "Use `environment` (dev/qa/prd) to scope logs to a single environment; omit it to search across all environments.",
-          "Use `status_code` to list recent errors: an exact code (e.g. 502), a group (\"4xx\", \"5xx\"), or a comma-separated list (\"502,404\"). Combine with `last_hours` and `orderDirection=DESC` to get the most recent errors first. `lightweight` defaults to true, so rows come compact (status_code, trace_id, url, timestamp, response_time, method) without headers/payloads; set `lightweight=false` only when you need the full request/response metadata or the structured `message` column.",
+          "Use `status_code` to list recent errors: an exact code (e.g. 502), a group (\"4xx\", \"5xx\"), or a comma-separated list (\"502,404\"). Combine with `last_hours` and `orderDirection=DESC` to get the most recent errors first. `lightweight` defaults to true, so rows come compact (status_code, trace_id, url, timestamp, response_time, method) without headers/payloads; set `lightweight=false` — via query string (`?lightweight=false`) or JSON body (`{\"lightweight\":false}`) — only when you need the full request/response metadata: `user_agent`, `client`, `query`, `body`, `params`, `req_headers`, `res_headers`, `response_data` and the structured `message` column.",
           "Use `event` to filter structured logs by `message.event` instead of scanning payloads client-side. To verify a bot started, combine `idendpoint=<idbot>` with `event=bot_started`; to diagnose one that did not, use `event=bot_token_error,bot_startup_error,bot_auto_disabled`.",
-          "`lightweight=true` omits the `message` column from the response but `event` still filters correctly, so the two combine safely."
+          "`lightweight=true` omits the heavy columns (`message`, `req_headers`, `res_headers`, `query`, `body`, `params`, `response_data`) from the response but `event` still filters correctly, so the two combine safely."
         ]
       },
       "json_schema": {
@@ -11367,7 +11367,7 @@ export const system_app = {
               "lightweight": {
                 "type": "boolean",
                 "default": true,
-                "description": "When true (default), omits the large columns (user_agent, client, req_headers, res_headers, response_data, message) to keep the response compact and save agent tokens. Set false only when you need payloads, headers or structured messages."
+                "description": "When true (default), omits the large columns (user_agent, client, req_headers, res_headers, query, body, params, response_data, message) to keep the response compact and save agent tokens. Set false only when you need request inputs (query/body/params), headers or structured messages — rows then include whatever the endpoint's ctrl.log level actually captured: query/params from level 2, headers/response_data from level 3 (level 1 rows keep those columns null)."
               },
               "raw": {
                 "type": "boolean",
@@ -11381,9 +11381,93 @@ export const system_app = {
           "enabled": false,
           "schema": {
             "type": "array",
+            "description": "Bare array of log rows ordered by timestamp DESC by default (no {data: []} envelope). With lightweight=true only the compact columns are returned; with lightweight=false the full columns are added, matching what the endpoint's ctrl.log level actually captured (null where the level did not capture them).",
             "items": {
               "type": "object",
-              "additionalProperties": true
+              "additionalProperties": true,
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "Log row UUID."
+                },
+                "timestamp": {
+                  "type": "string",
+                  "description": "Recording time (ISO)."
+                },
+                "idapp": {
+                  "type": ["string", "null"],
+                  "description": "Application UUID."
+                },
+                "idendpoint": {
+                  "type": ["string", "null"],
+                  "description": "Endpoint UUID that generated the log."
+                },
+                "trace_id": {
+                  "type": ["string", "null"],
+                  "description": "Correlation key of the execution."
+                },
+                "url": {
+                  "type": "string",
+                  "description": "Requested URL."
+                },
+                "method": {
+                  "type": "string",
+                  "description": "HTTP method."
+                },
+                "status_code": {
+                  "type": "integer",
+                  "description": "HTTP status code."
+                },
+                "environment": {
+                  "type": ["string", "null"],
+                  "description": "Environment (dev/qa/prd); null when recorded before the column existed."
+                },
+                "log_level": {
+                  "type": "integer",
+                  "enum": [1, 2, 3],
+                  "description": "Level applied to this log: 1=Basic, 2=Normal, 3=Full."
+                },
+                "response_time": {
+                  "type": "integer",
+                  "description": "Server processing time in ms."
+                },
+                "user_agent": {
+                  "type": ["string", "null"],
+                  "description": "User-Agent request header (only returned with lightweight=false)."
+                },
+                "client": {
+                  "type": ["string", "null"],
+                  "description": "Requesting client host (only returned with lightweight=false)."
+                },
+                "query": {
+                  "type": ["object", "null"],
+                  "description": "Parsed URL query string. Non-null only for logs captured at level 2 or 3 (only returned with lightweight=false)."
+                },
+                "body": {
+                  "type": ["object", "null"],
+                  "description": "Parsed request body. Non-null only for logs captured at level 2 or 3 (only returned with lightweight=false)."
+                },
+                "params": {
+                  "type": ["object", "null"],
+                  "description": "Parsed path parameters. Non-null only for logs captured at level 2 or 3 (only returned with lightweight=false)."
+                },
+                "req_headers": {
+                  "type": ["object", "null"],
+                  "description": "Request headers (only returned with lightweight=false, populated at level 3)."
+                },
+                "res_headers": {
+                  "type": ["object", "null"],
+                  "description": "Response headers (only returned with lightweight=false, populated at level 3)."
+                },
+                "response_data": {
+                  "type": ["object", "null"],
+                  "description": "Captured response payload (only returned with lightweight=false, populated at level 3)."
+                },
+                "message": {
+                  "type": ["object", "null"],
+                  "description": "Structured message, usually carrying an `event` field (only returned with lightweight=false, populated at level 3)."
+                }
+              }
             }
           }
         }

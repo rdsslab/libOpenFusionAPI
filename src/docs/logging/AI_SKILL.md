@@ -74,6 +74,13 @@ failing field — read it and retry instead of retrying blindly.
 
 - `read_endpoint_data` returns the persisted endpoint, including `ctrl.log`.
 - `read_endpoint_data` / `endpoint_get_code` overview tools list this contract.
+- `get_system_logs` is the read path. Compact by default (`lightweight=true`):
+  status, trace_id, url, timestamp, response_time, method. With
+  `lightweight=false` each row includes what the level captured — `query`, `body`,
+  `params` (level 2+) and `req_headers`, `res_headers`, `response_data`, `message`
+  (level 3+; level 1 rows keep them null) — so you can verify that the configured
+  `ctrl.log` levels are being applied. The endpoint returns a bare array (no
+  `{data: []}` envelope).
 
 ## See also
 

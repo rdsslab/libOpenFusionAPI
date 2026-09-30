@@ -573,6 +573,9 @@ export const getLogs = async (options = {}) => {
       "client",
       "req_headers",
       "res_headers",
+      "query",
+      "body",
+      "params",
       "response_data",
       "message",
     ];
