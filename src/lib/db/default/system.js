@@ -5776,7 +5776,7 @@ export const system_app = {
         "enabled": true,
         "name": "endpoint_upsert",
         "title": "Endpoint UPSERT",
-        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nCreates or updates an endpoint. This is the single tool for creating endpoints of any handler type; there are no handler-specific alternatives.\nOperation mode: omit `idendpoint` for INSERT (the UUID is generated); send a valid `idendpoint` for UPDATE. Before an UPDATE, read the current state with 'read_endpoint_data' and modify it instead of rebuilding it from memory.\nOnly four fields are required: `idapp`, `resource`, `method` and `handler`. Every other field is optional and falls back to a stored default: `enabled`=true, `environment`=\"dev\", `timeout`=30, `access`=2, `title`=\"\", `description`=\"\", `price_by_request`/`price_kb_request`/`price_kb_response`=1, `keywords`=\"\", `code`=\"\", `cache_time`=0. On an INSERT you should still send `code` and `title` explicitly: an endpoint with an empty `code` does nothing.\nWhere the handler payload goes: `handler` decides the meaning of `code` and `custom_data`. JS -> `code` holds the JavaScript source. FUNCTION -> `code` holds the internal function name. SQL and HANA -> `code` holds the statement. MONGODB -> `code` holds the query script and `custom_data` the connection config. FETCH -> `code` holds the target URL. TEXT -> `code` holds the text body and `custom_data` carries `mimeType` and `fileName`. SQL_BULK_I -> `code` holds the destination table name and `custom_data` the bulk config. SOAP -> `code` or `custom_data` hold the SOAP config depending on its shape. Call 'handler_documentation' with the chosen handler before composing payloads for SQL_BULK_I, SOAP, HANA, MONGODB or MCP.\nTwo `custom_data` keys exist only for the SQL family, so ignore them for other handlers. `query_type`: SQL and SQL_BULK_I only; overrides the query type otherwise inferred from the leading verb. `connection_override_allow`: SQL, SQL_BULK_I and HANA; an opt-in list of dotted paths a request body may change through the runtime connection override, and it can only narrow, never widen. The override itself is unrestricted by default, which is intended for multi-tenant endpoints, and the key that carries it is `connection` on SQL but `config` on SQL_BULK_I and HANA. For the full shape of each handler's connection config, call 'handler_documentation' with that handler.\nAfter writing, verify the persisted structure with 'read_endpoint_data' and test the endpoint with 'execute_endpoint_test'.\nRecommendation: when creating or updating an endpoint, also define a `json_schema` (so MCP publishes a usable input schema and agents can send parameters) and a `data_test` (a saved example request). Call 'validate_json_schema_for_mcp' before publishing any JSON Schema.",
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nCreates or updates an endpoint. This is the single tool for creating endpoints of any handler type; there are no handler-specific alternatives.\nOperation mode: omit `idendpoint` for INSERT (the UUID is generated); send a valid `idendpoint` for UPDATE. Before an UPDATE, read the current state with 'read_endpoint_data' and modify it instead of rebuilding it from memory.\nOnly four fields are required: `idapp`, `resource`, `method` and `handler`. Every other field is optional and falls back to a stored default: `enabled`=true, `environment`=\"dev\", `timeout`=30, `access`=2, `title`=\"\", `description`=\"\", `price_by_request`/`price_kb_request`/`price_kb_response`=1, `keywords`=\"\", `code`=\"\", `cache_time`=0. On an INSERT you should still send `code` and `title` explicitly: an endpoint with an empty `code` does nothing.\nWhere the handler payload goes: `handler` decides the meaning of `code` and `custom_data`. JS -> `code` holds the JavaScript source. FUNCTION -> `code` holds the internal function name. SQL and HANA -> `code` holds the statement. MONGODB -> `code` holds the query script and `custom_data` the connection config. FETCH -> `code` holds the target URL. TEXT -> `code` holds the text body and `custom_data` carries `mimeType` and `fileName`. SQL_BULK_I -> `code` holds the destination table name and `custom_data` the bulk config. SOAP -> `code` or `custom_data` hold the SOAP config depending on its shape. Call 'handler_documentation' with the chosen handler before composing payloads for SQL_BULK_I, SOAP, HANA, MONGODB or MCP.\nTwo `custom_data` keys exist only for the SQL family, so ignore them for other handlers. `query_type`: SQL and SQL_BULK_I only; overrides the query type otherwise inferred from the leading verb. `connection_override_allow`: SQL, SQL_BULK_I and HANA; an opt-in list of dotted paths a request body may change through the runtime connection override, and it can only narrow, never widen. The override itself is unrestricted by default, which is intended for multi-tenant endpoints, and the key that carries it is `connection` on SQL but `config` on SQL_BULK_I and HANA. For the full shape of each handler's connection config, call 'handler_documentation' with that handler.\nAfter writing, verify the persisted structure with 'read_endpoint_data' and test the endpoint with 'execute_endpoint_test'.\nRecommendation: when creating or updating an endpoint, also define a `json_schema` (so MCP publishes a usable input schema and agents can send parameters) and a `data_test`, the saved request the endpoint editor's Tester replays. A `data_test` is NOT the raw request body: the example JSON body goes in `data_test.body.json.code` with `data_test.body.selection` = 0, query params go in `data_test.query` and headers in `data_test.headers` as rows of {enabled, key, value}. Minimal example: `{\"body\":{\"selection\":0,\"json\":{\"code\":{\"campo\":\"valor\"}}}}`. Sending only the raw body at the `data_test` root stores it where the Tester cannot read it, and it is normalized on save with a warning in the response. Call 'validate_json_schema_for_mcp' before publishing any JSON Schema.",
         "operation_mode": "write",
         "requires_explicit_confirmation": true,
         "side_effects": "Creates or overwrites an endpoint definition and publishes it at its resource path. An UPDATE replaces the live behavior of an endpoint that other systems may already be calling; the previous version is recoverable through 'endpoint_change_history' and 'endpoint_restore_version'.",
@@ -5942,11 +5942,121 @@ export const system_app = {
               },
               "headers_test": {
                 "$ref": "#/$defs/jsonValue",
-                "description": "Saved test headers for the endpoint editor."
+                "description": "Flat object of saved test headers, shaped {\"Header-Name\": \"value\"}. `execute_endpoint_test` sends them as request headers, merged with the enabled rows of `data_test.headers`."
               },
               "data_test": {
-                "$ref": "#/$defs/jsonValue",
-                "description": "Saved test payload used by the endpoint editor."
+                "description": "Saved request for the editor Tester. NOT the raw body: the example JSON body goes in `body.json.code` with `body.selection` = 0.",
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": true,
+                    "description": "Canonical shape read and written by the editor Tester. Every key is optional. Minimal example: {\"body\":{\"selection\":0,\"json\":{\"code\":{\"campo\":\"valor\"}}}}",
+                    "properties": {
+                      "query": {
+                        "type": "array",
+                        "description": "Query params as {enabled, key, value, type?} rows. Only rows with enabled = true and a non-empty key are sent.",
+                        "items": {
+                          "type": "object",
+                          "additionalProperties": true,
+                          "properties": {
+                            "enabled": { "type": "boolean", "description": "Only rows with enabled = true are sent." },
+                            "key": { "type": "string", "description": "Parameter or header name." },
+                            "value": { "description": "Value sent for that name." },
+                            "type": { "type": "integer", "description": "1=Text (default). In form rows, 3=File." }
+                          }
+                        }
+                      },
+                      "headers": {
+                        "type": "array",
+                        "description": "Request headers as {enabled, key, value, type?} rows. Only rows with enabled = true and a non-empty key are sent.",
+                        "items": {
+                          "type": "object",
+                          "additionalProperties": true,
+                          "properties": {
+                            "enabled": { "type": "boolean", "description": "Only rows with enabled = true are sent." },
+                            "key": { "type": "string", "description": "Header name." },
+                            "value": { "description": "Header value." },
+                            "type": { "type": "integer", "description": "1=Text (default)." }
+                          }
+                        }
+                      },
+                      "auth": {
+                        "type": "object",
+                        "additionalProperties": true,
+                        "description": "Saved auth for the Tester. selection: 0=None, 1=Basic, 2=Bearer.",
+                        "properties": {
+                          "selection": { "type": "integer", "enum": [0, 1, 2], "description": "0=None, 1=Basic, 2=Bearer." },
+                          "basic": { "type": "object", "additionalProperties": true, "description": "Basic credentials, used when selection = 1." },
+                          "bearer": { "type": "object", "additionalProperties": true, "description": "Bearer token, used when selection = 2." }
+                        }
+                      },
+                      "body": {
+                        "type": "object",
+                        "additionalProperties": true,
+                        "description": "Body configuration. selection: 0=JSON, 1=XML, 2=Text, 3=Form-Data, 4=Form-UrlEncoded.",
+                        "properties": {
+                          "selection": { "type": "integer", "enum": [0, 1, 2, 3, 4], "description": "0=JSON, 1=XML, 2=Text, 3=Form-Data, 4=Form-UrlEncoded." },
+                          "json": {
+                            "type": "object",
+                            "additionalProperties": true,
+                            "description": "JSON body.",
+                            "properties": {
+                              "code": { "description": "The example request body: a JSON object/array, or a string containing JSON. The payload goes here, never at the data_test root." }
+                            }
+                          },
+                          "xml": {
+                            "type": "object",
+                            "additionalProperties": true,
+                            "description": "XML body.",
+                            "properties": { "code": { "type": "string", "description": "The XML example body." } }
+                          },
+                          "text": {
+                            "type": "object",
+                            "additionalProperties": true,
+                            "description": "Plain text body.",
+                            "properties": { "value": { "type": "string", "description": "The text example body." } }
+                          },
+                          "form": {
+                            "type": "array",
+                            "description": "Form-Data rows, same shape as query. type 3 = File.",
+                            "items": {
+                              "type": "object",
+                              "additionalProperties": true,
+                              "properties": {
+                                "enabled": { "type": "boolean", "description": "Only rows with enabled = true are sent." },
+                                "key": { "type": "string", "description": "Form field name." },
+                                "value": { "description": "Field value." },
+                                "type": { "type": "integer", "description": "1=Text, 3=File." }
+                              }
+                            }
+                          },
+                          "urlencoded": {
+                            "type": "array",
+                            "description": "Form-UrlEncoded rows, same shape as query.",
+                            "items": {
+                              "type": "object",
+                              "additionalProperties": true,
+                              "properties": {
+                                "enabled": { "type": "boolean", "description": "Only rows with enabled = true are sent." },
+                                "key": { "type": "string", "description": "Field name." },
+                                "value": { "description": "Field value." },
+                                "type": { "type": "integer", "description": "1=Text." }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "last_response": {
+                        "type": "object",
+                        "additionalProperties": true,
+                        "description": "Optional. Last response the editor captured after running the test (truncated to 1000 chars); doc_generator reuses it as the response example."
+                      }
+                    }
+                  },
+                  { "type": "array" },
+                  { "type": "string" },
+                  { "type": "null" }
+                ]
               }
             },
             "additionalProperties": false,
@@ -12245,7 +12355,7 @@ export const system_app = {
                     "type": "null"
                   }
                 ],
-                "description": "Request body to send for POST / PUT / PATCH / DELETE requests. Provide the body yourself matching the endpoint's json_schema; the endpoint's saved data_test is only used if you explicitly enable `use_data_test_fallback`, which is discouraged and unsafe on prd. If you send 'payload': null explicitly, the tool will not inherit the saved data_test body for that execution."
+                "description": "Request body to send for POST / PUT / PATCH / DELETE requests. Provide the body yourself matching the endpoint's json_schema; the endpoint's saved data_test is only used if you explicitly enable `use_data_test_fallback`, which is discouraged and unsafe on prd. The inherited body is the one stored in `data_test.body.json.code`; a `data_test` whose root holds a raw body (the legacy shape, normalized on save) contributes no payload. If you send 'payload': null explicitly, the tool will not inherit the saved data_test body for that execution."
               },
               "headers": {
                 "type": "object",
@@ -12264,7 +12374,7 @@ export const system_app = {
               "use_data_test_fallback": {
                 "type": "boolean",
                 "default": false,
-                "description": "Defaults false. When true, missing payload/query_params/headers can be inherited from the endpoint's saved data_test and headers_test metadata. Discouraged because the saved data_test may be inappropriate or destructive; never rely on it for prd (a severe warning is emitted). Prefer providing your own payload."
+                "description": "Defaults false. When true, missing payload/query_params/headers can be inherited from the endpoint's saved data_test (its `body.json.code` gives the payload, its `query` and `headers` rows the rest) and headers_test metadata. Discouraged because the saved data_test may be inappropriate or destructive; never rely on it for prd (a severe warning is emitted). Prefer providing your own payload."
               },
               "bearer_token": {
                 "type": [

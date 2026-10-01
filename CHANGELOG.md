@@ -18,6 +18,51 @@ proyecto, ver [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [13.12.5] - 2026-10-01
+
+### Fixed
+
+- **`data_test` se guardaba en la forma que el Tester no puede leer.** `data_test` guarda la
+  petición de ejemplo que reproduce el Tester del editor, y el body va en
+  `data_test.body.json.code` —eso leen el Tester, `execute_endpoint_test` con
+  `use_data_test_fallback` y el generador de documentación—. Pero la tool `endpoint_upsert` no lo
+  decía: su schema aceptaba cualquier JSON («payload de prueba guardado») y su descripción
+  recomendaba «un `data_test` (una petición de ejemplo guardada)». Un cliente que siguió esa guía
+  guardó el body en la raíz:
+
+  ```json
+  {"corporativos":["1600395592"],"ejecutar_sincronizador":true,"dry_run":true}
+  ```
+
+  No fallaba nada: el upsert devolvía 200 y guardaba bien lo que le habían mandado. El fallo era
+  que el Tester abría el endpoint y mostraba `{}` en Body → JSON, y `execute_endpoint_test` con
+  fallback no encontraba payload. La causa era de documentación, y la documentación era doble: la
+  misma frase se repetía en el seed y en el addon de runtime que `mcp.js` concatena a la
+  descripción de la tool en `tools/list`, así que arreglar solo el seed no cambiaba lo que el
+  agente leía.
+
+  Ahora el schema de `data_test` declara la estructura real —`query`, `headers`, `auth`, `body`
+  (`selection`, `json.code`, `xml`, `text`, `form`, `urlencoded`) y `last_response`— y la prosa
+  dice que **no es el body crudo**. Se mantiene permisivo (`anyOf` con objeto, array, string y
+  `null`) para no romper a quien ya enviaba `null` o un array, que antes pasaban.
+
+- **Un `data_test` con el body crudo en la raíz ahora se guarda donde sí se ve.** `normalizeDataTest`
+  (`src/lib/db/endpoint.js`) envuelve lo que parece un body en
+  `{body: {selection: 0, json: {code: <valor>}}}` y **no rechaza nada**: hay clientes que llevan
+  años guardando así. La respuesta del upsert incluye un `warnings` que dice dónde quedó el body,
+  para que quien llamó aprenda la forma buena. El listón para decidir «esto ya venía bien» es
+  alto a propósito: las filas de `query`/`headers` tienen que parecer filas
+  (`{enabled: <bool>, key}`) y `body`/`auth` tienen que parecerse a los del Tester, porque un body
+  crudo que use una clave del Tester por casualidad (`{"query":[{"field":"x"}]}`,
+  `{"body":{"texto":"hola"}}`) si no se guardaría roto **y sin aviso**, que es lo peor que puede
+  pasar. Cubierto por `dev/test/data_test_normalize_test.js`.
+
+### Changed
+
+- **Autor de endpoints:** `headers_test` se documenta como lo que es —un objeto plano
+  `{"Header-Name": "value"}` que `execute_endpoint_test` envía como headers, mezclado con las filas
+  habilitadas de `data_test.headers`— y no como «cabeceras de prueba guardadas».
+
 ## [13.12.4] - 2026-09-30
 
 ### Fixed

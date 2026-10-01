@@ -152,8 +152,15 @@ export async function fnEndpointUpsert(params) {
     }
 
     const upserted = await upsertEndpoint(body);
-    const { previous } = upserted;
+    const { previous, warnings } = upserted;
     r.data = { result: upserted.result, created: upserted.created };
+    // `warnings` solo aparece cuando `data_test` llegó con el formato heredado y se
+    // guardó envuelto: el texto le dice al que llamó cuál es la forma buena. No se
+    // emite una clave vacía para no cambiar la forma de la respuesta en el camino
+    // normal, que es el que leen las suites y los clientes.
+    if (Array.isArray(warnings) && warnings.length > 0) {
+      r.data.warnings = warnings;
+    }
     r.code = 200;
 
     await recordAudit(params, {

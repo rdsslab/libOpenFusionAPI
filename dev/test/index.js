@@ -229,6 +229,20 @@ async function runAllTests() {
         args: ["version_sync_test.js"],
       },
       {
+        // Puro: `data_test` tiene una estructura (la que escribe y lee el Tester
+        // del editor, con el body en `body.json.code`) y quien la definía era el
+        // Tester. Un cliente que guardaba el body crudo en la raíz no fallaba:
+        // guardaba bien, el upsert devolvía 200 y el Tester mostraba `{}`. Se
+        // normaliza al guardar y se avisa, y esta suite fija las dos mitades: lo
+        // que ya viene bien se devuelve intacto (claves internas de la GUI
+        // incluidas) y lo demás se envuelve en `body.json.code`. Sin la segunda
+        // mitad, un body crudo que use una clave del Tester por casualidad se
+        // guardaría roto y sin aviso, que es lo peor que puede pasar.
+        label: "data_test_normalize_test.js",
+        command: "node",
+        args: ["data_test_normalize_test.js"],
+      },
+      {
         // Puro: el seed de metodos tiene que estar terminado cuando su promesa resuelve,
         // no solo haber lanzado las escrituras. Con `forEach(async)` dentro de una
         // funcion que no era `async` el arranque continuaba con 11 `MERGE INTO

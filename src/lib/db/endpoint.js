@@ -238,6 +238,151 @@ const validateLogLevelControl = (rawCtrl) => {
   return { ...rawCtrl, log: nextLog };
 };
 
+/**
+ * Aviso que `fnEndpointUpsert` devuelve cuando `data_test` llegó con el formato
+ * heredado (el body crudo en la raíz) y se guardó envuelto. El texto nombra la
+ * ruta exacta porque es lo único que lee el agente que acaba de llamar, y es la
+ * forma en la que se entera de cuál es la buena.
+ */
+export const AVISO_DATA_TEST_NORMALIZADO =
+  "data_test looked like a raw request body; it was stored as data_test.body.json.code";
+
+/** Una fila de query/headers/form del Tester: objeto con `enabled` y `key`. */
+const esFilaDeDataTest = (item) =>
+  Boolean(item) &&
+  typeof item === "object" &&
+  !Array.isArray(item) &&
+  typeof item.enabled === "boolean" &&
+  Object.prototype.hasOwnProperty.call(item, "key");
+
+/** `query`/`headers` cuentan como filas del Tester solo si lo que hay dentro lo son. */
+const esListaDeFilasDeDataTest = (value) =>
+  Array.isArray(value) && value.length > 0 && value.every(esFilaDeDataTest);
+
+/** Las únicas claves que el Tester escribe en la raíz de `data_test`. */
+const CLAVES_DE_DATA_TEST = new Set([
+  "query",
+  "headers",
+  "auth",
+  "body",
+  "last_response",
+]);
+
+const esObjetoSimple = (value) =>
+  Boolean(value) && typeof value === "object" && !Array.isArray(value);
+
+/** `body` es la configuración del Tester —no un body que se llame así— si trae alguno de sus slots. */
+const esBodyDeDataTest = (body) =>
+  esObjetoSimple(body) &&
+  (body.selection !== undefined ||
+    (esObjetoSimple(body.json) && body.json.code !== undefined) ||
+    body.xml !== undefined ||
+    body.text !== undefined ||
+    body.form !== undefined ||
+    body.urlencoded !== undefined);
+
+/** `auth` es la del Tester si dice qué modo usa. */
+const esAuthDeDataTest = (auth) =>
+  esObjetoSimple(auth) && typeof auth.selection === "number";
+
+/**
+ * Un objeto cuyas claves son todas del Tester es suyo, siempre que lo que haya
+ * dentro también lo sea. Sin esa segunda mitad, un body crudo que casualmente use
+ * una clave del Tester —`{"body":{"texto":"hola"}}`,
+ * `{"headers":[{"name":"X-Trace"}]}`— se aceptaría como formato canónico y
+ * quedaría inservible, sin aviso.
+ */
+const soloClavesDeDataTest = (value) => {
+  if (!Object.keys(value).every((key) => CLAVES_DE_DATA_TEST.has(key))) return false;
+  if (value.body !== undefined && !esBodyDeDataTest(value.body)) return false;
+  if (value.auth !== undefined && !esAuthDeDataTest(value.auth)) return false;
+  return ["query", "headers"].every((key) => {
+    const lista = value[key];
+    if (!Array.isArray(lista) || lista.length === 0) return true;
+    return lista.every(esFilaDeDataTest);
+  });
+};
+
+/**
+ * ¿El valor ya viene en el formato del Tester del editor?
+ *
+ * El listón es alto a propósito. Un body crudo como `{"query":[{"field":"x"}]}`
+ * o `{"headers":[{"name":"..."}]}` es un payload perfectamente válido, y si se
+ * tomara "query es un array" como prueba de formato canónico, ese body se
+ * guardaría tal cual —y el Tester seguiría sin encontrar `body`— pero además sin
+ * aviso, que es el peor resultado posible. Por eso las filas tienen que parecer
+ * filas, y las demás señales tienen que ser propias del Tester y no coincidir
+ * por casualidad con el nombre de una clave del body.
+ *
+ * @param {unknown} value  `data_test` ya parseado.
+ * @returns {boolean}
+ */
+const pareceDataTestDelTester = (value) => {
+  if (!esObjetoSimple(value)) return false;
+
+  if (esBodyDeDataTest(value.body)) return true;
+  if (esAuthDeDataTest(value.auth)) return true;
+  if (esObjetoSimple(value.last_response)) return true;
+  if (esListaDeFilasDeDataTest(value.query) || esListaDeFilasDeDataTest(value.headers)) {
+    return true;
+  }
+
+  // Queda el caso mas ambiguo: un objeto que solo tiene claves del Tester pero
+  // sin ninguna señal —`{query: []}`, `{auth: {}}`—, que es lo que el editor
+  // deja cuando el test esta a medio configurar. Se acepta como suyo solo si no
+  // hay ninguna clave ajena: un body crudo con un `query` vacio y un `campo`
+  // mas no es un test a medio configurar, es un payload.
+  return soloClavesDeDataTest(value);
+};
+
+/**
+ * Normaliza `data_test` al formato que el Tester del editor escribe y lee.
+ *
+ * El fallo que esto rescata: un cliente (un agente, un script) que guardaba el
+ * body de ejemplo directamente en la raíz de `data_test`. El Tester lee
+ * `data_test.body.json.code`, así que ese body quedaba invisible y
+ * `execute_endpoint_test` con `use_data_test_fallback` no encontraba payload.
+ *
+ * No rechaza nada —hay clientes que llevan años guardando así—: envuelve lo que
+ * parece un body crudo y avisa, para que quien lo llamó aprenda la forma buena.
+ *
+ * @param {unknown} rawDataTest  Valor de `data_test` tal como llega.
+ * @returns {{ value: unknown, normalized: boolean }} `normalized` es `true`
+ *   solo cuando hubo que envolver un valor con formato heredado; el valor
+ *   devuelto es entonces el canónico y el resto de casos vuelve intacto.
+ */
+export const normalizeDataTest = (rawDataTest) => {
+  let value = rawDataTest;
+
+  if (typeof value === "string") {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      // Una string que no es JSON no se toca: decidir su contenido es del
+      // cliente, y en un motor que guarde JSON esto sería además un error de
+      // base de datos, no una normalización.
+      return { value: rawDataTest, normalized: false };
+    }
+  }
+
+  if (value === null || value === undefined) {
+    return { value, normalized: false };
+  }
+
+  if (esObjetoSimple(value) && Object.keys(value).length === 0) {
+    return { value, normalized: false };
+  }
+
+  if (pareceDataTestDelTester(value)) {
+    return { value, normalized: false };
+  }
+
+  return {
+    value: { body: { selection: 0, json: { code: value } } },
+    normalized: true,
+  };
+};
+
 export const upsertEndpoint = async (
   /** @type {import("sequelize").Optional<any, string>} */ data,
 ) => {
@@ -245,8 +390,16 @@ export const upsertEndpoint = async (
     const skipMcpNameUniqueness = data?.skipMcpNameUniqueness === true;
     delete data.skipMcpNameUniqueness;
 
+    const warnings = [];
+
     if (data?.ctrl !== undefined) {
       data.ctrl = validateLogLevelControl(data.ctrl);
+    }
+
+    if (data?.data_test !== undefined) {
+      const { value, normalized } = normalizeDataTest(data.data_test);
+      data.data_test = value;
+      if (normalized) warnings.push(AVISO_DATA_TEST_NORMALIZADO);
     }
 
     // Resolve the target endpoint first so updates/migrations can replace the
@@ -290,7 +443,7 @@ export const upsertEndpoint = async (
       }
     
 
-    return { result, created, previous };
+    return { result, created, previous, warnings };
   } catch (error) {
     console.error("Error retrieving:", error, data);
     throw error; // c4ca4238-a0b9-2382-0dcc-509a6f75849b
