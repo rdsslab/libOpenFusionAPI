@@ -27,9 +27,6 @@ export const ModelNames = {
   //Handler: prefixTableName("handler"),
   Demo: prefixTableName("demo"),
   AppVars: prefixTableName("appvars"),
-  UserProfile: prefixTableName("user_profile"),
-  SystemUserProfile: prefixTableName("system_user_profiles"),
-  UserProfileEndpoint: prefixTableName("user_profile_endpoints"),
   ApiClient: prefixTableName("api_client"),
   ApiKey: prefixTableName("api_key"),
   ClientWallet: prefixTableName("client_wallet"),
@@ -1978,73 +1975,8 @@ export const tblDemo = dbsequelize.define(
   },
 );
 
-///////////
-export const UserProfile = dbsequelize.define(
-  ModelNames.UserProfile,
-  {
-    idprofile: {
-      type: DataTypes.UUID,
-      primaryKey: true,
-      defaultValue: DataTypes.UUIDV4,
-    },
-    name: {
-      type: DataTypes.STRING(100),
-      allowNull: false,
-      unique: true,
-    },
-    description: {
-      type: DataTypes.TEXT,
-      allowNull: true,
-    },
-    enabled: {
-      type: DataTypes.BOOLEAN,
-      defaultValue: true,
-    },
-    startAt: {
-      type: DataTypes.DATE,
-      allowNull: true,
-    },
-    endAt: {
-      type: DataTypes.DATE,
-      allowNull: true,
-    },
-  },
-  { timestamps: true, freezeTableName: true },
-);
 
-export const SystemUserProfile = dbsequelize.define(
-  ModelNames.SystemUserProfile,
-  {
-    idrelation: {
-      type: DataTypes.UUID,
-      primaryKey: true,
-      defaultValue: DataTypes.UUIDV4,
-    },
-    iduser: {
-      type: DataTypes.UUID,
-      allowNull: false,
-    },
-    idprofile: {
-      type: DataTypes.UUID,
-      allowNull: false,
-    },
-    startAt: {
-      type: DataTypes.DATE,
-      allowNull: true,
-    },
-    endAt: {
-      type: DataTypes.DATE,
-      allowNull: true,
-    },
-    enabled: {
-      type: DataTypes.BOOLEAN,
-      defaultValue: true,
-    },
-  },
-  { timestamps: true, freezeTableName: true },
-);
 
-////////////////////////////////////////////////////
 export const ApiClient = dbsequelize.define(
   ModelNames.ApiClient,
   {
