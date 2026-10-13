@@ -107,8 +107,24 @@ failed instead.
 ```sql
 SELECT 'coste: $name'          -- 400 SQL_BIND_INSIDE_LITERAL
 SELECT 1 AS "col $name"        -- 400 as well
+SELECT 1 AS `col $name`        -- 400 as well (MySQL/MariaDB)
+SELECT 1 AS [col $name]        -- 400 as well (SQL Server)
 SELECT $$ f $name $$           -- 400 as well (PostgreSQL)
 ```
+
+The identifier delimiters are the ones each engine actually uses: `"…"` always,
+`` `…` `` always (a backtick outside MySQL/MariaDB is not valid SQL, so treating it as an
+identifier cannot misfire), and `[…]` **only on SQL Server** — in PostgreSQL and SQLite
+`[…]` is an array subscript, where `arr[$idx]` is a legitimate `$param` and is left alone.
+
+How a literal *ends* is per-engine as well, and the scanner follows the engine's rule
+(the same one Sequelize itself applies on its `:param` path, `dialect.canBackslashEscape()`
+/ `supports.escapeStringConstants`). On MySQL/MariaDB `\` escapes the quote, so
+`'l\'avion $p'` is a single string and the `$p` inside it is rejected; on PostgreSQL,
+SQLite and SQL Server `\` is a plain character and that same `\'` closes the literal.
+PostgreSQL literals prefixed with `E` (`E'l\'avion'`) always take backslash escapes, and
+plain ones do too when the connection sets `standardConformingStrings: false`. Quoting a
+`$param` in the ANSI way, `'it''s $name'`, is understood on every engine.
 
 Build that text outside the SQL, or give the parameter a different name:
 
@@ -121,6 +137,19 @@ SELECT CONCAT('coste: ', $name)   -- MySQL / MariaDB
 
 Only the `$param` style is affected. `:param` has never had this problem: its substitution
 path already understands literals, quoted identifiers, comments and dollar-quoted bodies.
+
+`endpoint_upsert` surfaces this at save time: an endpoint whose `code` has the pattern comes
+back with a `warnings` entry carrying the same diagnosis (`SQL_BIND_INSIDE_LITERAL`) instead
+of failing. The suggested fix is written in the endpoint's own dialect — read from
+`custom_data.options.dialect`, with the three forms listed above — and falls back to naming
+each engine's operator when the connection is an unresolved AppVar. It does not block on
+purpose — a migration or a restore has to be able to rewrite the endpoint to fix it. To find
+the ones already published in an instance, run `npm run audit:sql-binds`
+(`dev/test/sql_bind_literal_audit.js`); that is the check to run *before* upgrading a server
+that predates the guard. That catalogue is the lightweight one and has no `custom_data`, so
+the audit cannot know each endpoint's engine: it scans with the rules of the three cases
+above and labels every finding with the case it applies to (`siempre`, backslash-escaped
+literals, or SQL Server brackets).
 
 ### `@name` is not a placeholder
 

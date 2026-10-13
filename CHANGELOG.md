@@ -18,6 +18,92 @@ proyecto, ver [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [13.12.7] - 2026-10-12
+
+### Added
+
+- **`endpoint_upsert` avisa al guardar un `code` `SQL` que en runtime responderá
+  `SQL_BIND_INSIDE_LITERAL`.** Desde la 13.11.32 el guard de runtime rechaza con 400 un
+  `$nombre` escrito dentro de un literal, un identificador entrecomillado o un cuerpo
+  `$$…$$`, y hace bien: sin él Sequelize lo sustituye y el endpoint responde 200 con el dato
+  cambiado. Pero ese rechazo solo se descubría llamando al endpoint ya publicado, así que al
+  guardar no había ninguna señal. Ahora `fnEndpointUpsert` calcula el mismo diagnóstico
+  (`avisoSqlBindEnLiteral`, en `src/lib/handler/utils.js`) sobre el `code` que se está
+  guardando y lo devuelve en `warnings`, junto al aviso ya existente de `data_test`. **No
+  bloquea**: `endpoint_migrate` y la restauración reescriben endpoints existentes, y un 400
+  duro en el guardado rompería el propio mecanismo que permite arreglarlos. El aviso nombra
+  cada `$nombre` rechazado, dice en qué contenedor está y propone la corrección en la sintaxis
+  del motor del endpoint —`N'$' + N'nombre'` en SQL Server, `'$' || 'nombre'` en
+  PostgreSQL/SQLite, `CONCAT('$', 'nombre')` en MySQL/MariaDB—, leída de
+  `custom_data.options.dialect`. Si `custom_data` es una AppVar sin resolver el motor no se
+  conoce y el aviso describe el operador de cada uno en vez de imponer el de SQL Server.
+
+- **`npm run audit:sql-binds`: auditoría de los endpoints `SQL` ya publicados.**
+  `dev/test/sql_bind_literal_audit.js` recorre una instancia (todas sus aplicaciones, o una
+  con `--app`/`--idapp`) y lista los endpoints `SQL` cuyo `code` tiene el patrón. Usa el
+  mismo detector que el runtime y, al ser un script, se puede ejecutar desde un checkout
+  nuevo contra el servidor **viejo** todavía en marcha: es justo lo que hace falta **antes**
+  de actualizar. Solo audita el handler `SQL`; `HANA` no lo necesita (su sustituto ya ignora
+  los `$` dentro de literales y comentarios) y en `SQL_BULK_I` el `code` es un nombre de
+  tabla. Como el catálogo ligero no trae `custom_data`, el informe no puede saber el motor de
+  cada endpoint: escanea con las tres reglas que cambian el resultado (las comunes, el
+  escapado con `\` de MySQL/MariaDB y `E'…'`, y los corchetes de SQL Server) y etiqueta cada
+  hallazgo con el caso en el que aplica, además de dar la corrección de los tres dialectos
+  (SQL Server, PostgreSQL/SQLite y MySQL/MariaDB) en vez de asumir T-SQL. Código de salida
+  0/1/2 para encadenarlo en un despliegue.
+
+### Fixed
+
+- **El escáner no reconocía el identificador con backtick ni con corchete.** Desde la
+  13.11.32 el guard rechaza un `$nombre` dentro de un identificador entrecomillado, pero solo
+  reconocía `"…"` (ANSI). Sequelize sustituye un `$nombre` dentro de un backtick
+  (MySQL/MariaDB) o de un corchete (SQL Server) exactamente igual, así que esos casos
+  volvían al 200 con el dato cambiado sin que el guard se enterara. `scanSqlTokens` reconoce
+  ahora `` `…` `` —siempre, porque fuera de MySQL/MariaDB es SQL inválido— y `[…]` **solo con
+  `dialect === "mssql"`**, porque en PostgreSQL/SQLite `[…]` es un subíndice de array y
+  `arr[$idx]` es un `$param` legítimo. El dialecto lo aporta el propio parche de runtime (el
+  tercer argumento de `formatBindParameters`, `options.dialect`) y el aviso de guardado
+  (`custom_data.options.dialect`). La auditoría escanea con las tres reglas y etiqueta cada
+  hallazgo con el caso en el que aplica.
+
+- **El escáner no seguía la regla de escapado de cada motor al cerrar un literal.** En
+  MySQL/MariaDB `\` escapa la comilla, así que `'l\'avion $p'` es **una sola cadena**, y el
+  escáner la cerraba en ese `\'`: según lo que viniera detrás, o dejaba pasar la sustitución
+  —200 con el dato cambiado en MySQL/MariaDB, el mismo fallo de la 13.11.32— o rechazaba con
+  400 una consulta válida. Ahora el literal se recorre con las reglas que Sequelize ya aplica
+  en su lexer de `:param` (`injectReplacements`, `lib/utils/sql.js`):
+  `dialect.canBackslashEscape()` —siempre en MySQL/MariaDB; en PostgreSQL solo con
+  `standardConformingStrings: false`, que Sequelize deja en `true` por defecto— y
+  `supports.escapeStringConstants` para los literales `E'…'` de PostgreSQL, cuya `E` solo
+  cuenta si delante tiene `[\s(>,=]`. En el parche de runtime las reglas salen de la conexión
+  misma (`sequelize.dialect.canBackslashEscape()`), no de una suposición por el nombre del
+  motor; en el aviso de guardado, de `custom_data.options`. El escapado ANSI (`'it''s $p'`)
+  sigue entendiéndose en los cinco dialectos.
+
+- **CHANGELOG 13.11.32: «nada que migrar» no era cierto.** Esa entrada contaba el 200 con el
+  dato alterado y, dos párrafos después, decía que el operador no tenía nada que hacer. En
+  realidad, todo endpoint `SQL` ya publicado con un `$nombre` dentro de un literal pasa de
+  200 a 400 en todas las llamadas al actualizar. Queda corregido en su propia entrada, con la
+  auditoría y la corrección por motor de la 13.12.7.
+
+### Changed
+
+- **Documentación del handler `SQL`:** la sección «Comments and `$param` in literals»
+  (`src/docs/handlers/SQL/AI_SKILL.md`) menciona el aviso de guardado, el script de auditoría,
+  qué delimitador de identificador reconoce cada motor y cómo cierra cada uno un literal
+  (`\` como escape en MySQL/MariaDB, `E'…'` y `standardConformingStrings` en PostgreSQL).
+
+## [13.12.6] - 2026-10-03
+
+### Changed
+
+- **Modelos `UserProfile` y `SystemUserProfile` retirados.** Estaban declarados en
+  `src/lib/db/models.js` y `src/lib/db/userprofile.js` y no los usaba nadie: no había
+  consultas, endpoints ni tareas que los tocaran. El ejemplo de nombre de herramienta MCP
+  `get_user_profile` pasa a `get_user_info` para no referenciar un modelo que ya no existe
+  (`src/docs/handlers/MCP/AI_SKILL.md`). Entrada añadida a posteriori: el bump a 13.12.6 se
+  hizo sin anotarla en el CHANGELOG, y `version_sync_test.js` lo detectaba.
+
 ## [13.12.5] - 2026-10-01
 
 ### Fixed
@@ -405,10 +491,16 @@ proyecto, ver [MIGRATION.md](./MIGRATION.md).
   `code: "SQL_BIND_INSIDE_LITERAL"`, que va al log del servidor; el cuerpo de la respuesta
   es `{ error, trace_id }` como el de cualquier otro error del handler.
 
-  **Para el operador:** nada que migrar. La lista es el texto de los comentarios de las
-  consultas, que ahora llevan un espacio de más delante del nombre; solo lo nota quien mire
-  el log de consultas del motor, y ese log antes no era citable porque la consulta no llegaba
-  a ejecutarse.
+  **Para el operador:** esto **no** es "nada que migrar". El guard es correcto y no se
+  retira, pero un endpoint `SQL` ya publicado con un `$nombre` dentro de un literal deja de
+  responder 200 y pasa a responder **400 en todas las llamadas** en cuanto se actualiza la
+  librería. No hay aviso al guardar, al desplegar ni al arrancar: el síntoma vive solo en el
+  log de runtime, y un consumidor que ignore el cuerpo del error puede tomarlo por un
+  resultado legítimo (así se observó en producción: 492 respuestas 400 en 9 s leídas por un
+  orquestador como "este convenio tiene pendientes"). Antes de actualizar hay que auditar los
+  endpoints `SQL` que ya existen —`npm run audit:sql-binds`, añadido en la 13.12.7— y, para
+  el patrón `'…$nombre…'`, la corrección en T-SQL es conservar el literal concatenado
+  (`N'$' + N'nombre'`) o sacar ese texto del SQL.
 
   Pruebas: `dev/test/sql_comments_test.js` (contra MSSQL real, 19 casos) y los 48 casos de
   `dev/test/sql_param_detection_test.js` para la parte pura.
