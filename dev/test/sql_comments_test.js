@@ -26,7 +26,7 @@
 //
 // ## Estado actual de los casos
 //
-// Los 18 casos pasan. Los de comentarios se incorporate a partir del defecto que
+// Los 20 casos pasan. Los de comentarios se incorporate a partir del defecto que
 // documentan abajo; los de literales comprueban que ya NO se devuelven datos
 // alterados, que es lo que se decidió.
 import { TEST_PASSWORD, TEST_USER, basicAuthHeader } from "./test_credentials.js";
@@ -178,6 +178,16 @@ const CASOS = [
   {
     nombre: "comentario que menciona un $name que tambien es un bind real",
     code: `/* el filtro real es $name */\n${CONSULTA}`,
+  },
+  {
+    // H1 de la validacion en vivo: al quitar un `/* … */` no ejecutable se dejaba el
+    // hueco sin separador y `name/* c */IS` se leia `nameIS`. El comentario hacia de
+    // espacio entre tokens, y con un bind en la peticion (para que corra el recorte).
+    nombre: "bloque pegado entre dos tokens que separa (regresion de fusion)",
+    code:
+      "SELECT TOP 5 id, name, qty, price FROM dbo.items\n" +
+      "WHERE name/* comentario */IS NOT NULL AND name <> $name\n" +
+      "ORDER BY id",
   },
   {
     nombre: "consulta sin placeholders y con comentario de texto",

@@ -18,6 +18,58 @@ proyecto, ver [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [13.12.8] - 2026-10-13
+
+### Fixed
+
+- **El recorte de comentarios no ejecutables ya no fusiona los tokens que el comentario
+  separaba.** `f2f1b81` quitaba los `/* … */` sin dejar nada en su lugar, así que
+  `qty/* c */IN` llegaba al motor como `qtyIN` y la consulta respondía 500 (`Unknown column
+  'qtyIN'`), en los cinco motores. Solo pasaba cuando la petición traía `bind`, porque el
+  recorte vive dentro de `formatBindParameters` de `ConnectionPool`: la misma consulta con
+  `:nombre` o sin parámetros funcionaba. Ahora se deja **un espacio** donde estaba el bloque.
+
+- **`--` solo abre comentario donde el motor lo abre.** En MySQL y MariaDB, `--` es un
+  comentario únicamente si le sigue un espacio, un carácter de control o el final de la
+  cadena; `1--2` es `1 - (-2)` = `3`. El recorte lo trataba como comentario en todos los
+  motores, de modo que `SELECT 1--2 AS x, $name AS eco` se ejecutaba como `SELECT 1` y
+  devolvía **200 con un resultado equivocado** en lugar del 500 anterior —un 200 silencioso
+  con datos cambiados es peor que un error—. La decisión pasa a ser por dialecto
+  (`esComentarioDeLinea()`), y `#` se recorta también en MariaDB (antes solo en MySQL).
+
+- **Un `$nombre` dentro de `/*! … */` ya se sustituye.** `/*! … */` se ejecuta en
+  MySQL/MariaDB, así que un `$name` de dentro es un bind real; el guard lo neutralizaba
+  (insertaba un espacio: `$ name`) y la consulta moría por error de sintaxis. En MySQL
+  responde 200. En MariaDB sigue respondiendo 500 por una limitación del driver: Sequelize
+  usa `query()`, cuya sustitución de `?` no ve los comentarios ejecutables, mientras que
+  `execute()` sí los resuelve. Queda documentado, no es corregible desde el handler.
+
+- **Dollar-quoting de PostgreSQL (`$$ … $$`, `$tag$ … $tag$`).** La regex con la que
+  Sequelize sustituye los binds (`\B\$(\$|\w+)`, en `abstract/query.js:78`) no distingue el
+  `$` que abre un cuerpo dollar-quoted del que abre un bind: `$$ cuerpo $$` se convertía en
+  `$ cuerpo $` (`syntax error at or near "$"`) y `$tag$ … $tag$` se leía como el bind
+  `$tag` (`400 SQL_BIND_INSIDE_LITERAL`) aunque el cuerpo no contuviera ningún `$nombre`.
+  Además, el rango que marcaba el guard incluía la etiqueta de cierre como si fuera un bind.
+  Ahora los cuerpos se apartan con `protegerDollarQuoted()` —que usa el escáner, no una
+  búsqueda de `$$` a pelo, para no confundir un `$$` de dentro de un literal— solo en el
+  dialecto `postgres`, y se reponen tal cual después de la sustitución. Un `$nombre` dentro
+  del cuerpo se sigue rechazando con 400: no debe sustituirse en silencio.
+
+### Changed
+
+- **La detección de parámetros pasa a decidir los comentarios de línea por dialecto.**
+  `dev/test/sql_param_detection_test.js` crece de 79 a 107 casos (bloques `stripCasos`,
+  `dialectoCasos` y `dollarCasos`/`dollarIntactos`), y `dev/test/sql_comments_test.js` añade
+  un caso de regresión de la fusión contra SQL Server real (20/20).
+
+- **Nuevo informe de validación en vivo:**
+  [`src/docs/handlers/SQL/sql_comments_validation.md`](./src/docs/handlers/SQL/sql_comments_validation.md).
+  Recoge los cinco hallazgos (los cuatro corregidos y un efecto positivo en SQLite), la
+  matriz A/B contra PostgreSQL, SQL Server, MySQL, MariaDB y SQLite, la causa raíz y la
+  solución aplicada. Enlazado desde el `README.md` del handler.
+
+---
+
 ## [13.12.7] - 2026-10-12
 
 ### Added

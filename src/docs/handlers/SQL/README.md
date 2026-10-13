@@ -157,6 +157,24 @@ In the SQL, access with `:account_name` and `:account_id`.
 ---
 
 <details>
+<summary>💬 Comments and Dialect-Specific Syntax</summary>
+
+Comments in the SQL are preserved or trimmed depending on whether they are executable, and on the engine's own comment rules. The handler never lets a comment change which parameters get bound.
+
+- **Line comments (`-- …`)** are treated per dialect. On **MySQL and MariaDB**, `--` only opens a comment when followed by a space, a control character, or the end of the string; `1--2` is `1 - (-2)` = `3`, so it is left alone. On every other engine — and when the dialect is unknown — `--` always starts a comment. **`#`** is a line comment on both MySQL and MariaDB.
+- **Block comments (`/* … */`)** are removed before Sequelize sees the query when the request carries `bind` values, and a **space is left where the comment was**, because the comment separated tokens (`qty/* c */IN` must not become `qtyIN`).
+- **Executable comments (`/*! … */`) and optimizer hints (`/*+ … */`)** are kept, and a `$name` inside them is bound normally. This matters on MySQL and MariaDB, where those comments execute.
+- **PostgreSQL dollar-quoting** (`$$ … $$`, `$tag$ … $tag$`) is protected so the query reaches the engine exactly as written, and a `$name` inside a dollar-quoted body is still rejected with `400` (`SQL_BIND_INSIDE_LITERAL`) instead of being substituted silently.
+
+> **Known limitations.** On MariaDB, a `$bind` inside `/*! … */` still fails: Sequelize uses the client-side `query()` path, which does not substitute `?` inside executable comments (the server-side `execute()` path does). MySQL is unaffected. A lone `$$` inside a string literal (`SELECT '$$'`) is still read as an escaped `$` by Sequelize and returns `$`; that is pre-existing behavior.
+
+The full validation report — engines, A/B runs, findings and the fixes applied — is in [`sql_comments_validation.md`](./sql_comments_validation.md).
+
+</details>
+
+---
+
+<details>
 <summary>🔌 Dynamic Connection</summary>
 
 You can override or provide connection details at runtime by sending a `connection` object in the request body (POST only). This is useful for multi-tenant applications connecting to different databases based on the user context.

@@ -4,7 +4,7 @@ import Request from "tedious/lib/request.js";
 import BulkLoad from "tedious/lib/bulk-load.js";
 import { TYPES } from "tedious/lib/data-type.js";
 import { ISOLATION_LEVEL } from "tedious/lib/transaction.js";
-import { prepararSqlParaBinds, describirBindsRechazados, stripNonExecutableComments } from "./utils.js";
+import { prepararSqlParaBinds, describirBindsRechazados, stripNonExecutableComments, protegerDollarQuoted } from "./utils.js";
 
 const tediousDialectModule = {
   Connection,
@@ -215,9 +215,10 @@ function parchearBindsDeComentarios(sequelize) {
       // El contexto decide qué delimitadores de identificador reconoce el escáner
       // (`[… ]` solo en SQL Server; los backticks y las comillas dobles, siempre) y cómo
       // se escapan los literales en este motor.
-      // Para la ejecución, quitamos comentarios NO ejecutables (`--`, `#` MySQL, `/* */` estándar)
-      // pero conservamos `/*! ... */` y `/*+ ... */`. No cambia la validación (que ya ignora
-      // comentarios), evita reescribir el SQL original con espacios y reduce superficie de error.
+      // Para la ejecución, quitamos comentarios NO ejecutables (`--`, `#` MySQL/MariaDB,
+      // `/* */` estándar) pero conservamos `/*! ... */` y `/*+ ... */`. No cambia la
+      // validación (que ya ignora comentarios) y evita que Sequelize sustituya un `$name`
+      // que el motor nunca ejecutaría.
       const sqlEjecutar = stripNonExecutableComments(sql, contextoEscaneo);
       const { sql: limpio, rechazados } = prepararSqlParaBinds(sqlEjecutar, contextoEscaneo);
 
@@ -232,6 +233,21 @@ function parchearBindsDeComentarios(sequelize) {
         error.code = "SQL_BIND_INSIDE_LITERAL";
         error.statusCode = 400;
         throw error;
+      }
+
+      // En PostgreSQL, `$$ … $$` y `$tag$ … $tag$` llevan `$` que la regex de Sequelize no
+      // distingue de un bind. Se apartan y se reponen alrededor de la sustitución para que
+      // el motor reciba el texto dollar-quoted intacto.
+      if (contextoEscaneo.dialect === "postgres") {
+        const { sql: paraSequelize, restaurar } = protegerDollarQuoted(limpio, contextoEscaneo);
+        const [sqlFinal, parametros] = Original.formatBindParameters.call(
+          this,
+          paraSequelize,
+          values,
+          dialect,
+          ...resto,
+        );
+        return [restaurar(sqlFinal), parametros];
       }
 
       return Original.formatBindParameters.call(this, limpio, values, dialect, ...resto);
