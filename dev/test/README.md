@@ -301,8 +301,37 @@ quoted identifier is now **rejected with a 400** explaining the conflict. That i
 for the better even for queries that were already failing: the previous behaviour for a
 colliding literal was a 200 carrying data that was not what the endpoint said.
 
-`sql_param_detection_test.js` covers the pure half of this and is in the packet: 48 cases
-for the scanner and for `prepararSqlParaBinds()`, plus adversarial inputs.
+`sql_param_detection_test.js` covers the pure half of this and is in the packet: 79 cases
+for the scanner, for `prepararSqlParaBinds()` — including which identifier delimiter each
+dialect recognises (`"…"` and `` `…` `` always, `[…]` only on SQL Server — on
+PostgreSQL/SQLite it is an array subscript) and how each engine closes a literal (`\` is an
+escape on MySQL/MariaDB; on PostgreSQL `\` is a plain character unless it is an `E'…'`
+literal or the connection sets `standardConformingStrings: false`) —, for
+`avisoSqlBindEnLiteral()` (the save-time warning `endpoint_upsert` now returns, one per
+enabled dialect) and for `sugerirLiteralSinBind()`, plus adversarial inputs.
+
+### Hearing about it at save time, and finding it before upgrading
+
+The 400 only appeared at runtime, so an endpoint that had been answering 200 for months
+started failing on every call the moment the library was updated, with nothing said at save
+time. [`endpoint_upsert`](../../src/lib/server/functions/system/prd/endpoint/index.js) now runs
+the same detector (`avisoSqlBindEnLiteral()`) over the `code` being saved and returns the
+diagnosis in `warnings`, the field the existing `data_test` notice already uses. It does
+**not** block: `endpoint_migrate` and a restore rewrite existing endpoints, and a hard 400
+there would break the very path that lets them be fixed.
+
+For the instances that are already running the old code, the check has to happen *before*
+upgrading, from a new checkout against the old server.
+[`sql_bind_literal_audit.js`](./sql_bind_literal_audit.js) is that check: an HTTP/MCP script
+(not a test suite — it needs a live server, so it is outside the packet) that walks every
+app and lists the `SQL` endpoints whose `code` has the pattern, with the fix for each engine.
+Run it with `npm run audit:sql-binds`; it exits 0 when clean, 1 when there are findings, and
+2 when the audit could not complete. It audits the `SQL` handler only: `HANA` needs no scan
+(see below) and in `SQL_BULK_I` the `code` is a table name, not a query. The catalogue it
+reads is the lightweight one, which carries no `custom_data`, so it cannot know each
+endpoint's engine: it scans with the three rule sets that change what a `$name` is (the
+common ones, backslash-escaped literals, and SQL Server brackets) and labels each finding
+with the case it applies to.
 
 ## The other two marker styles, and HANA
 

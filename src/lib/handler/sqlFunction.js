@@ -11,6 +11,7 @@ import {
   buildConnectionCacheKey,
   detectSqlParamStyle,
   parseConnectionOverrideAllowlist,
+  reglasDeEscaneo,
   resolveAppVar,
   resolveAppVarPlaceholder,
   resolveConnectionOverrideAllowlist,
@@ -287,9 +288,17 @@ export const sqlFunction = async (context) => {
     // regex anterior, `SELECT fn_insert($event::json)` se clasificaba como
     // replacements, `$event` quedaba sin sustituir y PostgreSQL respondía
     // "error de sintaxis en o cerca de $" en el 100% de los casos.
+    //
+    // Las reglas salen de la config de esta conexión (`dialect` y `standardConformingStrings`
+    // de `custom_data.options`), que es lo que decide si un `'l\'avion'` de MySQL es una
+    // cadena entera o si ese `\'` cierra el literal, como en PostgreSQL o SQL Server.
+    const contextoEscaneo = reglasDeEscaneo(
+      paramsSQL.config?.options?.dialect,
+      paramsSQL.config?.options,
+    );
     if (paramsSQL.query && !replacements && !Array.isArray(data_bind)
       && Object.keys(data_bind).length > 0) {
-      if (detectSqlParamStyle(paramsSQL.query) === "replacements") {
+      if (detectSqlParamStyle(paramsSQL.query, contextoEscaneo) === "replacements") {
         replacements = data_bind;
         data_bind = {};
       }
@@ -300,7 +309,7 @@ export const sqlFunction = async (context) => {
     // Se reutiliza el escáner para no contar como bind un `$param` que en realidad
     // está dentro de un literal o de un comentario (p.ej. `SELECT 'coste: $total'`).
     if (paramsSQL.query && !replacements && !Array.isArray(data_bind)) {
-      for (const bindName of scanSqlPlaceholders(paramsSQL.query).bind) {
+      for (const bindName of scanSqlPlaceholders(paramsSQL.query, contextoEscaneo).bind) {
         if (!Object.prototype.hasOwnProperty.call(data_bind, bindName)) {
           data_bind[bindName] = "";
         }

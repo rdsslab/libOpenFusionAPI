@@ -4,7 +4,7 @@ import Request from "tedious/lib/request.js";
 import BulkLoad from "tedious/lib/bulk-load.js";
 import { TYPES } from "tedious/lib/data-type.js";
 import { ISOLATION_LEVEL } from "tedious/lib/transaction.js";
-import { prepararSqlParaBinds } from "./utils.js";
+import { prepararSqlParaBinds, describirBindsRechazados } from "./utils.js";
 
 const tediousDialectModule = {
   Connection,
@@ -194,26 +194,39 @@ function parchearBindsDeComentarios(sequelize) {
   const Original = sequelize?.dialect?.Query;
   if (typeof Original !== "function") return;
 
+  // Las reglas con las que el escáner lee los literales son las de **esta** instancia,
+  // no una suposición por el nombre del motor: `dialect.canBackslashEscape()` consulta
+  // las `options` de la conexión (en PostgreSQL, `standardConformingStrings`), y
+  // `supports.escapeStringConstants` dice si hay literales `E'…'`. Importa porque en
+  // MySQL/MariaDB un `'l\'avion $p'` es una sola cadena y en PostgreSQL o SQL Server ese
+  // `\'` la cierra: sin esto, el escáner clasificaría mal el `$p` en uno de los dos.
+  const contextoEscaneo = {
+    dialect: sequelize?.dialect?.name ?? null,
+    backslashEscape: sequelize?.dialect?.canBackslashEscape?.() === true,
+    escapeStringConstants: sequelize?.dialect?.supports?.escapeStringConstants === true,
+  };
+
   class QueryConComentariosNeutros extends Original {
     static formatBindParameters(sql, values, dialect, ...resto) {
       // Sin `values` no hay sustitución que hacer y el camino rápido de Sequelize
       // ya devuelve el SQL tal cual; no hace falta recorrerlo.
       if (!values) return Original.formatBindParameters.call(this, sql, values, dialect, ...resto);
 
-      const { sql: limpio, rechazados } = prepararSqlParaBinds(sql);
+      // El contexto decide qué delimitadores de identificador reconoce el escáner
+      // (`[… ]` solo en SQL Server; los backticks y las comillas dobles, siempre) y cómo
+      // se escapan los literales en este motor.
+      const { sql: limpio, rechazados } = prepararSqlParaBinds(sql, contextoEscaneo);
 
       if (rechazados.length > 0) {
         // Un `$nombre` dentro de un literal no se puede neutralizar sin reescribir el
-        // literal con concatenación —`+` en T-SQL, `||` en el resto—, que depende del
-        // dialecto y no se puede aplicar ni a un identificador entrecomillado ni
-        // dentro de un cuerpo `$$…$$`. Y si no se hace nada, cuando el nombre del
-        // literal coincide con un parámetro real Sequelize lo sustituye y el endpoint
-        // responde 200 con el dato cambiado: `SELECT 'coste: $name'` devuelve
-        // `coste: @name`, sin ninguna señal para quien lo consume. Un 400 explícito
-        // es peor para el cliente y mucho mejor para quien escribe el endpoint.
-        const detalle = rechazados
-          .map((r) => `$${r.name} (${r.contenedor.replace(/_/g, " ")})`)
-          .join(", ");
+        // literal con concatenación —`+` en T-SQL, `||` en PostgreSQL/SQLite, `CONCAT()`
+        // en MySQL/MariaDB—, que depende del dialecto y no se puede aplicar ni a un
+        // identificador entrecomillado ni dentro de un cuerpo `$$…$$`. Y si no se hace
+        // nada, cuando el nombre del literal coincide con un parámetro real Sequelize lo
+        // sustituye y el endpoint responde 200 con el dato cambiado: `SELECT 'coste: $name'`
+        // devuelve `coste: @name`, sin ninguna señal para quien lo consume. Un 400
+        // explícito es peor para el cliente y mucho mejor para quien escribe el endpoint.
+        const detalle = describirBindsRechazados(rechazados);
         const error = new Error(
           `This query uses ${detalle} inside a quoted string or identifier. Sequelize ` +
           `replaces every $name it finds in the text with the value of the parameter of ` +

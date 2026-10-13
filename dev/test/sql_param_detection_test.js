@@ -3,6 +3,10 @@ import {
   detectSqlParamStyle,
   prepararSqlParaBinds,
   scanSqlPlaceholders,
+  describirBindsRechazados,
+  avisoSqlBindEnLiteral,
+  sugerirLiteralSinBind,
+  reglasDeEscaneo,
 } from "../../src/lib/handler/utils.js";
 
 /**
@@ -404,12 +408,393 @@ for (const c of prepararCasos) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// `avisoSqlBindEnLiteral`: el aviso que `endpoint_upsert` devuelve al guardar.
+//
+// Es la pata que faltaba del arreglo: el runtime ya rechaza con 400, pero el autor
+// solo se enteraba llamando al endpoint ya publicado. El aviso no bloquea, así que
+// lo único que hay que garantizar es que exista cuando toca y que no aparezca
+// cuando no.
+//
+// La corrección concreta depende del motor (el proyecto habilita cinco dialectos de
+// Sequelize), así que cada caso fija el dialecto y la sintaxis que debe salir. Con el
+// dialecto desconocido el aviso no impone la de SQL Server.
+// ---------------------------------------------------------------------------
+
+/** @type {{name: string, query: string, dialect: string|null, contiene: string[]|null}[]} */
+const avisoCasos = [
+  {
+    name: "literal en el SQL del informe (mssql): parámetro, diagnóstico y `+`",
+    query: "IF @estado_in IS NULL OR @estado_in = '' OR @estado_in = '$estado'",
+    dialect: "mssql",
+    contiene: ["$estado (literal)", "SQL_BIND_INSIDE_LITERAL", "N'$' + N'estado'"],
+  },
+  {
+    name: "literal (postgres): propone `||`, no `+`",
+    query: "SELECT 'coste: $p' AS l, $p AS v",
+    dialect: "postgres",
+    contiene: ["$p (literal)", "'$' || 'p'"],
+  },
+  {
+    name: "literal (sqlite): propone `||`",
+    query: "SELECT 'coste: $p'",
+    dialect: "sqlite",
+    contiene: ["'$' || 'p'"],
+  },
+  {
+    name: "literal (mysql): propone `CONCAT()`, porque `+` ahí es suma",
+    query: "SELECT 'coste: $p'",
+    dialect: "mysql",
+    contiene: ["CONCAT('$', 'p')"],
+  },
+  {
+    name: "literal (mariadb): propone `CONCAT()`",
+    query: "SELECT 'coste: $p'",
+    dialect: "mariadb",
+    contiene: ["CONCAT('$', 'p')"],
+  },
+  {
+    name: "dialecto desconocido (AppVar sin resolver): no impone T-SQL",
+    query: "SELECT 'coste: $p'",
+    dialect: null,
+    contiene: ["your engine's operator", "`||`", "`CONCAT()`"],
+  },
+  {
+    name: "identificador entrecomillado: aviso",
+    query: 'SELECT "$x" FROM t WHERE a = $x',
+    dialect: "mssql",
+    contiene: ["$x (identificador)"],
+  },
+  {
+    name: "cuerpo dollar-quoted: aviso",
+    query: "SELECT $$ f $p $$, $p",
+    dialect: "postgres",
+    contiene: ["$p (dollar quoted)"],
+  },
+  {
+    name: "el mismo nombre repetido no duplica la corrección",
+    query: "SELECT '$p', '$p', $p",
+    dialect: "sqlite",
+    contiene: ["'$' || 'p'"],
+  },
+  {
+    name: "comentario con $nombre: se neutraliza, no hay aviso",
+    query: "/* sale de $_VAR_X */\nSELECT id FROM t WHERE n <> $name",
+    dialect: "mssql",
+    contiene: null,
+  },
+  {
+    name: "SQL limpio con un bind real: no hay aviso",
+    query: "SELECT id FROM t WHERE n <> $name",
+    dialect: "mssql",
+    contiene: null,
+  },
+  {
+    name: "SQL sin un solo $: no hay aviso",
+    query: "SELECT 1",
+    dialect: "sqlite",
+    contiene: null,
+  },
+];
+
+for (const c of avisoCasos) {
+  const aviso = avisoSqlBindEnLiteral(c.query, c.dialect);
+  try {
+    if (c.contiene === null) {
+      assert.strictEqual(aviso, null, `"${c.query}" no debía producir aviso`);
+    } else {
+      assert.ok(
+        typeof aviso === "string" && aviso.length > 0,
+        `"${c.query}" debía producir un aviso`,
+      );
+      for (const trozo of c.contiene) {
+        assert.ok(aviso.includes(trozo), `el aviso no menciona ${trozo}: ${aviso}`);
+      }
+    }
+  } catch (error) {
+    failures++;
+    console.error(`FALLA: ${c.name}`);
+    console.error(`  ${error.message}`);
+  }
+}
+
+// El mismo caso dos veces con el mismo `$nombre` no debe repetir la corrección.
+{
+  const aviso = avisoSqlBindEnLiteral("SELECT '$p', '$p'", "mysql");
+  const apariciones = aviso.split("CONCAT('$', 'p')").length - 1;
+  assert.strictEqual(apariciones, 1, `la corrección debe salir una vez, salió ${apariciones}: ${aviso}`);
+}
+
+assert.strictEqual(
+  describirBindsRechazados([
+    { name: "a", contenedor: "literal" },
+    { name: "b", contenedor: "dollar_quoted" },
+  ]),
+  "$a (literal), $b (dollar quoted)",
+  "describirBindsRechazados debe juntar nombre y contenedor legible",
+);
+
+// `sugerirLiteralSinBind` cubre los cinco dialectos habilitados y falla en cerrado.
+assert.strictEqual(sugerirLiteralSinBind("n", "mssql"), "N'$' + N'n'");
+assert.strictEqual(sugerirLiteralSinBind("n", "postgres"), "'$' || 'n'");
+assert.strictEqual(sugerirLiteralSinBind("n", "sqlite"), "'$' || 'n'");
+assert.strictEqual(sugerirLiteralSinBind("n", "mysql"), "CONCAT('$', 'n')");
+assert.strictEqual(sugerirLiteralSinBind("n", "mariadb"), "CONCAT('$', 'n')");
+assert.strictEqual(sugerirLiteralSinBind("n", "MSSQL"), "N'$' + N'n'", "el dialecto no debe importar mayúsculas");
+assert.strictEqual(sugerirLiteralSinBind("n", "hana"), null, "HANA no es Sequelize: sin sintaxis propia");
+assert.strictEqual(sugerirLiteralSinBind("n", null), null, "sin dialecto, sin propuesta de sintaxis");
+
+// ---------------------------------------------------------------------------
+// Delimitadores de identificador por dialecto. `"…"` siempre; backtick siempre
+// (fuera de MySQL/MariaDB es SQL inválido, así que tratarlo como identificador no
+// puede marcar mal una consulta válida, y así la auditoría —que no conoce el
+// motor— los ve); `[…]` solo en MSSQL, porque en PostgreSQL/SQLite es un
+// subíndice de array y ahí el `$` sí es un bind real.
+// ---------------------------------------------------------------------------
+
+/** @type {{name: string, query: string, dialect: string|null, rechaza: boolean}[]} */
+const identCasos = [
+  {
+    name: "identificador ANSI (postgres)",
+    query: 'SELECT "col $p" FROM t WHERE a = $p',
+    dialect: "postgres",
+    rechaza: true,
+  },
+  {
+    name: "identificador ANSI sin dialecto",
+    query: 'SELECT "col $p"',
+    dialect: null,
+    rechaza: true,
+  },
+  {
+    name: "identificador con backtick (mysql)",
+    query: "SELECT `col $p` FROM t WHERE a = $p",
+    dialect: "mysql",
+    rechaza: true,
+  },
+  {
+    name: "identificador con backtick sin dialecto: la auditoría lo ve",
+    query: "SELECT `col $p`",
+    dialect: null,
+    rechaza: true,
+  },
+  {
+    name: "identificador con corchete (mssql)",
+    query: "SELECT [col $p] FROM t WHERE a = $p",
+    dialect: "mssql",
+    rechaza: true,
+  },
+  {
+    name: "corchete en postgres es subíndice de array, no identificador",
+    query: "SELECT arr[$p] FROM t WHERE a = $p",
+    dialect: "postgres",
+    rechaza: false,
+  },
+  {
+    name: "corchete sin dialecto: no se toca (podría ser un array)",
+    query: "SELECT [col $p]",
+    dialect: null,
+    rechaza: false,
+  },
+  {
+    name: "corchete en postgres con $ dentro: sigue siendo bind, no identificador",
+    query: "SELECT t.arr[$p] FROM t",
+    dialect: "postgres",
+    rechaza: false,
+  },
+];
+
+for (const c of identCasos) {
+  const { rechazados } = prepararSqlParaBinds(c.query, c.dialect);
+  try {
+    if (c.rechaza) {
+      assert.ok(rechazados.length > 0, `"${c.query}" (${c.dialect}) debía rechazarse`);
+      assert.strictEqual(
+        rechazados[0].contenedor,
+        "identificador",
+        `contenedor inesperado: ${JSON.stringify(rechazados)}`,
+      );
+    } else {
+      assert.strictEqual(
+        rechazados.length,
+        0,
+        `"${c.query}" (${c.dialect}) no debía rechazar: ${JSON.stringify(rechazados)}`,
+      );
+    }
+  } catch (error) {
+    failures++;
+    console.error(`FALLA: ${c.name}`);
+    console.error(`  ${error.message}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Escapado dentro de los literales: no es el mismo en los cinco motores.
+//
+// La sustitución de Sequelize (`\B\$(\$|\w+)`) no mira el contexto, así que lo que
+// hay que acertar es *dónde cierra* el literal. En MySQL/MariaDB `'l\'avion'` es una
+// sola cadena —`\` escapa la comilla— y el `$nombre` de dentro es justo el caso que
+// el guard tiene que rechazar; en PostgreSQL o SQL Server ese `\'` cierra el literal
+// y `\` es un carácter normal. Son las mismas reglas que aplica el lexer
+// `injectReplacements` de Sequelize (`dialect.canBackslashEscape()`,
+// `supports.escapeStringConstants`), replicadas aquí a propósito: el detector tiene
+// que leer el SQL como lo lee el motor.
+//
+// Los casos con backslash van en String.raw para que el SQL lleve exactamente lo que
+// se ve: `\'` es un backslash y una comilla, no un escape de JavaScript.
+// ---------------------------------------------------------------------------
+
+/** @type {{name: string, query: string, contexto: unknown, rechaza: boolean}[]} */
+const escapeCasos = [
+  {
+    name: "MySQL: la comilla escapada deja el $nombre dentro del literal",
+    query: String.raw`SELECT 'l\'avion $p' FROM t`,
+    contexto: "mysql",
+    rechaza: true,
+  },
+  {
+    name: "MariaDB: igual que MySQL",
+    query: String.raw`SELECT 'l\'avion $p' FROM t`,
+    contexto: "mariadb",
+    rechaza: true,
+  },
+  {
+    name: "MySQL: con un bind real detrás, el literal no se cierra a medias",
+    query: String.raw`SELECT 'l\'avion $p' AS l, $p AS v`,
+    contexto: "mysql",
+    rechaza: true,
+  },
+  {
+    name: "PostgreSQL: `\\` no escapa, el literal cierra ahí (esa consulta ya es inválida)",
+    query: String.raw`SELECT 'l\'avion $p' FROM t`,
+    contexto: "postgres",
+    rechaza: false,
+  },
+  {
+    name: "PostgreSQL con standardConformingStrings=false: ahí sí escapa",
+    query: String.raw`SELECT 'l\'avion $p' FROM t`,
+    contexto: { dialect: "postgres", backslashEscape: true },
+    rechaza: true,
+  },
+  {
+    name: "PostgreSQL: el literal E'…' siempre admite `\\`",
+    query: String.raw`SELECT E'l\'avion $p' FROM t`,
+    contexto: "postgres",
+    rechaza: true,
+  },
+  {
+    name: "PostgreSQL: una `E` pegada a un identificador no abre literal escapable",
+    query: String.raw`SELECT xE'l\'avion $p' FROM t`,
+    contexto: "postgres",
+    rechaza: false,
+  },
+  {
+    name: "MySQL: dos backslashes son un backslash escapado, la comilla cierra",
+    query: String.raw`SELECT 'l\\', $p`,
+    contexto: "mysql",
+    rechaza: false,
+  },
+  {
+    name: "MySQL: tres backslashes dejan la comilla escapada, el literal sigue abierto",
+    query: String.raw`SELECT 'l\\\'s $p' FROM t`,
+    contexto: "mysql",
+    rechaza: true,
+  },
+  {
+    name: "SQL Server: `\\` es un carácter normal, no escapa la comilla",
+    query: String.raw`SELECT 'l\'avion $p' FROM t`,
+    contexto: "mssql",
+    rechaza: false,
+  },
+  {
+    name: "SQLite: tampoco escapa con backslash",
+    query: String.raw`SELECT 'l\'avion $p' FROM t`,
+    contexto: "sqlite",
+    rechaza: false,
+  },
+];
+
+for (const c of escapeCasos) {
+  const { rechazados } = prepararSqlParaBinds(c.query, c.contexto);
+  try {
+    if (c.rechaza) {
+      assert.ok(
+        rechazados.length > 0,
+        `"${c.query}" (${JSON.stringify(c.contexto)}) debía rechazarse`,
+      );
+      assert.strictEqual(
+        rechazados[0].contenedor,
+        "literal",
+        `contenedor inesperado: ${JSON.stringify(rechazados)}`,
+      );
+    } else {
+      assert.strictEqual(
+        rechazados.length,
+        0,
+        `"${c.query}" (${JSON.stringify(c.contexto)}) no debía rechazar: ${JSON.stringify(rechazados)}`,
+      );
+    }
+  } catch (error) {
+    failures++;
+    console.error(`FALLA: ${c.name}`);
+    console.error(`  ${error.message}`);
+  }
+}
+
+// `reglasDeEscaneo` traduce dialecto + options a las reglas del escáner. Solo
+// PostgreSQL depende de una option (`standardConformingStrings`, que Sequelize deja en
+// `true` por defecto —`sequelize.js:111`— y además fija con
+// `SET standard_conforming_strings=on` al conectar).
+assert.deepStrictEqual(reglasDeEscaneo("mysql"), {
+  dialect: "mysql",
+  backslashEscape: true,
+  escapeStringConstants: false,
+});
+assert.deepStrictEqual(reglasDeEscaneo("MARIADB"), {
+  dialect: "mariadb",
+  backslashEscape: true,
+  escapeStringConstants: false,
+});
+assert.deepStrictEqual(reglasDeEscaneo("postgres"), {
+  dialect: "postgres",
+  backslashEscape: false,
+  escapeStringConstants: true,
+});
+assert.deepStrictEqual(reglasDeEscaneo("postgres", { standardConformingStrings: false }), {
+  dialect: "postgres",
+  backslashEscape: true,
+  escapeStringConstants: true,
+});
+assert.deepStrictEqual(reglasDeEscaneo("mssql"), {
+  dialect: "mssql",
+  backslashEscape: false,
+  escapeStringConstants: false,
+});
+assert.deepStrictEqual(reglasDeEscaneo("sqlite"), {
+  dialect: "sqlite",
+  backslashEscape: false,
+  escapeStringConstants: false,
+});
+assert.deepStrictEqual(reglasDeEscaneo(null), {
+  dialect: null,
+  backslashEscape: false,
+  escapeStringConstants: false,
+});
+assert.deepStrictEqual(
+  reglasDeEscaneo({ name: "mysql" }),
+  { dialect: "mysql", backslashEscape: true, escapeStringConstants: false },
+  "acepta el objeto dialecto de Sequelize, no solo la cadena",
+);
+
 // Tampoco debe degradarse: siempre termina, y siempre con el contrato.
 for (const weird of [
   "'", '"', "$$", "$tag$", "/*", "*/", "--", "SELECT $",
   "/* $_VAR_X", "-- $_VAR_X", "'$_VAR_X", '"$_VAR_X', "$$$_VAR_X$$",
   "/*".repeat(400) + " $_VAR_X " + "*/".repeat(400),
   "$".repeat(2000),
+  "`", "` $_VAR_X", "`".repeat(400) + " $_VAR_X " + "`".repeat(400),
+  "\\", String.raw`'$_VAR_X\'`, String.raw`E'$_VAR_X\'`,
+  "\\".repeat(1000) + "' $_VAR_X",
 ]) {
   const r = prepararSqlParaBinds(weird);
   assert.strictEqual(typeof r.sql, "string", `sql debe ser string para ${JSON.stringify(weird.slice(0, 20))}`);
@@ -417,7 +802,38 @@ for (const weird of [
   assert.ok(Number.isInteger(r.comentados), `comentados debe ser entero para ${JSON.stringify(weird.slice(0, 20))}`);
 }
 
-const total = cases.length + prepararCasos.length;
+// Los corchetes solo se recorren en MSSQL; con y sin cierre, siempre termina.
+for (const weird of ["[", "[ $_VAR_X", "[]", "[".repeat(400) + " $_VAR_X " + "]".repeat(400)]) {
+  const r = prepararSqlParaBinds(weird, "mssql");
+  assert.strictEqual(typeof r.sql, "string", `sql debe ser string para ${JSON.stringify(weird.slice(0, 20))}`);
+  assert.ok(Array.isArray(r.rechazados), `rechazados debe ser array para ${JSON.stringify(weird.slice(0, 20))}`);
+}
+
+// Y el camino del escapado (MySQL/MariaDB, `E'…'` de PostgreSQL) tampoco se cuelga con
+// backslashes sin cerrar, ni con muchos seguidos.
+for (const contexto of [
+  "mysql",
+  "mariadb",
+  { dialect: "postgres", backslashEscape: true, escapeStringConstants: true },
+  { dialect: "postgres" },
+]) {
+  for (const weird of [
+    "\\",
+    "\\\\",
+    String.raw`'$_VAR_X\'`,
+    String.raw`E'$_VAR_X\'`,
+    String.raw`'` + "\\".repeat(1000) + " $_VAR_X",
+    String.raw`E'` + "\\".repeat(1000) + " $_VAR_X",
+  ]) {
+    const r = prepararSqlParaBinds(weird, contexto);
+    assert.strictEqual(typeof r.sql, "string", `sql debe ser string para ${JSON.stringify(weird.slice(0, 20))}`);
+    assert.ok(Array.isArray(r.rechazados), `rechazados debe ser array para ${JSON.stringify(weird.slice(0, 20))}`);
+    assert.ok(Number.isInteger(r.comentados), `comentados debe ser entero para ${JSON.stringify(weird.slice(0, 20))}`);
+  }
+}
+
+const total =
+  cases.length + prepararCasos.length + avisoCasos.length + identCasos.length + escapeCasos.length;
 
 // El escáner no debe degradarse ante entradas adversariales (SQL de terceros,
 // AppVars, etc.): siempre termina y siempre devuelve el contrato esperado.

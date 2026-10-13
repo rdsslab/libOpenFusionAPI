@@ -22,6 +22,37 @@ import {
   AUDIT_ACTIONS,
   AUDIT_ENTITY_TYPES,
 } from "../../../../audit/auditService.js";
+import { avisoSqlBindEnLiteral, reglasDeEscaneo } from "../../../../../handler/utils.js";
+
+/**
+ * Reglas de escaneo del dialecto Sequelize declarado en el `custom_data` de un endpoint
+ * `SQL`, o `null` si no se puede saber al guardar. `custom_data` llega como objeto o como
+ * texto JSON, y puede ser una referencia a AppVar (`"$_VAR_…"`) que solo se resuelve en
+ * runtime: en ese caso —y en cualquier forma que no traiga `options.dialect`— se devuelve
+ * `null` para que el aviso no proponga la sintaxis de un motor que quizá no es el suyo.
+ *
+ * Se devuelven las reglas completas (no solo el nombre) porque de `options` sale también
+ * `standardConformingStrings`, que decide si en PostgreSQL un `\'` cierra el literal.
+ *
+ * @param {unknown} custom_data
+ * @returns {{dialect: string|null, backslashEscape: boolean, escapeStringConstants: boolean}|null}
+ */
+function contextoDeCustomData(custom_data) {
+  let config = custom_data;
+  if (typeof config === "string") {
+    const texto = config.trim();
+    if (texto.startsWith("$_")) return null;
+    try {
+      config = JSON.parse(texto);
+    } catch {
+      return null;
+    }
+  }
+  if (!config || typeof config !== "object") return null;
+  const dialecto = config?.options?.dialect ?? config?.dialect;
+  if (typeof dialecto !== "string" || !dialecto.trim()) return null;
+  return reglasDeEscaneo(dialecto, config?.options);
+}
 
 function summarizeMigrateResults(results) {
   const counts = { success: 0, error: 0, ignored: 0 };
@@ -151,15 +182,42 @@ export async function fnEndpointUpsert(params) {
       }
     }
 
+    // Guard de guardado, hermano del guard de runtime. El runtime (`ConnectionPool`) ya
+    // rechaza con 400 un `$nombre` escrito dentro de un literal o un identificador
+    // entrecomillado, y es correcto: sin eso, Sequelize lo sustituiría y el endpoint
+    // respondería 200 con el dato cambiado. Pero eso solo se descubría llamando al
+    // endpoint ya publicado. Aquí se calcula el mismo diagnóstico sobre el `code` que se
+    // está guardando, y **no se bloquea**: `endpoint_migrate` y la restauración reescriben
+    // endpoints existentes y un 400 duro rompería el propio mecanismo que permite
+    // arreglarlos. El aviso viaja en `warnings`, igual que el de `data_test`.
+    //
+    // El dialecto sale de `custom_data.options.dialect` para que la sintaxis de la
+    // corrección sea la del motor del endpoint (`+` en T-SQL, `||` en PostgreSQL/SQLite,
+    // `CONCAT()` en MySQL/MariaDB). Si `custom_data` es una AppVar sin resolver no se
+    // conoce el motor y el aviso no impone la sintaxis de otro. De ese mismo `custom_data`
+    // salen las reglas de escapado (`standardConformingStrings`), porque en PostgreSQL un
+    // `\'` cierra el literal y en MySQL/MariaDB no.
+    const sqlBindWarnings = [];
+    if (String(body?.handler || "").trim().toUpperCase() === "SQL" && typeof body?.code === "string") {
+      const aviso = avisoSqlBindEnLiteral(body.code, contextoDeCustomData(body?.custom_data));
+      if (aviso) {
+        sqlBindWarnings.push(aviso);
+      }
+    }
+
     const upserted = await upsertEndpoint(body);
     const { previous, warnings } = upserted;
     r.data = { result: upserted.result, created: upserted.created };
-    // `warnings` solo aparece cuando `data_test` llegó con el formato heredado y se
-    // guardó envuelto: el texto le dice al que llamó cuál es la forma buena. No se
-    // emite una clave vacía para no cambiar la forma de la respuesta en el camino
-    // normal, que es el que leen las suites y los clientes.
-    if (Array.isArray(warnings) && warnings.length > 0) {
-      r.data.warnings = warnings;
+    // `warnings` solo aparece cuando hay algo que contar: el `data_test` heredado que se
+    // guardó envuelto, o un SQL con un `$nombre` dentro de un literal. No se emite una
+    // clave vacía para no cambiar la forma de la respuesta en el camino normal, que es el
+    // que leen las suites y los clientes.
+    const allWarnings = [
+      ...(Array.isArray(warnings) ? warnings : []),
+      ...sqlBindWarnings,
+    ];
+    if (allWarnings.length > 0) {
+      r.data.warnings = allWarnings;
     }
     r.code = 200;
 

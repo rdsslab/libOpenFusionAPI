@@ -431,6 +431,82 @@ const anotar = (tokens, patron, query, desde, hasta, contenedor) => {
   }
 };
 
+/** Normaliza a nombre de dialecto en minúsculas. Acepta la cadena o un objeto con `.name`. */
+const nombreDeDialecto = (dialect) => {
+  if (typeof dialect === "string") return dialect.trim().toLowerCase() || null;
+  if (dialect && typeof dialect === "object" && typeof dialect.name === "string") {
+    return dialect.name.trim().toLowerCase() || null;
+  }
+  return null;
+};
+
+/**
+ * Reglas con las que el escáner interpreta el SQL, deducidas del dialecto cuando no se
+ * conocen de primera mano.
+ *
+ * Son las mismas que aplica el lexer `injectReplacements` de Sequelize
+ * (`node_modules/sequelize/lib/utils/sql.js`), que existe para la ruta de `:replacements`
+ * y **no** para la de `$bind`; aquí se replican para poder clasificar cada `$nombre` con
+ * el mismo criterio que usa el motor:
+ *
+ *   - `backslashEscape`: dentro de `'…'`, `\` escapa el carácter siguiente. Sequelize lo
+ *     responde con `dialect.canBackslashEscape()`: **siempre** en MySQL/MariaDB (aunque la
+ *     conexión use `NO_BACKSLASH_ESCAPES`, esa respuesta no cambia), y en
+ *     PostgreSQL solo si el usuario puso `standardConformingStrings: false` (Sequelize lo
+ *     deja en `true` por defecto —`sequelize.js:111`— y además hace
+ *     `SET standard_conforming_strings=on` al conectar). En el resto, `\` es un carácter
+ *     normal y `'l\'` cierra la cadena.
+ *   - `escapeStringConstants`: literales `E'…'`/`e'…'` de PostgreSQL (`supports.
+ *     escapeStringConstants`), que siempre admiten `\`. La `E` solo cuenta si delante tiene
+ *     `[\s(>,=]` o el inicio del SQL, igual que `canPrecedeNewToken()` de Sequelize.
+ *
+ * Cuando se tiene la instancia de Sequelize a mano (el parche de runtime), sus propias
+ * respuestas mandan: `sequelize.dialect.canBackslashEscape()` consulta las options de esa
+ * conexión, no una suposición por el nombre del motor.
+ *
+ * @param {string|{name?: string}|null} dialect
+ * @param {object} [opciones] las `options` del `custom_data` del endpoint, por si traen
+ *   `standardConformingStrings`.
+ * @returns {{dialect: string|null, backslashEscape: boolean, escapeStringConstants: boolean}}
+ */
+export const reglasDeEscaneo = (dialect, opciones = {}) => {
+  const d = nombreDeDialecto(dialect);
+  const op = opciones && typeof opciones === "object" ? opciones : {};
+  return {
+    dialect: d,
+    backslashEscape:
+      d === "mysql" || d === "mariadb" || (d === "postgres" && op.standardConformingStrings === false),
+    escapeStringConstants: d === "postgres",
+  };
+};
+
+/** Acepta un dialecto suelto o un juego de reglas ya calculado, y rellena lo que falte. */
+const contextoDeEscaneo = (contexto) => {
+  if (!contexto || typeof contexto === "string" || typeof contexto.name === "string") {
+    return reglasDeEscaneo(contexto);
+  }
+  const base = reglasDeEscaneo(contexto.dialect);
+  return {
+    dialect: base.dialect,
+    backslashEscape:
+      typeof contexto.backslashEscape === "boolean" ? contexto.backslashEscape : base.backslashEscape,
+    escapeStringConstants:
+      typeof contexto.escapeStringConstants === "boolean"
+        ? contexto.escapeStringConstants
+        : base.escapeStringConstants,
+  };
+};
+
+/** `canPrecedeNewToken()` de Sequelize: qué carácter puede ir delante de una `E` de `E'…'`. */
+const puedePrecederToken = (char) => char === undefined || /[\s(>,=]/.test(char);
+
+/** `isBackslashEscaped()` de Sequelize: ¿la comilla está precedida por un `\` impar? */
+const estaEscapada = (query, pos) => {
+  let escapada = false;
+  for (let i = pos - 1; i >= 0 && query[i] === "\\"; i--) escapada = !escapada;
+  return escapada;
+};
+
 /**
  * Escáner carácter a carácter del SQL. Recorre la consulta una sola vez y anota
  * cada placeholder que encuentra junto con **dónde** está, que es la información
@@ -457,12 +533,39 @@ const anotar = (tokens, patron, query, desde, hasta, contenedor) => {
  * los `:` y `$` que están en posición de placeholder, y los que sí aparecen dentro
  * de esos trozos quedan etiquetados con el trozo que los contiene.
  *
+ * ## Identificadores y dialecto
+ *
+ * El delimitador de identificador no es el mismo en todos los motores: `"…"` es ANSI (y
+ * en PostgreSQL/SQLite es el identificador, mientras que en MySQL sin `ANSI_QUOTES` es un
+ * literal), `` `…` `` es de MySQL/MariaDB y `[…]` de SQL Server. Sequelize sustituye un
+ * `$nombre` dentro de los tres por igual, así que los tres cuentan como identificador:
+ *
+ *   - `"…"`: siempre, como antes.
+ *   - `` `…` ``: siempre. Un backtick fuera de MySQL/MariaDB es SQL inválido, así que
+ *     tratar su contenido como identificador no puede convertir una consulta válida en un
+ *     falso positivo — y así la auditoría, que no conoce el motor de cada endpoint, los ve.
+ *   - `[…]`: **solo con `dialect === "mssql"`**. En PostgreSQL y SQLite `[…]` es un
+ *     subíndice de array (`arr[$idx]`) y ahí un `$` sí es un bind real; sin saber el motor
+ *     no se puede distinguir, así que sin dialecto no se toca.
+ *
+ * El escapado dentro de los literales también es del motor (ver `reglasDeEscaneo`): en
+ * MySQL/MariaDB `'l\'avion'` es una sola cadena, mientras que en PostgreSQL o SQL Server
+ * ese `\'` cierra el literal y lo que sigue es código. El escáner recibe esas reglas ya
+ * resueltas cuando quien llama tiene la instancia de Sequelize (y entonces valen las
+ * respuestas de `dialect.canBackslashEscape()` para *esa* conexión).
+ *
  * @param {string} query
+ * @param {string|{dialect?: string, backslashEscape?: boolean, escapeStringConstants?: boolean}|null} [contexto]
+ *   dialecto Sequelize suelto (`mssql`, `postgres`, `mysql`, `mariadb`, `sqlite`), `null`
+ *   si no se conoce, o las reglas ya calculadas con `reglasDeEscaneo()`.
  * @returns {{name: string, estilo: "bind"|"replacements", contenedor: string, inicio: number, fin: number}[]}
  */
-const scanSqlTokens = (query) => {
+const scanSqlTokens = (query, contexto = null) => {
   const tokens = [];
   if (typeof query !== "string" || query.length === 0) return tokens;
+
+  const reglas = contextoDeEscaneo(contexto);
+  const dialecto = reglas.dialect;
 
   // Sticky (`y`) + `lastIndex` para anclar cada intento al cursor del escáner.
   const DOLLAR_QUOTED = /\$[A-Za-z_][A-Za-z0-9_]*\$|\$\$/y;
@@ -494,12 +597,18 @@ const scanSqlTokens = (query) => {
       continue;
     }
 
-    // Literal de texto: `'…'`, con `''` como escape de comilla simple.
+    // Literal de texto: `'…'`, con `''` como escape de comilla simple y, donde el motor
+    // lo admita, `\'` como comilla escapada (ver `reglasDeEscaneo`).
     if (c === "'") {
       const desde = i + 1;
+      const escapable =
+        reglas.backslashEscape ||
+        (reglas.escapeStringConstants &&
+          (query[i - 1] === "E" || query[i - 1] === "e") &&
+          puedePrecederToken(query[i - 2]));
       i++;
       while (i < n) {
-        if (query[i] === "'") {
+        if (query[i] === "'" && !(escapable && estaEscapada(query, i))) {
           if (query[i + 1] === "'") {
             i += 2;
             continue;
@@ -520,6 +629,48 @@ const scanSqlTokens = (query) => {
       while (i < n) {
         if (query[i] === '"') {
           if (query[i + 1] === '"') {
+            i += 2;
+            continue;
+          }
+          i++;
+          break;
+        }
+        i++;
+      }
+      anotar(tokens, NAMED_BIND, query, desde, i, EN_IDENTIFICADOR);
+      continue;
+    }
+
+    // Identificador con backtick (MySQL/MariaDB), con `` `` `` como escape. Se reconoce
+    // sin mirar el dialecto porque fuera de MySQL/MariaDB un backtick es SQL inválido: no
+    // hay consulta válida que este tratamiento pueda marcar mal.
+    if (c === "`") {
+      const desde = i + 1;
+      i++;
+      while (i < n) {
+        if (query[i] === "`") {
+          if (query[i + 1] === "`") {
+            i += 2;
+            continue;
+          }
+          i++;
+          break;
+        }
+        i++;
+      }
+      anotar(tokens, NAMED_BIND, query, desde, i, EN_IDENTIFICADOR);
+      continue;
+    }
+
+    // Identificador con corchetes (SQL Server), con `]]` como escape. Solo con
+    // `dialect === "mssql"`: en PostgreSQL/SQLite `[…]` es un subíndice de array y ahí un
+    // `$` es un bind legítimo (`arr[$idx]`), que aquí no debe clasificarse como identificador.
+    if (c === "[" && dialecto === "mssql") {
+      const desde = i + 1;
+      i++;
+      while (i < n) {
+        if (query[i] === "]") {
+          if (query[i + 1] === "]") {
             i += 2;
             continue;
           }
@@ -593,14 +744,17 @@ const scanSqlTokens = (query) => {
  *
  * Solo cuenta los que están en posición de placeholder; los que viven dentro de un
  * literal, un identificador entrecomillado, un comentario o un cuerpo `$$…$$` se
- * descartan, y para eso está `scanSqlTokens`, que además sabe dónde los encontró.
+ * descartan, y para eso está `scanSqlTokens`, que además sabe dónde los encontró y qué
+ * delimitadores de identificador aplican al dialecto.
  *
  * @param {string} query
+ * @param {string|{dialect?: string, backslashEscape?: boolean, escapeStringConstants?: boolean}|null} [contexto]
+ *   dialecto Sequelize o `null` si no se conoce; o las reglas de `reglasDeEscaneo()`.
  * @returns {{bind: string[], replacements: string[]}}
  */
-export const scanSqlPlaceholders = (query) => {
+export const scanSqlPlaceholders = (query, contexto = null) => {
   const found = { bind: [], replacements: [] };
-  for (const token of scanSqlTokens(query)) {
+  for (const token of scanSqlTokens(query, contexto)) {
     if (token.contenedor !== EN_CODIGO) continue;
     found[token.estilo].push(token.name);
   }
@@ -663,15 +817,18 @@ export const scanSqlPlaceholders = (query) => {
  * parámetro o construye ese texto fuera del SQL.
  *
  * @param {string} query
+ * @param {string|{dialect?: string, backslashEscape?: boolean, escapeStringConstants?: boolean}|null} [contexto]
+ *   dialecto Sequelize o `null` si no se conoce; decide qué delimitadores de identificador
+ *   y qué escapado de literal se reconocen (ver `scanSqlTokens` y `reglasDeEscaneo`).
  * @returns {{sql: string, rechazados: {name: string, contenedor: string}[], comentados: number}}
  */
-export const prepararSqlParaBinds = (query) => {
+export const prepararSqlParaBinds = (query, contexto = null) => {
   const sinNadaQueHacer = { sql: query, rechazados: [], comentados: 0 };
   // Sin un solo `$` no hay ni bind que confundir ni nada que neutralizar: es el
   // caso de la mayoría de las consultas, y evita recorrerlas enteras.
   if (typeof query !== "string" || query.indexOf("$") === -1) return sinNadaQueHacer;
 
-  const tokens = scanSqlTokens(query);
+  const tokens = scanSqlTokens(query, contexto);
   if (tokens.length === 0) return sinNadaQueHacer;
 
   const rechazados = [];
@@ -702,6 +859,107 @@ export const prepararSqlParaBinds = (query) => {
 };
 
 /**
+ * Los `$param` que `prepararSqlParaBinds` rechaza, como texto legible.
+ *
+ * `$name (literal)`, `$name (identificador)`, `$name (dollar quoted)`. Lo comparten el
+ * error de runtime (`ConnectionPool`) y el aviso de guardado (`endpoint_upsert`), para
+ * que el autor lea la misma lista en los dos sitios.
+ *
+ * @param {{name: string, contenedor: string}[]} rechazados
+ * @returns {string}
+ */
+export const describirBindsRechazados = (rechazados) =>
+  (rechazados || [])
+    .map((r) => `$${r.name} (${String(r.contenedor).replace(/_/g, " ")})`)
+    .join(", ");
+
+/**
+ * Cómo escribir, en cada motor, un literal que lleva un `$nombre` sin que Sequelize lo
+ * confunda con un bind. `+` solo concatena en T-SQL (y con prefijo `N'…'` si el texto es
+ * Unicode); en PostgreSQL y SQLite el operador es `||`; MySQL/MariaDB solo concatenan con
+ * `CONCAT()` —su `+` es suma aritmética, así que `'a' + 'b'` ahí devuelve 0—. Devuelve
+ * `null` si el motor no se reconoce, para que quien avisa use una frase neutra en vez de
+ * sintaxis de otro motor.
+ *
+ * El proyecto habilita cinco dialectos de Sequelize (`mssql`, `postgres`, `mysql`,
+ * `mariadb`, `sqlite`); los cinco los cubre esta tabla. `HANA` no entra: no es Sequelize
+ * y su sustituto ya ignora los `$` dentro de literales.
+ *
+ * Lo comparten el aviso de `endpoint_upsert` —que conoce el dialecto por
+ * `custom_data.options.dialect`— y `dev/test/sql_bind_literal_audit.js`, que no lo conoce
+ * (el catálogo ligero no trae `custom_data`) y por eso pide los tres a la vez.
+ *
+ * @param {string} name
+ * @param {string|null} dialect
+ * @returns {string|null}
+ */
+export const sugerirLiteralSinBind = (name, dialect) => {
+  switch (String(dialect || "").trim().toLowerCase()) {
+    case "mssql":
+      return `N'$' + N'${name}'`;
+    case "postgres":
+    case "sqlite":
+      return `'$' || '${name}'`;
+    case "mysql":
+    case "mariadb":
+      return `CONCAT('$', '${name}')`;
+    default:
+      return null;
+  }
+};
+
+/**
+ * Aviso que `endpoint_upsert` devuelve al guardar un `code` SQL que en runtime
+ * responderá 400 `SQL_BIND_INSIDE_LITERAL`. Devuelve `null` si no hay nada que avisar.
+ *
+ * El guard de runtime (`ConnectionPool`) es correcto: sin él, Sequelize sustituiría un
+ * `$nombre` escrito dentro de un literal y el endpoint respondería 200 con el dato
+ * cambiado. El problema era que eso solo se descubría llamando al endpoint ya publicado,
+ * porque al guardar nadie miraba el `code`. Este aviso lleva la misma diagnosis al
+ * momento de guardar, y **no bloquea**: hay endpoints legítimos que se reescriben por
+ * migración o restauración, y un 400 duro allí rompería el propio mecanismo de arreglo.
+ *
+ * La corrección concreta depende del motor, así que `contexto` (el del
+ * `custom_data.options.dialect` del endpoint) decide la sintaxis que se propone. Si no se
+ * conoce —`custom_data` es una AppVar sin resolver, o el `code` viene de una migración—
+ * el aviso no propone la sintaxis de un motor ajeno: describe el operador de cada uno.
+ *
+ * @param {string} query
+ * @param {string|{dialect?: string, backslashEscape?: boolean, escapeStringConstants?: boolean}|null} [contexto]
+ *   dialecto Sequelize suelto, `null` si no se conoce, o las reglas de `reglasDeEscaneo()`
+ *   (por ejemplo las del `custom_data.options` del endpoint, que puede traer
+ *   `standardConformingStrings`).
+ * @returns {string|null}
+ */
+export const avisoSqlBindEnLiteral = (query, contexto = null) => {
+  const reglas = contextoDeEscaneo(contexto);
+  const { rechazados } = prepararSqlParaBinds(query, reglas);
+  if (!rechazados || rechazados.length === 0) return null;
+
+  const detalle = describirBindsRechazados(rechazados);
+  // Una entrada por nombre, no por aparición: el mismo `$p` dos veces no se repite.
+  const nombres = [...new Set(rechazados.map((r) => r.name))];
+  const literales = nombres
+    .map((name) => sugerirLiteralSinBind(name, reglas.dialect))
+    .filter(Boolean);
+
+  // Si el dialecto se conoce, la sintaxis exacta; si no, el operador de cada motor en vez
+  // de imponer el de SQL Server a un endpoint de PostgreSQL o MySQL.
+  const colaSugerencia =
+    literales.length > 0
+      ? `write it as ${literales.join(", ")}.`
+      : `concatenate it with your engine's operator (\`+\` on SQL Server, ` +
+        `\`||\` on PostgreSQL/SQLite, \`CONCAT()\` on MySQL/MariaDB).`;
+
+  return (
+    `SQL_BIND_INSIDE_LITERAL: the SQL uses ${detalle} inside a quoted string or identifier. ` +
+    `At runtime this endpoint answers 400: Sequelize substitutes every $name it finds in the text, ` +
+    `whatever quotes surround it (before the guard it answered 200 with the value altered). ` +
+    `Rename the parameter, build that text outside the SQL, or, to keep the literal, ${colaSugerencia}`
+  );
+};
+
+/**
  * Decide si la consulta debe viajar con `bind` (`$param`) o con `replacements`
  * (`:param`), que son los dos estilos que acepta Sequelize.
  *
@@ -716,10 +974,13 @@ export const prepararSqlParaBinds = (query) => {
  *   4. Si no hay ninguno, gana `bind` (comportamiento previo).
  *
  * @param {string} query
+ * @param {string|{dialect?: string, backslashEscape?: boolean, escapeStringConstants?: boolean}|null} [contexto]
+ *   dialecto Sequelize o `null`; decide qué delimitadores de identificador y qué escapado
+ *   de literal se reconocen, para no contar como bind un `$` que vive dentro de un literal.
  * @returns {"bind"|"replacements"}
  */
-export const detectSqlParamStyle = (query) => {
-  const { bind, replacements } = scanSqlPlaceholders(query);
+export const detectSqlParamStyle = (query, contexto = null) => {
+  const { bind, replacements } = scanSqlPlaceholders(query, contexto);
   if (bind.length > 0) return "bind";
   if (replacements.length > 0) return "replacements";
   return "bind";
