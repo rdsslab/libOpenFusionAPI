@@ -18,6 +18,35 @@ see [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [13.12.9] - 2026-10-13
+
+### Fixed
+
+- **`attributes` was ignored on every `GET`, so the column filter never applied and `apps_list`
+  returned `jwt_key` (and `vars`/`params`) even when only three columns were requested.**
+  A `GET`/`HEAD`/`DELETE` sends `data` as a query string (`@rdsslab/uFetch` uses `new URLSearchParams`),
+  which turns `["idapp","app"]` into `"idapp,app"`; Fastify delivers it as a string, and
+  `getAllApps`/`getEndpointById`/`getEndpointByIdApp` only applied the filter
+  `if (Array.isArray(attributes))`, so the filter was dropped silently. The fix normalizes **array or
+  CSV** in the DB layer (`toStringList` and `applyAttributesToOptions` in `src/lib/db/utils.js`); an
+  unknown column name is discarded with a warning instead of reaching Sequelize and turning a valid
+  response into a 500. Not specific to MCP: a direct HTTP `GET` (`?attributes=idapp,app`) or an internal
+  `ofapi.get` behaved the same.
+
+- **Deleting several interval tasks at once deleted nothing and returned no error.**
+  The batched `idtask` arrives as CSV for the same reason, and `deleteIntervalTask` passed it straight to
+  `where: { idtask: "a,b" }`, which matches no row (and aborts with `22P02` on PostgreSQL, where the
+  column is `uuid`). It now normalizes to a list and filters out values that are not UUIDs, so one
+  malformed id does not take down the valid ones, and an empty list is a no-op instead of a
+  `where`-less delete. Affects the MCP `delete_interval_task` tool and the GUI's multi-delete.
+
+### Changed
+
+- New regression suites: `dev/test/get_attributes_filter_test.js` (11 cases) and
+  `dev/test/delete_interval_task_ids_test.js` (8 cases), registered in `dev/test/index.js`.
+
+---
+
 ## [13.12.8] - 2026-10-13
 
 ### Fixed
