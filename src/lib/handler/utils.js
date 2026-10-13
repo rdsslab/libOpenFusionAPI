@@ -822,10 +822,176 @@ export const scanSqlPlaceholders = (query, contexto = null) => {
  *   y qué escapado de literal se reconocen (ver `scanSqlTokens` y `reglasDeEscaneo`).
  * @returns {{sql: string, rechazados: {name: string, contenedor: string}[], comentados: number}}
  */
+export const stripNonExecutableComments = (query, contexto = null) => {
+  if (typeof query !== "string" || query.length === 0) return query;
+  const reglas = contextoDeEscaneo(contexto);
+  const dialecto = reglas.dialect;
+  const n = query.length;
+  let out = "";
+  let i = 0;
+  while (i < n) {
+    const c = query[i];
+    const next = query[i + 1];
+    if (c === "-" && next === "-") {
+      i += 2;
+      while (i < n && query[i] !== "\n") i++;
+      if (i < n && query[i] === "\n") {
+        out += "\n";
+        i++;
+      }
+      continue;
+    }
+    if (c === "#" && dialecto === "mysql") {
+      i++;
+      while (i < n && query[i] !== "\n") i++;
+      if (i < n && query[i] === "\n") {
+        out += "\n";
+        i++;
+      }
+      continue;
+    }
+    if (c === "/" && next === "*") {
+      i += 2;
+      // Conservar comentarios ejecutables MySQL: `/*! ... */` y hints `/*+ ... */`
+      if (i < n && (query[i] === "!" || query[i] === "+")) {
+        out += "/*" + query[i];
+        i++;
+        while (i < n) {
+          const cc = query[i];
+          const nn = query[i + 1];
+          if (cc === "*" && nn === "/") {
+            out += "*/";
+            i += 2;
+            break;
+          }
+          out += cc;
+          i++;
+        }
+        continue;
+      }
+      // Comentario no ejecutable: eliminarlo, con anidamiento básico para cubrir `/* a /* b */ ... */`
+      let nest = 1;
+      while (i < n && nest > 0) {
+        const cc = query[i];
+        const nn = query[i + 1];
+        if (cc === "*" && nn === "/") {
+          nest--;
+          i += 2;
+          continue;
+        }
+        if (cc === "/" && nn === "*") {
+          nest++;
+          i += 2;
+          continue;
+        }
+        i++;
+      }
+      continue;
+    }
+    if (c === "'") {
+      const escapable =
+        reglas.backslashEscape ||
+        (reglas.escapeStringConstants &&
+          (query[i - 1] === "E" || query[i - 1] === "e") &&
+          puedePrecederToken(query[i - 2]));
+      out += c;
+      i++;
+      while (i < n) {
+        const qc = query[i];
+        if (qc === "'" && !(escapable && estaEscapada(query, i))) {
+          if (query[i + 1] === "'") {
+            out += "''";
+            i += 2;
+            continue;
+          }
+          out += qc;
+          i++;
+          break;
+        }
+        out += qc;
+        i++;
+      }
+      continue;
+    }
+    if (c === '"') {
+      out += c;
+      i++;
+      while (i < n) {
+        if (query[i] === '"') {
+          if (query[i + 1] === '"') {
+            out += '""';
+            i += 2;
+            continue;
+          }
+          out += query[i++];
+          break;
+        }
+        out += query[i++];
+      }
+      continue;
+    }
+    if (c === "`") {
+      out += c;
+      i++;
+      while (i < n) {
+        if (query[i] === "`") {
+          if (query[i + 1] === "`") {
+            out += "``";
+            i += 2;
+            continue;
+          }
+          out += query[i++];
+          break;
+        }
+        out += query[i++];
+      }
+      continue;
+    }
+    if (c === "[" && dialecto === "mssql") {
+      out += c;
+      i++;
+      while (i < n) {
+        if (query[i] === "]") {
+          if (query[i + 1] === "]") {
+            out += "]]";
+            i += 2;
+            continue;
+          }
+          out += query[i++];
+          break;
+        }
+        out += query[i++];
+      }
+      continue;
+    }
+    if (c === "$") {
+      const DOLLAR_QUOTED = /\$[A-Za-z_][A-Za-z0-9_]*\$|\$\$/y;
+      DOLLAR_QUOTED.lastIndex = i;
+      const quoted = DOLLAR_QUOTED.exec(query);
+      if (quoted) {
+        const tag = quoted[0];
+        const end = query.indexOf(tag, i + tag.length);
+        if (end === -1) {
+          out += query.slice(i);
+          i = n;
+        } else {
+          out += query.slice(i, end + tag.length);
+          i = end + tag.length;
+        }
+        continue;
+      }
+      out += c;
+      i++;
+      continue;
+    }
+    out += c;
+    i++;
+  }
+  return out;
+};
+
 export const prepararSqlParaBinds = (query, contexto = null) => {
   const sinNadaQueHacer = { sql: query, rechazados: [], comentados: 0 };
-  // Sin un solo `$` no hay ni bind que confundir ni nada que neutralizar: es el
-  // caso de la mayoría de las consultas, y evita recorrerlas enteras.
   if (typeof query !== "string" || query.indexOf("$") === -1) return sinNadaQueHacer;
 
   const tokens = scanSqlTokens(query, contexto);
@@ -844,11 +1010,6 @@ export const prepararSqlParaBinds = (query, contexto = null) => {
 
   if (rechazados.length === 0 && neutralizar.length === 0) return sinNadaQueHacer;
 
-  // De derecha a izquierda, para que los índices de los parches siguientes sigan
-  // apuntando al sitio correcto del texto original. El espacio va DESPUÉS del `$`
-  // —`$ _VAR_X`, no ` $VAR_X`— porque lo que hay que interrumpir es el `\w+` que la
-  // regex exige justo detrás del `$`. Puesto delante, `$` seguiría pegado al
-  // identificador y la regex casaría igual.
   neutralizar.sort((a, b) => b.inicio - a.inicio);
   let sql = query;
   for (const token of neutralizar) {

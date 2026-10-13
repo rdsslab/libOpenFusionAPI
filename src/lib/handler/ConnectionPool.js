@@ -4,7 +4,7 @@ import Request from "tedious/lib/request.js";
 import BulkLoad from "tedious/lib/bulk-load.js";
 import { TYPES } from "tedious/lib/data-type.js";
 import { ISOLATION_LEVEL } from "tedious/lib/transaction.js";
-import { prepararSqlParaBinds, describirBindsRechazados } from "./utils.js";
+import { prepararSqlParaBinds, describirBindsRechazados, stripNonExecutableComments } from "./utils.js";
 
 const tediousDialectModule = {
   Connection,
@@ -215,17 +215,13 @@ function parchearBindsDeComentarios(sequelize) {
       // El contexto decide qué delimitadores de identificador reconoce el escáner
       // (`[… ]` solo en SQL Server; los backticks y las comillas dobles, siempre) y cómo
       // se escapan los literales en este motor.
-      const { sql: limpio, rechazados } = prepararSqlParaBinds(sql, contextoEscaneo);
+      // Para la ejecución, quitamos comentarios NO ejecutables (`--`, `#` MySQL, `/* */` estándar)
+      // pero conservamos `/*! ... */` y `/*+ ... */`. No cambia la validación (que ya ignora
+      // comentarios), evita reescribir el SQL original con espacios y reduce superficie de error.
+      const sqlEjecutar = stripNonExecutableComments(sql, contextoEscaneo);
+      const { sql: limpio, rechazados } = prepararSqlParaBinds(sqlEjecutar, contextoEscaneo);
 
       if (rechazados.length > 0) {
-        // Un `$nombre` dentro de un literal no se puede neutralizar sin reescribir el
-        // literal con concatenación —`+` en T-SQL, `||` en PostgreSQL/SQLite, `CONCAT()`
-        // en MySQL/MariaDB—, que depende del dialecto y no se puede aplicar ni a un
-        // identificador entrecomillado ni dentro de un cuerpo `$$…$$`. Y si no se hace
-        // nada, cuando el nombre del literal coincide con un parámetro real Sequelize lo
-        // sustituye y el endpoint responde 200 con el dato cambiado: `SELECT 'coste: $name'`
-        // devuelve `coste: @name`, sin ninguna señal para quien lo consume. Un 400
-        // explícito es peor para el cliente y mucho mejor para quien escribe el endpoint.
         const detalle = describirBindsRechazados(rechazados);
         const error = new Error(
           `This query uses ${detalle} inside a quoted string or identifier. Sequelize ` +
@@ -234,7 +230,6 @@ function parchearBindsDeComentarios(sequelize) {
           `with altered data. Rename the parameter, or build that text outside the SQL.`,
         );
         error.code = "SQL_BIND_INSIDE_LITERAL";
-        // Lo lee `replyException`, que toma el status de `error.statusCode`.
         error.statusCode = 400;
         throw error;
       }
