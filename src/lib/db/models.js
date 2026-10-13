@@ -1830,7 +1830,19 @@ export const IntervalTask = dbsequelize.define(
       allowNull: false,
       defaultValue: 10,
       comment:
-        "Fallos consecutivos antes de deshabilitar la tarea. El backoff espacia los reintentos hasta llegar aquí. 0 = nunca deshabilitar automáticamente",
+        "Fallos consecutivos antes de suspender la tarea automáticamente. El backoff espacia los reintentos hasta llegar aquí. 0 = nunca suspender automáticamente",
+    },
+    disabled_by: {
+      type: DataTypes.STRING(8),
+      allowNull: true,
+      comment:
+        "Quién apartó la tarea de la programación: 'system' (límite de fallos alcanzado) o null. `enabled` sigue siendo la intención del usuario y no cambia al suspender",
+    },
+    disabled_reason: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      comment:
+        "Motivo legible de la suspensión del sistema. Se limpia al reiniciar intentos o al volver a habilitar la tarea",
     },
     backoff_enabled: {
       type: DataTypes.BOOLEAN,

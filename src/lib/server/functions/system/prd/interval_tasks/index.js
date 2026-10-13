@@ -240,9 +240,11 @@ export async function fnRunIntervalTaskNow(params) {
     const result = await runNowIntervalTask(body.idtask);
 
     r.data = result;
-    // `runNowIntervalTask` fija `code: 409` cuando la tarea está deshabilitada,
-    // para que el rechazo sea legible por máquina y no se confunda con un error
-    // genérico. El resto de rechazos (no existe, en ejecución) conservan 400.
+    // `runNowIntervalTask` fija `code: 409` cuando la tarea está apagada o suspendida,
+    // para que el rechazo sea legible por máquina (`reason: TASK_DISABLED` si la apagó
+    // el usuario, `reason: TASK_SUSPENDED` si la suspendió el planificador) y no se
+    // confunda con un error genérico. El resto de rechazos (no existe, en ejecución)
+    // conservan 400.
     r.code = result.success ? 200 : result.code || 400;
     if (result.success) wakeIntervalTaskWorker(params);
   } catch (error) {

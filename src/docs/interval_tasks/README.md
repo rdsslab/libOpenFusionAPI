@@ -49,17 +49,28 @@ logic lives in the endpoint, which stays callable by hand exactly as before.
   first. `params` is the one field replaced whole, so a key can be removed.
 - **Telemetry is not configuration.** `INTERVAL_TASK_RUNTIME_ATTRIBUTES` is ignored on upsert and
   dropped on backup restore, mirroring `BOT_RUNTIME_ATTRIBUTES` for bots.
-- **Failures are self-limiting.** Exponential backoff up to one hour, then auto-disable at
+- **Suspension is not disabling.** When a task reaches `max_failed_attempts` the scheduler
+  **suspends** it: it sets `disabled_by = 'system'` with a `disabled_reason` and stops scheduling it,
+  but leaves `enabled` untouched — that flag is the user's intent. So "the user turned it off" and
+  "the scheduler suspended it" are two different states (`enabled: false` vs.
+  `disabled_by: 'system'`), and a reset lifts only the second. `reset_interval_task_attempts` clears
+  the counter, removes the suspension and re-enables the task **only** when the suspension was the
+  scheduler's; a task the user disabled is left off.
+- **Failures are self-limiting.** Exponential backoff up to one hour, then suspension at
   `max_failed_attempts`, so a broken task cannot hammer a downstream service indefinitely. Both
   halves of that policy are per-task and overridable: `max_backoff_seconds` replaces the one-hour
   ceiling, `backoff_enabled: false` keeps the normal interval on failure (a monitoring task should
   not drift to every 32 minutes precisely when the system it watches is down), and
-  `max_failed_attempts: 0` means never auto-disable — the task keeps running and keeps logging
+  `max_failed_attempts: 0` means never suspend — the task keeps running and keeps logging
   however many failures accumulate.
+- **Eligibility is `enabled` plus `disabled_by IS NULL`.** The worker picks a task only when the
+  application, the endpoint and the task are enabled and the task is not system-suspended. This is
+  why re-enabling (`enabled: true`) clears the suspension and the counter, and why
+  `max_failed_attempts: 0` needs no special SQL branch: the worker simply never sets `disabled_by`.
 - **A run in flight can be cut on demand.** `stop_interval_task_run` reaches into the scheduler and
   aborts the real HTTP call it is making, recording the run as `5` (aborted). It is the only thing
   that touches an execution already started: disabling the task only prevents future ones. The cut
   goes through an `AbortController` the worker registers per in-flight run (`src/lib/timer/worker.js`)
   and reaches the worker through `TasksInterval.abortRun`, which waits for the worker's ack so the
   API never promises an abort that was not confirmed. An aborted run is deliberately not a failure:
-  no `failed_attempts`, no backoff, no auto-disable, schedule unchanged.
+  no `failed_attempts`, no backoff, no suspension, schedule unchanged.

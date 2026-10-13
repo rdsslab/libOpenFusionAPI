@@ -32,7 +32,7 @@ schedule, payload and credentials; the endpoint continues to own all business lo
 | Days | Empty | Optional weekdays, `1` Monday through `7` Sunday. Example: `1,2,3,4,5`. |
 | Date Start/End | Empty | Optional lifetime boundaries. They do not define frequency. |
 | Note | Descriptive text | Free-text label for humans. It is not part of any key: two tasks may share it and a task may have none. |
-| Max failed attempts | 10 | Disables the task after this many consecutive failures. |
+| Max failed attempts | 10 | Suspends the task after this many consecutive failures. `0` never suspends. |
 | History limit | 50 | Number of runs retained. `0` disables history. |
 
 These defaults are conservative: a new task is disabled, overlapping runs are blocked, executions
@@ -65,6 +65,9 @@ becomes the request body. Always include `data` when sending `headers`.
 - **Last result — Timeout**: execution exceeded the configured limit.
 - **Last result — Aborted**: an operator stopped the execution while it was in flight. Unlike Error
   or Timeout it is not counted as a failure.
+- **Suspended**: the scheduler stopped the task after `Max failed attempts` consecutive failures. The
+  task stays **Enabled** (that is your intent) but does not run. The status cell shows a red
+  **Suspended** tag and the reason in its tooltip.
 
 The task list uses **Waiting/Running** for what is happening now. Open the task or its History to
 see the result of the previous execution; a task can correctly be **Waiting** with **Last result: OK**.
@@ -73,11 +76,14 @@ An HTTP `200` is successful unless the JSON response explicitly contains `succes
 case the run is recorded as **Error**, and `error` or `message` from the response is shown in History.
 The `success` field is optional because not every endpoint returns it.
 
-Failures use exponential backoff. When the maximum is reached, correct the underlying endpoint or
-credential problem before using **Reset attempts**.
+Failures use exponential backoff. When the maximum is reached the scheduler **suspends** the task —
+it stays Enabled but stops running — and records the reason. Correct the underlying endpoint or
+credential problem before using **Reset attempts**: that clears the counter and lifts the suspension.
+A task you turned off yourself stays off after a reset; only a suspension the scheduler applied is
+lifted.
 
 A task that must keep reporting while the system is down should not be slowed down by its own
-failures: set **Max failed attempts** to `0` to stop the auto-disable, or turn the backoff off so the
+failures: set **Max failed attempts** to `0` to stop the suspension, or turn the backoff off so the
 task keeps its normal interval instead of doubling it after each failure. **Max backoff seconds**
 caps the doubling when you do want it, per task.
 
@@ -93,7 +99,7 @@ endpoint's timeout.
 A task that is **Running** can be stopped right now: **Stop run** asks the scheduler to cut the HTTP
 call it is making and records the run as **Aborted**. It only works while the call is actually in
 flight — if the run already finished there is nothing left to abort. An aborted run does not count as
-a failure, so it does not feed the auto-disable, and it does not change the schedule: the next planned
+a failure, so it does not feed the suspension, and it does not change the schedule: the next planned
 run still happens. What the endpoint already did before the cutoff stays done. To stop **future** runs
 instead, turn off **Enabled**; do not rely on it to cut the one already executing.
 
@@ -110,10 +116,11 @@ Use Interval rather than cron when the requirement is an elapsed cadence such as
 
 ## Troubleshooting
 
-- If it never runs, check task, endpoint and application enabled states, dates, window and `next_run`.
+- If it never runs, check task, endpoint and application enabled states, dates, window and `next_run`,
+  and whether it is **Suspended** (a red Suspended tag).
 - For 401/403 responses, verify the API Key is enabled, valid and belongs to the endpoint application.
 - If history is empty, the task has not run or History limit is `0`.
-- If the task disabled itself, inspect History, fix the cause and then reset attempts.
+- If the task suspended itself, inspect History, fix the cause and then reset attempts.
 - To pause without losing configuration, turn off Enabled. Delete only when the schedule is no longer needed.
 - To cut a run that is executing right now, use **Stop run** instead of disabling the task.
 

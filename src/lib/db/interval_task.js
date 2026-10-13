@@ -1,5 +1,4 @@
 import { Op } from "sequelize";
-import Sequelize from "sequelize";
 import { IntervalTask, Application, Endpoint } from "./models.js";
 import {
   TASK_STATUS,
@@ -34,6 +33,8 @@ export const INTERVAL_TASK_RUNTIME_ATTRIBUTES = [
   "next_run",
   "last_exec_time",
   "last_response",
+  "disabled_by",
+  "disabled_reason",
 ];
 
 /**
@@ -170,6 +171,25 @@ export const upsertIntervalTask = async (data, opciones = {}) => {
       }
     }
 
+    // `enabled` es la intención del usuario; `disabled_by`/`disabled_reason` son estado
+    // del sistema y se acaban de descartar del payload junto al resto de
+    // INTERVAL_TASK_RUNTIME_ATTRIBUTES. Aquí se reconcilian, pero SOLO si el llamador
+    // tocó `enabled` explícitamente: en un update parcial (p. ej. cambiar solo la nota)
+    // `merged.enabled` conserva el valor guardado y limpiar la suspensión sin querer
+    // reanudaría una tarea suspendida.
+    //
+    // Tocar `enabled` es un acto explícito del usuario sobre la tarea, así que en los
+    // dos sentidos se limpia la suspensión del sistema y se reinicia la racha de fallos.
+    // Reiniciar el contador al apagar no es cosmético: dejar `failed_attempts` alto con
+    // `enabled: false` haría que el backfill de la migración (que busca justo esa
+    // combinación) la confundiera otra vez con una suspensión del sistema en el arranque
+    // siguiente, y entonces un reset la resucitaría.
+    if (data.enabled !== undefined) {
+      payload.disabled_by = null;
+      payload.disabled_reason = null;
+      payload.failed_attempts = 0;
+    }
+
     // Alta: sin `idtask`, con el UUID que asigne el modelo (`defaultValue: UUIDV4`), o
     // con un `idtask` declarado que ya se descartó por no ser de la era UUID. Eso no es
     // un `upsert`, es un alta, y `upsert()` no lo expresa en MSSQL: su `upsertQuery`
@@ -293,6 +313,8 @@ export const getIntervalTask = async (filter = {}, opciones = {}) => {
         "backoff_enabled",
         "max_backoff_seconds",
         "history_limit",
+        "disabled_by",
+        "disabled_reason",
       ],
       where: filter.tasks, // 🔹 Agregado el filtro aquí
       // El limite y el orden se anaden solo si los hay, para que la llamada sin
@@ -371,6 +393,8 @@ export const getIntervalTask = async (filter = {}, opciones = {}) => {
         backoff_enabled: item.backoff_enabled,
         max_backoff_seconds: item.max_backoff_seconds,
         history_limit: item.history_limit,
+        disabled_by: item.disabled_by,
+        disabled_reason: item.disabled_reason,
       };
 
       new_item.url = `/api/${new_item.app}${new_item.resource}/${new_item.environment}`;
@@ -462,26 +486,16 @@ export const getIntervalTaskProcess = async (opciones = {}) => {
             { next_run: { [Op.is]: null } },
           ],
         },
-        // El tope de fallos dejó de ser 3 fijo: cada tarea define el suyo.
-        //
-        // `max_failed_attempts = 0` significa "nunca deshabilitar", así que en ese
-        // caso la tarea sigue siendo elegible por cuantos fallos acumule. Sin esta
-        // rama, el filtro `failed_attempts < max_failed_attempts` sería `n < 0`,
-        // siempre falso, y una tarea con 0 no volvería a ejecutarse nunca: el 0
-        // desactivaría la tarea entera en lugar de solo la auto-deshabilitación.
-        //
-        // Las dos condiciones van en un MISMO `Op.or`. Poner `Op.or` como elemento
-        // suelto de este `Op.and` genera `(A AND (max=0) AND B)`, que deja fuera
-        // toda tarea con max distinto de 0: el filtro parece funcionar pero solo
-        // deja pasar los casos que ya no le interesan a nadie.
-        Sequelize.or(
-          { max_failed_attempts: 0 },
-          Sequelize.where(
-            Sequelize.col("failed_attempts"),
-            Op.lt,
-            Sequelize.col("max_failed_attempts"),
-          ),
-        ),
+        // La suspensión por fallos ahora es explícita: el worker marca
+        // `disabled_by = 'system'` al alcanzar `max_failed_attempts` y esta condición
+        // mantiene la tarea fuera hasta que un reset la limpie. Antes se derivaba de
+        // `failed_attempts < max_failed_attempts`, lo que exigía un caso especial para
+        // `max_failed_attempts = 0` y dejaba la re-habilitación a medias: poner
+        // `enabled` en true no bastaba, había que acordarse además de reiniciar el
+        // contador. Con la bandera, `enabled` vuelve a significar solo la intención del
+        // usuario y `max_failed_attempts = 0` no necesita ninguna rama: el worker
+        // simplemente nunca pone `disabled_by`.
+        { disabled_by: { [Op.is]: null } },
       ],
     },
   };
@@ -519,18 +533,11 @@ export const getNextIntervalTaskRun = async () => {
             { dateend: { [Op.is]: null } },
           ],
         },
-        // Misma rama que en getIntervalTaskProcess, y por el mismo motivo: con
-        // `max_failed_attempts = 0` la tarea nunca se auto-deshabilita, así que debe
-        // seguir contando como próxima vencimiento aunque lleve muchos fallos. Las dos
-        // condiciones comparten un `Op.or` (ver la nota de getIntervalTaskProcess).
-        Sequelize.or(
-          { max_failed_attempts: 0 },
-          Sequelize.where(
-            Sequelize.col("failed_attempts"),
-            Op.lt,
-            Sequelize.col("max_failed_attempts"),
-          ),
-        ),
+        // Misma puerta que en getIntervalTaskProcess, y por el mismo motivo: una tarea
+        // suspendida por el sistema (`disabled_by = 'system'`) no debe despertar al
+        // worker ni contar como próximo vencimiento. Con `max_failed_attempts = 0` el
+        // worker nunca la marca, así que el caso especial ya no existe.
+        { disabled_by: { [Op.is]: null } },
       ],
     },
     include: [
@@ -711,11 +718,14 @@ const camposDeTransicion = (task, new_status, result, exec_ms, now) => {
       };
 
       if (shouldDisableForFailures(task, failed_attempts)) {
-        data_update.enabled = false;
-        data_update.last_response = {
-          ...(result && typeof result === "object" ? result : { error: result }),
-          disabled_reason: `Deshabilitada tras ${failed_attempts} fallos consecutivos`,
-        };
+        // Suspensión del sistema: la tarea SIGUE siendo `enabled` (esa es la intención
+        // del usuario y no nos toca cambiarla). Queda fuera de la programación porque
+        // las consultas de elegibilidad exigen `disabled_by IS NULL`, no porque se
+        // apague. Así el operador ve "suspendida tras N fallos" con su motivo, en vez
+        // de una tarea que desaparece del listado de activas, y el reset la devuelve
+        // sin ambigüedad sobre quién la había apagado.
+        data_update.disabled_by = "system";
+        data_update.disabled_reason = `Auto-suspended after ${failed_attempts} consecutive failures`;
       }
 
       break;
@@ -872,8 +882,10 @@ export const reapStaleRunningTasks = async (graceSeconds = 30) => {
       };
 
       if (shouldDisableForFailures(task, failed_attempts)) {
-        data_update.enabled = false;
-        data_update.last_response.disabled_reason = `Deshabilitada tras ${failed_attempts} fallos consecutivos`;
+        // Igual que en `camposDeTransicion`: se marca la suspensión del sistema y se
+        // deja `enabled` como estaba (intención del usuario).
+        data_update.disabled_by = "system";
+        data_update.disabled_reason = `Auto-suspended after ${failed_attempts} consecutive failures`;
       }
 
       await IntervalTask.update(data_update, {
@@ -912,17 +924,19 @@ export const rescheduleIntervalTask = async (task) => {
 /**
  * Fuerza la ejecución de una tarea en el próximo ciclo del worker.
  *
- * No reactiva una tarea deshabilitada, y no finge que sí. El worker solo toma
- * tareas con `enabled: true` (getIntervalTaskProcess), así que poner `next_run`
- * en una tarea apagada no la hace ejecutar: el ciclo entero no la verá. Antes esta
- * función devolvía `success: true` en ese caso, y un agente que siguiera el flujo
- * recomendado de la guía (crear sin `enabled: true`, forzar la ejecución, y recién
- * ahí habilitarla) se quedaba esperando un `get_interval_task_runs` que nunca
- * llegaba con ejecuciones.
+ * No reactiva una tarea apagada o suspendida, y no finge que sí. El worker solo toma
+ * tareas con `enabled: true` y `disabled_by IS NULL` (getIntervalTaskProcess), así que
+ * poner `next_run` en una tarea apagada no la hace ejecutar: el ciclo entero no la verá.
+ * Antes esta función devolvía `success: true` en ese caso, y un agente que siguiera el
+ * flujo recomendado de la guía (crear sin `enabled: true`, forzar la ejecución, y recién
+ * ahí habilitarla) se quedaba esperando un `get_interval_task_runs` que nunca llegaba con
+ * ejecuciones.
  *
- * Se responde 409 con `reason: "TASK_DISABLED"` para que el rechazo sea legible
- * por máquina y no solo un texto. Para desbloquear una tarea apagada por el backoff
- * existe `reset_interval_task_attempts`, que sí la reactiva.
+ * Se responde 409 con un `reason` legible por máquina y no solo un texto:
+ * `TASK_DISABLED` cuando el usuario la apagó (`enabled: false`) y `TASK_SUSPENDED`
+ * cuando el sistema la suspendió por agotar los reintentos (`disabled_by: 'system'`).
+ * En ambos casos la vía para volver al servicio es `reset_interval_task_attempts`
+ * (para la suspendida) o `upsert_interval_task` con `enabled: true`.
  *
  * @param {string} idtask
  * @returns {Promise<{success: boolean, message: string, code?: number, reason?: string}>}
@@ -948,8 +962,24 @@ export const runNowIntervalTask = async (idtask) => {
         reason: "TASK_DISABLED",
         message:
           "La tarea está deshabilitada y el worker no la ejecutará. " +
-          "Habilítala con upsert_interval_task (enabled: true) o usa " +
-          "reset_interval_task_attempts si el backoff la apagó.",
+          "Habilítala con upsert_interval_task (enabled: true).",
+      };
+    }
+
+    // Una tarea suspendida por el sistema sigue `enabled` (intención del usuario) pero
+    // su `disabled_by` la deja fuera de la programación: forzarla tampoco correría,
+    // porque las consultas de elegibilidad la excluyen. Se rechaza con un motivo
+    // propio —distinto de "el usuario la apagó"— y se remite al reset, que es la vía
+    // para devolverla al servicio tras corregir la causa.
+    if (task.disabled_by === "system") {
+      return {
+        success: false,
+        code: 409,
+        reason: "TASK_SUSPENDED",
+        message:
+          "La tarea está suspendida tras agotar sus reintentos. " +
+          "Corrige la causa y usa reset_interval_task_attempts para reactivarla; " +
+          "forzarla no la ejecutaría.",
       };
     }
 
@@ -969,7 +999,15 @@ export const runNowIntervalTask = async (idtask) => {
 };
 
 /**
- * Reinicia el contador de fallos y reactiva la tarea si el backoff la deshabilitó.
+ * Reinicia el contador de fallos y devuelve al servicio una tarea suspendida por el
+ * sistema.
+ *
+ * No toca `enabled` si la tarea la apagó el usuario: ese es el arreglo de un pie de
+ * banco del comportamiento anterior, donde el reset forzaba `enabled = true` y
+ * resucitaba una tarea que el operador había apagado a propósito. Solo se re-habilita
+ * cuando la suspensión es del sistema (`disabled_by = 'system'`), que es justo el caso
+ * que el reset debe resolver.
+ *
  * @param {string} idtask
  */
 export const resetIntervalTaskAttempts = async (idtask) => {
@@ -979,15 +1017,23 @@ export const resetIntervalTaskAttempts = async (idtask) => {
       return { success: false, message: `No existe la tarea ${idtask}` };
     }
 
-    await IntervalTask.update(
-      {
-        failed_attempts: 0,
-        enabled: true,
-        status: TASK_STATUS.WAITING,
-        next_run: computeNextRun(task, { from: new Date(), anchor: null }),
-      },
-      { where: { idtask } },
-    );
+    const data_update = {
+      failed_attempts: 0,
+      disabled_by: null,
+      disabled_reason: null,
+      status: TASK_STATUS.WAITING,
+      next_run: computeNextRun(task, { from: new Date(), anchor: null }),
+    };
+
+    // Solo una suspensión del sistema se convierte en tarea activa. Una tarea que el
+    // usuario apagó (o que quedó marcada por el backfill de la migración, que deja
+    // `enabled = false` con `disabled_by = 'system'`) se re-habilita aquí únicamente
+    // cuando la marca es del sistema.
+    if (task.disabled_by === "system") {
+      data_update.enabled = true;
+    }
+
+    await IntervalTask.update(data_update, { where: { idtask } });
 
     return { success: true, message: "Contador de fallos reiniciado." };
   } catch (error) {

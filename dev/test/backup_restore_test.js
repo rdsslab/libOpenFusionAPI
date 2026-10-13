@@ -296,6 +296,8 @@ async function runTests() {
   dirtyTask.failed_attempts = 9;
   dirtyTask.last_exec_time = 123456;
   dirtyTask.last_response = { leaked: "runtime payload" };
+  dirtyTask.disabled_by = "system";
+  dirtyTask.disabled_reason = "should not travel back";
   dirtyTask.note = "new task from backup";
   dirtyTask.interval = 601;
 
@@ -317,6 +319,16 @@ async function runTests() {
     taskAfterDirty.failed_attempts,
     attemptsBefore,
     "The failure counter must survive a restore untouched"
+  );
+  assert.strictEqual(
+    taskAfterDirty.disabled_by,
+    taskBeforeDirty.disabled_by,
+    "The system suspension flag must survive a restore untouched"
+  );
+  assert.notStrictEqual(
+    taskAfterDirty.disabled_by,
+    "system",
+    "Restore must not bring back the suspension state from the payload"
   );
   assert.strictEqual(
     Number(taskAfterDirty.interval),

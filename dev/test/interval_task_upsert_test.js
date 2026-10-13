@@ -14,6 +14,7 @@ import {
   upsertIntervalTask,
   deleteIntervalTask,
   getIntervalTaskById,
+  resetIntervalTaskAttempts,
   INTERVAL_TASK_RUNTIME_ATTRIBUTES,
   updateIntervalTaskStatus,
 } from "../../src/lib/db/interval_task.js";
@@ -54,7 +55,7 @@ async function runTests() {
 
   try {
     // 1. INSERT
-    console.log("[STEP 1/12] Insert stores the payload and defaults to disabled...");
+    console.log("[STEP 1/13] Insert stores the payload and defaults to disabled...");
     const inserted = await upsertIntervalTask({
       idendpoint: endpointId,
       interval: 900,
@@ -77,7 +78,7 @@ async function runTests() {
     assert.strictEqual(Number(afterInsert.exec_time_limit), 120);
 
     // 2. UPDATE parcial
-    console.log("[STEP 2/12] Partial update keeps the fields that were not sent...");
+    console.log("[STEP 2/13] Partial update keeps the fields that were not sent...");
     await upsertIntervalTask({ idtask: created_idtask, enabled: true });
 
     const afterPartial = await getIntervalTaskById(created_idtask);
@@ -108,7 +109,7 @@ async function runTests() {
     );
 
     // 3. null explícito
-    console.log("[STEP 3/12] An explicit null clears the field...");
+    console.log("[STEP 3/13] An explicit null clears the field...");
     await upsertIntervalTask({ idtask: created_idtask, dateend: null, note: null });
 
     const afterNull = await getIntervalTaskById(created_idtask);
@@ -116,7 +117,7 @@ async function runTests() {
     assert.strictEqual(afterNull.note, null, "note should be cleared");
 
     // 4. La telemetría del scheduler no es configurable desde el upsert
-    console.log("[STEP 4/12] Scheduler telemetry sent in the payload is ignored...");
+    console.log("[STEP 4/13] Scheduler telemetry sent in the payload is ignored...");
     await IntervalTask.update(
       { failed_attempts: 4, status: 3 },
       { where: { idtask: created_idtask } }
@@ -147,7 +148,7 @@ async function runTests() {
     );
 
     // 5. Cambiar la programación recalcula la próxima ejecución
-    console.log("[STEP 5/12] Changing the schedule recomputes next_run...");
+    console.log("[STEP 5/13] Changing the schedule recomputes next_run...");
     const farFuture = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
     await IntervalTask.update(
       { next_run: farFuture },
@@ -163,7 +164,7 @@ async function runTests() {
     );
 
     // 6. La transición devuelve los mismos campos que persiste para publicarlos en vivo
-    console.log("[STEP 6/12] Runtime transition exposes the persisted live patch...");
+    console.log("[STEP 6/13] Runtime transition exposes the persisted live patch...");
     const runningTransition = await updateIntervalTaskStatus(
       created_idtask,
       TASK_STATUS.RUNNING
@@ -174,7 +175,7 @@ async function runTests() {
     assert.ok(runningTransition.runtime.next_run instanceof Date);
 
     // 7. La validación usa la fila fusionada, también en updates parciales
-    console.log("[STEP 7/12] Partial cron updates validate the merged schedule...");
+    console.log("[STEP 7/13] Partial cron updates validate the merged schedule...");
     await upsertIntervalTask({
       idtask: created_idtask,
       schedule_mode: "cron",
@@ -191,7 +192,7 @@ async function runTests() {
     );
 
     // 8. Un idtask inexistente no crea una fila con ese id
-    console.log("[STEP 8/12] An unknown idtask is rejected instead of inserted...");
+    console.log("[STEP 8/13] An unknown idtask is rejected instead of inserted...");
     const GHOST_IDTASK = 987654322;
     await assert.rejects(
       () => upsertIntervalTask({ idtask: GHOST_IDTASK, idendpoint: endpointId }),
@@ -203,7 +204,7 @@ async function runTests() {
     assert.strictEqual(ghost, null, "No row should have been created with that id");
 
     // 9. Una segunda pasada de seed no debe pisar ni duplicar una tarea
-    console.log("[STEP 9/12] A second seed pass does not clobber an existing task...");
+    console.log("[STEP 9/13] A second seed pass does not clobber an existing task...");
     // defaultApps() corre en CADA arranque, no solo con BUILD_DB. El seed declara los
     // `idtask` del sistema con UUIDs fijos, así que cada pasada encuentra las mismas
     // tareas por su id y las actualiza en su sitio: no hay ids que reasignar y no hay
@@ -250,7 +251,7 @@ async function runTests() {
     // un INSERT. Por eso esto se comprueba con `upsert` saboteado y no con la
     // base de datos: si el alta volviera a pasar por `upsert`, esta prueba falla
     // en los tres motores, no solo en el que sufria el crash.
-    console.log("[STEP 10/12] A new task is created without going through upsert...");
+    console.log("[STEP 10/13] A new task is created without going through upsert...");
     const upsertReal = IntervalTask.upsert;
     const createReal = IntervalTask.create;
     let upsertTocado = false;
@@ -283,7 +284,7 @@ async function runTests() {
     //     castigo: no toca `failed_attempts`, no dispara backoff y no deshabilita.
     //     Es la semantica que el worker pide al cerrar una corrida cortada por stop,
     //     distinta de un timeout (TIMEOUT, si castiga) y de un error (ERROR, si castiga).
-    console.log("[STEP 11/12] An operator abort transitions to ABORTED without penalties...");
+    console.log("[STEP 11/13] An operator abort transitions to ABORTED without penalties...");
 
     // Estado de partida: en ejecucion, con 3 fallos acumulados de una serie previa. El
     // aborto ni los incrementa (no es un fallo) ni los resetea (eso corresponde a
@@ -326,7 +327,7 @@ async function runTests() {
     );
 
     // 12. El historial permite filtrar por corridas abortadas (status 5).
-    console.log("[STEP 12/12] Run history filters aborted runs by status 5...");
+    console.log("[STEP 12/13] Run history filters aborted runs by status 5...");
     const tareaId = created_idtask;
     await IntervalTaskRun.create({
       idtask: tareaId,
@@ -356,6 +357,80 @@ async function runTests() {
     assert.ok(
       abortedRuns.some((run) => run.error === "Stopped by operator"),
       "the aborted run must carry its reason"
+    );
+
+    // 13. La suspensión por fallos es del sistema, no del usuario: `enabled` no se toca
+    //     y el reset solo levanta la suspensión del sistema.
+    console.log("[STEP 13/13] Failure-limit suspension keeps `enabled` and is reversible...");
+    assert.ok(
+      INTERVAL_TASK_RUNTIME_ATTRIBUTES.includes("disabled_by"),
+      "disabled_by should be declared as a runtime attribute",
+    );
+    await IntervalTask.update(
+      {
+        enabled: true,
+        failed_attempts: 10,
+        max_failed_attempts: 10,
+        disabled_by: "system",
+        disabled_reason: "Auto-suspended after 10 consecutive failures",
+      },
+      { where: { idtask: created_idtask } },
+    );
+
+    // Re-habilitar explícitamente (upsert con enabled: true) limpia la suspensión y el
+    // contador: con la puerta en `disabled_by IS NULL`, habilitar tiene que poder correr.
+    await upsertIntervalTask({ idtask: created_idtask, enabled: true });
+    const afterReenable = await getIntervalTaskById(created_idtask);
+    assert.strictEqual(
+      afterReenable.disabled_by,
+      null,
+      "re-enabling clears the system suspension",
+    );
+    assert.strictEqual(afterReenable.disabled_reason, null);
+    assert.strictEqual(
+      Number(afterReenable.failed_attempts),
+      0,
+      "re-enabling clears the failure counter",
+    );
+    assert.strictEqual(afterReenable.enabled, true);
+
+    // Un update parcial que NO menciona `enabled` no debe levantar la suspensión.
+    await IntervalTask.update(
+      { enabled: true, failed_attempts: 10, disabled_by: "system" },
+      { where: { idtask: created_idtask } },
+    );
+    await upsertIntervalTask({ idtask: created_idtask, note: "still suspended" });
+    const afterPartialEdit = await getIntervalTaskById(created_idtask);
+    assert.strictEqual(
+      afterPartialEdit.disabled_by,
+      "system",
+      "editing an unrelated field must not lift a suspension",
+    );
+
+    // reset_interval_task_attempts levanta la suspensión del sistema...
+    const resetResult = await resetIntervalTaskAttempts(created_idtask);
+    assert.strictEqual(resetResult.success, true);
+    const afterReset = await getIntervalTaskById(created_idtask);
+    assert.strictEqual(afterReset.disabled_by, null);
+    assert.strictEqual(afterReset.disabled_reason, null);
+    assert.strictEqual(Number(afterReset.failed_attempts), 0);
+    assert.strictEqual(
+      afterReset.enabled,
+      true,
+      "a system suspension is re-enabled by reset",
+    );
+
+    // ...pero NO resucita una tarea que el usuario apagó a mano.
+    await IntervalTask.update(
+      { enabled: false, disabled_by: null, disabled_reason: null },
+      { where: { idtask: created_idtask } },
+    );
+    await resetIntervalTaskAttempts(created_idtask);
+    const afterUserReset = await getIntervalTaskById(created_idtask);
+    assert.strictEqual(
+      afterUserReset.enabled,
+      false,
+      "reset must not re-enable a task the user turned off",
     );
 
     console.log("--- All Interval Task Upsert Tests Passed Successfully! ---");

@@ -18,6 +18,39 @@ see [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [13.12.11] - 2026-10-13
+
+### Changed
+
+- **Una tarea que agota `max_failed_attempts` se suspende, ya no se apaga.**
+  Antes, al alcanzar el tope de fallos el planificador ponía `enabled = false`, que es
+  exactamente la misma marca que deja un usuario cuando apaga una tarea a mano: las dos
+  situaciones quedaban confundidas, y reiniciar los intentos resucitaba una tarea que el
+  operador había apagado a propósito. Ahora el planificador **suspende**: escribe
+  `disabled_by = 'system'` con un `disabled_reason` y deja `enabled` tal como estaba, que
+  vuelve a significar solo la intención del usuario. La puerta de elegibilidad pasa a ser
+  `enabled = true` **y** `disabled_by IS NULL`, así que `max_failed_attempts: 0` ya no
+  necesita ninguna rama especial: simplemente el worker nunca marca `disabled_by`.
+  `run_interval_task_now` distingue los dos casos con `reason: "TASK_DISABLED"` (la apagó
+  el usuario) y `reason: "TASK_SUSPENDED"` (la suspendió el sistema). `reset_interval_task_attempts`
+  limpia el contador y la suspensión, y solo vuelve a habilitar la tarea cuando la había
+  suspendido el sistema; una tarea apagada por el usuario queda apagada. Enviar
+  `upsert_interval_task` con `enabled: true` hace lo mismo.
+
+### Added
+
+- **Columnas `disabled_by` y `disabled_reason` en `ofapi_intervaltask`.**
+  Nullables, así que el `ALTER TABLE` es solo metadatos. La migración de arranque
+  (`ensureIntervalTaskColumns`) las agrega y marca las tareas que las versiones anteriores
+  habían apagado por agotar reintentos (`enabled = false` con `failed_attempts >=
+  max_failed_attempts`) como suspendidas por el sistema, **sin tocar `enabled`**: un
+  despliegue nunca reanuda en producción una tarea que estaba detenida, solo le cambia la
+  etiqueta para que la GUI y el reset la reconozcan. La telemetría nueva se ignora en
+  `upsert_interval_task` y no viaja al restaurar un backup, igual que el resto de
+  `INTERVAL_TASK_RUNTIME_ATTRIBUTES`.
+
+---
+
 ## [13.12.10] - 2026-10-13
 
 ### Fixed

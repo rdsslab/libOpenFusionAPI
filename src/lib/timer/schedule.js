@@ -440,9 +440,9 @@ export function describeTaskTimeoutMismatch(task, endpointTimeoutSeconds) {
 }
 
 /**
- * ¿La tarea agotó sus reintentos y debe deshabilitarse?
+ * ¿La tarea agotó sus reintentos y hay que suspenderla (`disabled_by = 'system'`)?
  *
- * `max_failed_attempts: 0` significa explícitamente **nunca deshabilitar**, y es
+ * `max_failed_attempts: 0` significa explícitamente **nunca suspender**, y es
  * lo que un usuario espera al escribir un 0. Antes caía en el valor por defecto
  * (10) por el `max > 0 ? max : 10`, de modo que un 0 devolvía el comportamiento
  * contrario al buscado y sin ningún aviso.
@@ -450,8 +450,11 @@ export function describeTaskTimeoutMismatch(task, endpointTimeoutSeconds) {
  * La distinción entre "0 explícito" y "sin configurar" no se puede hacer con
  * `Number()` a secas: `Number(null)`, `Number("")` y `Number(undefined)` dan
  * `NaN` o `0`, y un `null` heredado de una base vieja se confundiría con un 0
- * pedido a propósito — dejando la tarea sin deshabilitarse nunca. Por eso se
+ * pedido a propósito — dejando la tarea sin suspenderse nunca. Por eso se
  * mira el valor crudo antes de convertirlo.
+ *
+ * Quién decide suspender es el worker: si esto devuelve `true` para el fallo que
+ * acaba de ocurrir, escribe `disabled_by = 'system'` y deja `enabled` como está.
  *
  * @param {object} task
  * @param {number} failedAttempts

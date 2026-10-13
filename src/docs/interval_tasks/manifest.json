@@ -38,6 +38,12 @@
     "default_interval_seconds": 300,
     "default_exec_time_limit_seconds": 30,
     "default_max_failed_attempts": 10,
+    "suspension": {
+      "column": "disabled_by",
+      "reason_column": "disabled_reason",
+      "value": "system",
+      "description": "When failed_attempts reaches max_failed_attempts the scheduler suspends the task by setting disabled_by = 'system' and disabled_reason, WITHOUT flipping enabled (that is the user's intent). Eligibility requires enabled = true and disabled_by IS NULL. reset_interval_task_attempts, or an upsert with enabled: true, clears both and lets it run again."
+    },
     "default_history_limit": 50,
     "reaper_grace_seconds": 30,
     "max_stored_response_chars": 4096
@@ -63,7 +69,9 @@
     "last_run",
     "next_run",
     "last_exec_time",
-    "last_response"
+    "last_response",
+    "disabled_by",
+    "disabled_reason"
   ],
   "crud_tools": {
     "read": ["list_interval_tasks", "get_interval_task_runs"],

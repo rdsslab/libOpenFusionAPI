@@ -99,7 +99,7 @@ async function runTests() {
   console.log("--- Starting Interval Task Transition Tests ---");
 
   // 1. Con la fila: un UPDATE, nada mas
-  console.log("[STEP 1/5] A known row costs one UPDATE and no read...");
+  console.log("[STEP 1/6] A known row costs one UPDATE and no read...");
   {
     const { cuenta, restaurar } = instrumentar();
     try {
@@ -123,7 +123,7 @@ async function runTests() {
   }
 
   // 2. Sin la fila: lectura y escritura en la misma transaccion, con bloqueo
-  console.log("[STEP 2/5] Without the row, read and write share a transaction...");
+  console.log("[STEP 2/6] Without the row, read and write share a transaction...");
   {
     const { cuenta, restaurar } = instrumentar();
     try {
@@ -147,7 +147,7 @@ async function runTests() {
   }
 
   // 3. Un estado inexistente no escribe
-  console.log("[STEP 3/5] An unknown status writes nothing...");
+  console.log("[STEP 3/6] An unknown status writes nothing...");
   {
     const { cuenta, restaurar } = instrumentar();
     try {
@@ -162,7 +162,7 @@ async function runTests() {
   }
 
   // 4. DONE deja los fallos a cero y adelanta la corrida si ya vencio
-  console.log("[STEP 4/5] DONE clears the failures and moves on a past schedule...");
+  console.log("[STEP 4/6] DONE clears the failures and moves on a past schedule...");
   {
     const { cuenta, restaurar } = instrumentar();
     try {
@@ -182,7 +182,7 @@ async function runTests() {
   }
 
   // 5. El drenaje solo cuando el ciclo avanzo
-  console.log("[STEP 5/5] The batch drains only when the cycle made progress...");
+  console.log("[STEP 5/6] The batch drains only when the cycle made progress...");
   {
     const base = { limite: 200, lanzadas: 0, reprogramadas: 0 };
 
@@ -208,6 +208,32 @@ async function runTests() {
       "lote a medias: no hay motivo para saltarse el descanso",
     );
     assert.strictEqual(debeDrenarLote(), false, "sin estado no se drena: el worker duerme");
+  }
+
+  // 6. El tope de fallos suspende (disabled_by = 'system') sin apagar la intencion del usuario
+  console.log("[STEP 6/6] Reaching the failure limit suspends without disabling...");
+  {
+    const alTope = { ...TAREA(), failed_attempts: 9, max_failed_attempts: 10 };
+    const { cuenta, restaurar } = instrumentar({ fila: alTope });
+    try {
+      const r = await updateIntervalTaskStatus(7, TASK_STATUS.ERROR, { error: "boom" }, 120, alTope);
+
+      assert.strictEqual(r.success, true, `debe actualizar: ${JSON.stringify(r)}`);
+      assert.strictEqual(cuenta.escribio[0].failed_attempts, 10, "el fallo que llega al tope se cuenta");
+      assert.strictEqual(
+        cuenta.escribio[0].disabled_by,
+        "system",
+        "al llegar al tope la tarea queda suspendida por el sistema",
+      );
+      assert.ok(cuenta.escribio[0].disabled_reason, "y se registra el motivo de la suspension");
+      assert.strictEqual(
+        "enabled" in cuenta.escribio[0],
+        false,
+        "enabled es la intencion del usuario: no se toca al suspender",
+      );
+    } finally {
+      restaurar();
+    }
   }
 
   console.log("--- All Interval Task Transition Tests Passed Successfully! ---");

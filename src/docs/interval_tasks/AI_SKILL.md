@@ -35,8 +35,8 @@ endpoint workflow rather than the scheduler.
 | `list_interval_tasks` | read | See every task of an application, with its configuration and its live telemetry. |
 | `get_interval_task_runs` | read | Execution history of one task: duration, HTTP status, and — only with `include_response: true` — the `error` and `response` fields. Without that flag you get telemetry only, so a failed run looks empty of any error; set it when debugging. |
 | `upsert_interval_task` | write | Create a task or change an existing one. |
-| `run_interval_task_now` | write | Set an **enabled** task due and wake the scheduler immediately. It answers 400 when the task does not exist or when it is already running with `allow_concurrent: false`, and 409 `TASK_DISABLED` when the task is off. |
-| `reset_interval_task_attempts` | write | Clear the failure counter and re-enable a task the backoff disabled. |
+| `run_interval_task_now` | write | Set an **enabled, non-suspended** task due and wake the scheduler immediately. It answers 400 when the task does not exist or when it is already running with `allow_concurrent: false`, 409 `TASK_DISABLED` when the user turned the task off, and 409 `TASK_SUSPENDED` when the scheduler suspended it after repeated failures. |
+| `reset_interval_task_attempts` | write | Clear the failure counter and lift the scheduler's suspension, so a task it suspended runs again. |
 | `stop_interval_task_run` | write | Abort the execution of a task that is currently in flight: the scheduler cuts the in-flight HTTP call and records the run as `5` (aborted). Answers `stopped: false` with `reason: "NOT_RUNNING"` when there is no run left to abort. Does **not** touch `failed_attempts`, backoff or future runs — use `upsert_interval_task` with `enabled: false` to stop those instead. |
 | `delete_interval_task` | write | Remove the schedule permanently. The endpoint is not touched. |
 
@@ -52,11 +52,13 @@ There is no "list all tasks of the server" tool: tasks are always listed per app
 5. `get_interval_task_runs` to confirm the run succeeded.
 6. `upsert_interval_task` again with the real `interval` (or `cron`) you want.
 
-**`run_interval_task_now` does NOT re-enable a disabled task.** The scheduler only picks up tasks with
-`enabled: true`, so forcing a disabled task returns **409** with `reason: "TASK_DISABLED"` and nothing
-runs. If you want a task off its schedule but proven to work, do the inverse: keep it **enabled** with
-a long `interval`, force the run, then shorten the interval. Never leave a task disabled and try to
-force it — that combination cannot execute.
+**`run_interval_task_now` does NOT re-enable a disabled task, nor lift a suspension.** The scheduler
+only picks up tasks with `enabled: true` and `disabled_by` null, so forcing a disabled task returns
+**409** with `reason: "TASK_DISABLED"` and forcing a suspended task returns **409** with
+`reason: "TASK_SUSPENDED"` — nothing runs in either case. If you want a task off its schedule but
+proven to work, do the inverse: keep it **enabled** with a long `interval`, force the run, then
+shorten the interval. Never leave a task disabled and try to force it — that combination cannot
+execute. To bring a suspended task back, fix the cause and use `reset_interval_task_attempts`.
 
 ---
 
@@ -81,13 +83,14 @@ Configuration you own:
 | `idkey` | — | ApiKey used as Bearer. See §6. |
 | `exec_time_limit` | `30` | Seconds one execution may take before it is aborted. |
 | `allow_concurrent` | `false` | Whether a new execution may start while the previous one runs. |
-| `max_failed_attempts` | `10` | Consecutive failures before the task is auto-disabled. |
+| `max_failed_attempts` | `10` | Consecutive failures before the scheduler suspends the task (`disabled_by = 'system'`). `0` never suspends. |
 | `history_limit` | `50` | Executions kept per task. `0` disables history. |
 | `note` | — | Free-text label. Not part of any key: two tasks may share it and a task may have none. To identify a task use its `idtask`, which is stable across backups and instances. |
 
 Telemetry the scheduler owns — read it, never write it:
 
-`status`, `failed_attempts`, `last_run`, `next_run`, `last_exec_time`, `last_response`.
+`status`, `failed_attempts`, `last_run`, `next_run`, `last_exec_time`, `last_response`, `disabled_by`,
+`disabled_reason`.
 
 `status`: `0` waiting · `1` running · `2` completed · `3` error · `4` timeout · `5` aborted. Values
 `2`–`5` are terminal results of the previous run; they do not mean the task is still executing.
@@ -95,8 +98,16 @@ Operationally, only `1` is running, while any other enabled task with a future `
 `5` means an operator cut the execution in flight with `stop_interval_task_run`; unlike `3` and `4`
 it does not count as a failure.
 
+`disabled_by` is who took the task out of the schedule: `'system'` when the scheduler suspended it
+after `max_failed_attempts` consecutive failures, `null` otherwise. A system suspension does **not**
+change `enabled` — that flag is the user's intent and stays as the user left it. `disabled_reason`
+carries the human-readable motive.
+
 > In the response of `list_interval_tasks` the task's own `enabled` flag is returned as
 > **`task_enabled`**, because `enabled` there belongs to the endpoint and to the application.
+> **`task_enabled: true` with `disabled_by: 'system'` means the scheduler suspended the task**: the
+> user still wants it to run, but it will not until `reset_interval_task_attempts` (or an
+> `upsert_interval_task` with `enabled: true`) lifts the suspension.
 
 ---
 
@@ -130,7 +141,7 @@ Preferred shape:
   client the worker uses implements no other verb. `endpoint_upsert` does allow a `HEAD` or
   `OPTIONS` endpoint to exist, so a task can point at one; since 13.11.1 the worker rejects that
   before the request instead of failing with `uF[task.method.toLowerCase()] is not a function`. The
-  run is still recorded as an error, and after the usual consecutive failures the task is disabled.
+  run is still recorded as an error, and after the usual consecutive failures the task is suspended.
   Check the endpoint's `method` before pointing a task at it.
 
 Legacy fallback: an object with **neither** a `data` nor a `headers` key is sent whole as `data`,
@@ -166,7 +177,7 @@ fine: the headers are applied and no payload is sent.
   (aborted). It only reaches the run the scheduler has in flight for that task right now: a stop
   that arrives after the call already finished answers `stopped: false`. Unlike a failure or a
   timeout, an aborted run does **not** increment `failed_attempts`, does not apply backoff and cannot
-  auto-disable the task; the schedule is unchanged, so the next planned run still happens. Disabling
+  suspend the task; the schedule is unchanged, so the next planned run still happens. Disabling
   the task (`enabled: false`) prevents future runs but never cuts one already executing.
 - There are **two** clocks, and they live on different objects. `exec_time_limit` belongs to the
   task and is what the worker and the reaper enforce. The endpoint's `timeout` belongs to the
@@ -179,16 +190,18 @@ fine: the headers are applied and no payload is sent.
   `success: false`; that payload is recorded as an error using its `error` or `message`. The field is
   optional: endpoints without `success` continue to use the HTTP status as the outcome.
 - Failures retry with exponential backoff, doubling from the interval up to `max_backoff_seconds`
-  (default one hour). On reaching `max_failed_attempts` the task is **disabled automatically** with a
-  `disabled_reason`.
+  (default one hour). On reaching `max_failed_attempts` the scheduler **suspends** the task:
+  `disabled_by = 'system'` with a `disabled_reason`, and the task stops being scheduled. It does
+  **not** flip `enabled` — that stays as the user's intent — so a suspended task still reads
+  `task_enabled: true`. To bring it back, fix the cause and call `reset_interval_task_attempts`.
 - Three per-task knobs change that policy, and you should reach for them before resetting attempts
   by hand:
-  - `max_failed_attempts: 0` means **never auto-disable**. The task keeps running and keeps recording
+  - `max_failed_attempts: 0` means **never suspend**. The task keeps running and keeps recording
     failures however many accumulate. This is the right value for a monitoring task; a positive value
     is right for a task that must not keep hitting a downstream service.
   - `backoff_enabled: false` keeps the task on its normal interval even while it fails, so a health
     check does not drift from every 2 minutes to every 32 minutes exactly when the observed system is
-    down. It does not prevent the auto-disable — combine it with `max_failed_attempts: 0` for that.
+    down. It does not prevent the suspension — combine it with `max_failed_attempts: 0` for that.
   - `max_backoff_seconds` caps the doubling per task (max 2592000 = 30 days). Omit for the global
     one-hour ceiling.
 - In the run history (`get_interval_task_runs`), responses longer than 4096 characters are stored as
@@ -202,16 +215,19 @@ fine: the headers are applied and no payload is sent.
 
 **"The task never runs."**
 `list_interval_tasks` and check, in this order: `task_enabled`, `endpoint_enabled` and `app_enabled`
-must all be `true`; `datestart` must be in the past and `dateend` in the future; `next_run` must not
-be far ahead, and `failed_attempts` must be below `max_failed_attempts` — except when
-`max_failed_attempts` is `0`, which exempts the task from the limit entirely. If a window is set, confirm
-the current time and weekday fall inside `window_start`–`window_end` / `window_days` **in the task's
-`timezone`**. Invalid IANA timezones and invalid cron expressions are rejected at save time. A
-malformed `HH:MM` is currently ignored, so re-read the stored window values after writing.
+must all be `true`; `disabled_by` must be null (a `'system'` value means the scheduler suspended it
+after repeated failures); `datestart` must be in the past and `dateend` in the future; `next_run` must
+not be far ahead. If a window is set, confirm the current time and weekday fall inside
+`window_start`–`window_end` / `window_days` **in the task's `timezone`**. Invalid IANA timezones and
+invalid cron expressions are rejected at save time. A malformed `HH:MM` is currently ignored, so
+re-read the stored window values after writing.
 
-**"It got disabled by itself."**
-It hit `max_failed_attempts`. Read `get_interval_task_runs` to see the actual errors, fix the cause,
-then `reset_interval_task_attempts` — that clears the counter, re-enables the task and reschedules it.
+**"It got suspended by itself."**
+It hit `max_failed_attempts`, so the scheduler set `disabled_by = 'system'` while leaving
+`task_enabled` true. Read `get_interval_task_runs` to see the actual errors, fix the cause, then
+`reset_interval_task_attempts` — that clears the counter, lifts the suspension and reschedules it.
+Sending `upsert_interval_task` with `enabled: true` does the same. It only reactivates a task the
+**scheduler** suspended: a task the user turned off (`enabled: false`) is left off by the reset.
 
 **"It runs but the endpoint receives nothing."**
 Check `params`: a payload without a `data` key is sent whole as `data` (§5). Also check the endpoint
@@ -251,8 +267,8 @@ first, then disable.
 ## 9. Backup and restore
 
 Interval tasks travel inside the application backup, at the root of the payload as `tasks`.
-Telemetry is not restored (the task comes back as waiting, with zero failures) and `idkey` is
-remapped to the target instance. `idtask` is the identity: the UUID from the backup is matched
+Telemetry is not restored (the task comes back as waiting, with zero failures and no `disabled_by`)
+and `idkey` is remapped to the target instance. `idtask` is the identity: the UUID from the backup is matched
 against the destination as-is, and if the row does not exist it is inserted honoring that UUID —
 there is no numeric id to collide with, so the restore is idempotent by construction. `note` plays
 no part in the match. Tasks that exist in the destination but are absent from the backup are not
