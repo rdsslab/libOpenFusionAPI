@@ -180,10 +180,10 @@ const CASOS = [
     code: `/* el filtro real es $name */\n${CONSULTA}`,
   },
   {
-    // H1 de la validacion en vivo: al quitar un `/* … */` no ejecutable se dejaba el
-    // hueco sin separador y `name/* c */IS` se leia `nameIS`. El comentario hacia de
-    // espacio entre tokens, y con un bind en la peticion (para que corra el recorte).
-    nombre: "bloque pegado entre dos tokens que separa (regresion de fusion)",
+    // H1 from the live validation: dropping a non-executable `/* … */` left the gap with
+    // no separator and `name/* c */IS` read as `nameIS`. The comment acted as a space
+    // between tokens, and a bind in the request (so the trimming path runs).
+    nombre: "block glued between two tokens it separates (fusion regression)",
     code:
       "SELECT TOP 5 id, name, qty, price FROM dbo.items\n" +
       "WHERE name/* comentario */IS NOT NULL AND name <> $name\n" +

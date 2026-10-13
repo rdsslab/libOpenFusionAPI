@@ -1,20 +1,20 @@
 # Changelog
 
-Cambios de comportamiento de OpenFusion API entre versiones.
+Changes in OpenFusion API behavior between versions.
 
-El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y el
-versionado es [SemVer](https://semver.org/lang/es/).
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
+versioning is [SemVer](https://semver.org/).
 
-Cada cambio va a la audiencia que puede actuar sobre él:
+Each change is targeted to the audience that can act on it:
 
-| Audiencia | Qué le importa de aquí |
+| Audience | What matters here |
 |---|---|
-| **Cliente que llama a un endpoint** | Solo `Breaking`. |
-| **Autor de endpoints** (humano o agente) | `Added` y `Changed`: capacidades y restricciones nuevas. Detalle en el `AI_SKILL.md` del handler y en su `manifest.json`. |
-| **Operador** | Variables de entorno, logs y migraciones de esquema. Detalle en `README.md` y `env.example`. |
+| **Client calling an endpoint** | Only `Breaking`. |
+| **Endpoint author** (human or agent) | `Added` and `Changed`: new capabilities and restrictions. Details in the handler's `AI_SKILL.md` and its `manifest.json`. |
+| **Operator** | Environment variables, logs, and schema migrations. Details in `README.md` and `env.example`. |
 
-Para consultas sobre versiones anteriores o migraciones antiguas de la estructura del
-proyecto, ver [MIGRATION.md](./MIGRATION.md).
+For questions about older versions or historical migrations of the project structure,
+see [MIGRATION.md](./MIGRATION.md).
 
 ---
 
@@ -22,51 +22,51 @@ proyecto, ver [MIGRATION.md](./MIGRATION.md).
 
 ### Fixed
 
-- **El recorte de comentarios no ejecutables ya no fusiona los tokens que el comentario
-  separaba.** `f2f1b81` quitaba los `/* … */` sin dejar nada en su lugar, así que
-  `qty/* c */IN` llegaba al motor como `qtyIN` y la consulta respondía 500 (`Unknown column
-  'qtyIN'`), en los cinco motores. Solo pasaba cuando la petición traía `bind`, porque el
-  recorte vive dentro de `formatBindParameters` de `ConnectionPool`: la misma consulta con
-  `:nombre` o sin parámetros funcionaba. Ahora se deja **un espacio** donde estaba el bloque.
+- **Trimming non-executable comments no longer merges tokens that were separated by the comment.**
+  `f2f1b81` removed `/* … */` without leaving anything in its place, so `qty/* c */IN` reached
+  the engine as `qtyIN` and the query returned 500 (`Unknown column 'qtyIN'`) in all five engines.
+  It only happened when the request included `bind`, because trimming happens inside
+  `formatBindParameters` in `ConnectionPool`: the same query with `:name` or without parameters
+  worked. Now **a space** is left where the block was.
 
-- **`--` solo abre comentario donde el motor lo abre.** En MySQL y MariaDB, `--` es un
-  comentario únicamente si le sigue un espacio, un carácter de control o el final de la
-  cadena; `1--2` es `1 - (-2)` = `3`. El recorte lo trataba como comentario en todos los
-  motores, de modo que `SELECT 1--2 AS x, $name AS eco` se ejecutaba como `SELECT 1` y
-  devolvía **200 con un resultado equivocado** en lugar del 500 anterior —un 200 silencioso
-  con datos cambiados es peor que un error—. La decisión pasa a ser por dialecto
-  (`esComentarioDeLinea()`), y `#` se recorta también en MariaDB (antes solo en MySQL).
+- **`--` only starts a comment where the engine allows it.** In MySQL and MariaDB, `--` is
+  only a comment if followed by a space, a control character, or end of string; `1--2`
+  evaluates as `1 - (-2)` = `3`. The trimming treated it as a comment in all engines, so
+  `SELECT 1--2 AS x, $name AS eco` ran as `SELECT 1` and returned **200 with incorrect
+  results** instead of the previous 500 —a silent 200 with changed data is worse than an
+  error. The decision is now dialect-specific (`isLineCommentAt()`), and `#` is also
+  trimmed in MariaDB (previously only in MySQL).
 
-- **Un `$nombre` dentro de `/*! … */` ya se sustituye.** `/*! … */` se ejecuta en
-  MySQL/MariaDB, así que un `$name` de dentro es un bind real; el guard lo neutralizaba
-  (insertaba un espacio: `$ name`) y la consulta moría por error de sintaxis. En MySQL
-  responde 200. En MariaDB sigue respondiendo 500 por una limitación del driver: Sequelize
-  usa `query()`, cuya sustitución de `?` no ve los comentarios ejecutables, mientras que
-  `execute()` sí los resuelve. Queda documentado, no es corregible desde el handler.
+- **A `$name` inside `/*! … */` is now substituted.** `/*! … */` executes in MySQL/MariaDB,
+  so a `$name` inside is a real bind; the guard was neutralizing it (inserting a space:
+  `$ name`) and the query failed with a syntax error. In MySQL it returned 200. In MariaDB
+  it still returns 500 due to a driver limitation: Sequelize uses `query()`, whose `?`
+  substitution doesn't see executable comments, while `execute()` does resolve them. This
+  remains documented and is not fixable from the handler.
 
-- **Dollar-quoting de PostgreSQL (`$$ … $$`, `$tag$ … $tag$`).** La regex con la que
-  Sequelize sustituye los binds (`\B\$(\$|\w+)`, en `abstract/query.js:78`) no distingue el
-  `$` que abre un cuerpo dollar-quoted del que abre un bind: `$$ cuerpo $$` se convertía en
-  `$ cuerpo $` (`syntax error at or near "$"`) y `$tag$ … $tag$` se leía como el bind
-  `$tag` (`400 SQL_BIND_INSIDE_LITERAL`) aunque el cuerpo no contuviera ningún `$nombre`.
-  Además, el rango que marcaba el guard incluía la etiqueta de cierre como si fuera un bind.
-  Ahora los cuerpos se apartan con `protegerDollarQuoted()` —que usa el escáner, no una
-  búsqueda de `$$` a pelo, para no confundir un `$$` de dentro de un literal— solo en el
-  dialecto `postgres`, y se reponen tal cual después de la sustitución. Un `$nombre` dentro
-  del cuerpo se sigue rechazando con 400: no debe sustituirse en silencio.
+- **PostgreSQL dollar-quoting (`$$ … $$`, `$tag$ … $tag$`).** The regex Sequelize uses to
+  substitute binds (`\B\$(\$|\w+)`, in `abstract/query.js:78`) doesn't distinguish between the
+  `$` that opens a dollar-quoted body and the `$` that opens a bind: `$$ body $$` became
+  `$ body $` (`syntax error at or near "$"`) and `$tag$ … $tag$` was read as bind `$tag`
+  (`400 SQL_BIND_INSIDE_LITERAL`) even if the body contained no `$name`. Also, the range marked
+  by the guard included the closing tag as if it were a bind. Bodies are now protected with
+  `protectDollarQuoted()` —which uses the scanner, not a naive `$$` search, to avoid confusing
+  a `$$` inside a literal— only for the `postgres` dialect, and restored as-is after
+  substitution. A `$name` inside the body is still rejected with 400: it must not be
+  substituted silently.
 
 ### Changed
 
-- **La detección de parámetros pasa a decidir los comentarios de línea por dialecto.**
-  `dev/test/sql_param_detection_test.js` crece de 79 a 107 casos (bloques `stripCasos`,
-  `dialectoCasos` y `dollarCasos`/`dollarIntactos`), y `dev/test/sql_comments_test.js` añade
-  un caso de regresión de la fusión contra SQL Server real (20/20).
+- **Parameter detection now determines line comments per dialect.**
+  `dev/test/sql_param_detection_test.js` grows from 79 to 107 cases (`stripCases`, `dialectCases`,
+  and `dollarCases`/`dollarIntactCases` blocks), and `dev/test/sql_comments_test.js` adds a
+  regression case for comment merging against real SQL Server (20/20).
 
-- **Nuevo informe de validación en vivo:**
+- **New live validation report:**
   [`src/docs/handlers/SQL/sql_comments_validation.md`](./src/docs/handlers/SQL/sql_comments_validation.md).
-  Recoge los cinco hallazgos (los cuatro corregidos y un efecto positivo en SQLite), la
-  matriz A/B contra PostgreSQL, SQL Server, MySQL, MariaDB y SQLite, la causa raíz y la
-  solución aplicada. Enlazado desde el `README.md` del handler.
+  Collects the five findings (four fixed, one positive effect on SQLite), the A/B matrix against
+  PostgreSQL, SQL Server, MySQL, MariaDB and SQLite, root cause and the applied solution. Linked
+  from the handler's `README.md`.
 
 ---
 
@@ -74,132 +74,128 @@ proyecto, ver [MIGRATION.md](./MIGRATION.md).
 
 ### Added
 
-- **`endpoint_upsert` avisa al guardar un `code` `SQL` que en runtime responderá
-  `SQL_BIND_INSIDE_LITERAL`.** Desde la 13.11.32 el guard de runtime rechaza con 400 un
-  `$nombre` escrito dentro de un literal, un identificador entrecomillado o un cuerpo
-  `$$…$$`, y hace bien: sin él Sequelize lo sustituye y el endpoint responde 200 con el dato
-  cambiado. Pero ese rechazo solo se descubría llamando al endpoint ya publicado, así que al
-  guardar no había ninguna señal. Ahora `fnEndpointUpsert` calcula el mismo diagnóstico
-  (`avisoSqlBindEnLiteral`, en `src/lib/handler/utils.js`) sobre el `code` que se está
-  guardando y lo devuelve en `warnings`, junto al aviso ya existente de `data_test`. **No
-  bloquea**: `endpoint_migrate` y la restauración reescriben endpoints existentes, y un 400
-  duro en el guardado rompería el propio mecanismo que permite arreglarlos. El aviso nombra
-  cada `$nombre` rechazado, dice en qué contenedor está y propone la corrección en la sintaxis
-  del motor del endpoint —`N'$' + N'nombre'` en SQL Server, `'$' || 'nombre'` en
-  PostgreSQL/SQLite, `CONCAT('$', 'nombre')` en MySQL/MariaDB—, leída de
-  `custom_data.options.dialect`. Si `custom_data` es una AppVar sin resolver el motor no se
-  conoce y el aviso describe el operador de cada uno en vez de imponer el de SQL Server.
+- **`endpoint_upsert` warns when saving `SQL` code that will return `SQL_BIND_INSIDE_LITERAL`
+  at runtime.** Since 13.11.32, the runtime guard rejects with 400 a `$name` written inside a
+  literal, a quoted identifier, or a `$$…$$` body —and rightly so: without it Sequelize
+  substitutes it and the endpoint returns 200 with altered data. But this rejection only
+  surfaced when calling the published endpoint, so saving gave no signal. Now `fnEndpointUpsert`
+  computes the same diagnosis (`avisoSqlBindEnLiteral`, in `src/lib/handler/utils.js`) on the
+  code being saved and returns it in `warnings`, alongside the existing `data_test` warning.
+  It does **not block**: `endpoint_migrate` and restore rewrite existing endpoints, and a hard
+  400 on save would break the very mechanism for fixing them. The warning names each rejected
+  `$name`, states which container it’s in, and suggests the correction in the endpoint’s
+  dialect syntax —`N'$' + N'nombre'` in SQL Server, `'$' || 'nombre'` in PostgreSQL/SQLite,
+  `CONCAT('$', 'nombre')` in MySQL/MariaDB— read from `custom_data.options.dialect`. If
+  `custom_data` is an AppVar with unresolved engine, the dialect is unknown and the warning
+  describes the operator for each instead of imposing SQL Server’s.
 
-- **`npm run audit:sql-binds`: auditoría de los endpoints `SQL` ya publicados.**
-  `dev/test/sql_bind_literal_audit.js` recorre una instancia (todas sus aplicaciones, o una
-  con `--app`/`--idapp`) y lista los endpoints `SQL` cuyo `code` tiene el patrón. Usa el
-  mismo detector que el runtime y, al ser un script, se puede ejecutar desde un checkout
-  nuevo contra el servidor **viejo** todavía en marcha: es justo lo que hace falta **antes**
-  de actualizar. Solo audita el handler `SQL`; `HANA` no lo necesita (su sustituto ya ignora
-  los `$` dentro de literales y comentarios) y en `SQL_BULK_I` el `code` es un nombre de
-  tabla. Como el catálogo ligero no trae `custom_data`, el informe no puede saber el motor de
-  cada endpoint: escanea con las tres reglas que cambian el resultado (las comunes, el
-  escapado con `\` de MySQL/MariaDB y `E'…'`, y los corchetes de SQL Server) y etiqueta cada
-  hallazgo con el caso en el que aplica, además de dar la corrección de los tres dialectos
-  (SQL Server, PostgreSQL/SQLite y MySQL/MariaDB) en vez de asumir T-SQL. Código de salida
-  0/1/2 para encadenarlo en un despliegue.
+- **`npm run audit:sql-binds`: audit of already published `SQL` endpoints.**
+  `dev/test/sql_bind_literal_audit.js` scans an instance (all apps, or one with `--app`/`--idapp`)
+  and lists `SQL` endpoints whose `code` has the pattern. It uses the same detector as runtime
+  and, being a script, can run from a fresh checkout against the **old** server still running:
+  exactly what’s needed **before** upgrading. It only audits the `SQL` handler; `HANA` doesn’t
+  need it (its substitution already ignores `$` inside literals and comments), and in `SQL_BULK_I`
+  the `code` is a table name. Since the lightweight catalog doesn’t include `custom_data`, the
+  report can’t know each endpoint’s dialect: it scans with the three rules that change results
+  (common, MySQL/MariaDB backslash escaping and `E'…'`, and SQL Server brackets) and tags each
+  finding with the case that applies, also giving corrections for the three dialects (SQL Server,
+  PostgreSQL/SQLite, and MySQL/MariaDB) instead of assuming T-SQL. Exit codes 0/1/2 for
+  deployment chaining.
 
 ### Fixed
 
-- **El escáner no reconocía el identificador con backtick ni con corchete.** Desde la
-  13.11.32 el guard rechaza un `$nombre` dentro de un identificador entrecomillado, pero solo
-  reconocía `"…"` (ANSI). Sequelize sustituye un `$nombre` dentro de un backtick
-  (MySQL/MariaDB) o de un corchete (SQL Server) exactamente igual, así que esos casos
-  volvían al 200 con el dato cambiado sin que el guard se enterara. `scanSqlTokens` reconoce
-  ahora `` `…` `` —siempre, porque fuera de MySQL/MariaDB es SQL inválido— y `[…]` **solo con
-  `dialect === "mssql"`**, porque en PostgreSQL/SQLite `[…]` es un subíndice de array y
-  `arr[$idx]` es un `$param` legítimo. El dialecto lo aporta el propio parche de runtime (el
-  tercer argumento de `formatBindParameters`, `options.dialect`) y el aviso de guardado
-  (`custom_data.options.dialect`). La auditoría escanea con las tres reglas y etiqueta cada
-  hallazgo con el caso en el que aplica.
+- **The scanner didn't recognize backtick or bracket identifiers.** Since 13.11.32 the guard
+  rejects a `$name` inside a quoted identifier, but it only recognized `"…"` (ANSI). Sequelize
+  substitutes a `$name` inside backticks (MySQL/MariaDB) or brackets (SQL Server) the same way,
+  so those cases fell back to returning 200 with altered data without the guard noticing.
+  `scanSqlTokens` now recognizes `` `…` `` —always, since outside MySQL/MariaDB it's invalid
+  SQL— and `[…]` **only when `dialect === "mssql"`**, because in PostgreSQL/SQLite `[…]` is an
+  array subscript and `arr[$idx]` is a legitimate `$param`. The dialect comes from the runtime
+  patch (third argument to `formatBindParameters`, `options.dialect`) and from the save-time
+  warning (`custom_data.options.dialect`). The audit scans with all three rules and tags each
+  finding with the case it applies to.
 
-- **El escáner no seguía la regla de escapado de cada motor al cerrar un literal.** En
-  MySQL/MariaDB `\` escapa la comilla, así que `'l\'avion $p'` es **una sola cadena**, y el
-  escáner la cerraba en ese `\'`: según lo que viniera detrás, o dejaba pasar la sustitución
-  —200 con el dato cambiado en MySQL/MariaDB, el mismo fallo de la 13.11.32— o rechazaba con
-  400 una consulta válida. Ahora el literal se recorre con las reglas que Sequelize ya aplica
-  en su lexer de `:param` (`injectReplacements`, `lib/utils/sql.js`):
-  `dialect.canBackslashEscape()` —siempre en MySQL/MariaDB; en PostgreSQL solo con
-  `standardConformingStrings: false`, que Sequelize deja en `true` por defecto— y
-  `supports.escapeStringConstants` para los literales `E'…'` de PostgreSQL, cuya `E` solo
-  cuenta si delante tiene `[\s(>,=]`. En el parche de runtime las reglas salen de la conexión
-  misma (`sequelize.dialect.canBackslashEscape()`), no de una suposición por el nombre del
-  motor; en el aviso de guardado, de `custom_data.options`. El escapado ANSI (`'it''s $p'`)
-  sigue entendiéndose en los cinco dialectos.
+- **The scanner didn't follow each engine's escaping rules when closing a literal.** In
+  MySQL/MariaDB `\` escapes the quote, so `'l\'avion $p'` is **a single string**, and the
+  scanner closed it at that `\'`: depending on what came next, it either let substitution
+  through —200 with altered data in MySQL/MariaDB, the same failure as in 13.11.32— or rejected
+  a valid query with 400. Now the literal is traversed with the rules Sequelize already applies
+  in its `:param` lexer (`injectReplacements`, `lib/utils/sql.js`):
+  `dialect.canBackslashEscape()` —always true in MySQL/MariaDB; in PostgreSQL only when
+  `standardConformingStrings: false`, which Sequelize leaves as `true` by default— and
+  `supports.escapeStringConstants` for PostgreSQL `E'…'` literals, where the leading `E` only
+  counts if preceded by `[\s(>,=]`. In the runtime patch the rules come from the connection
+  itself (`sequelize.dialect.canBackslashEscape()`), not from assuming the engine name; in the
+  save-time warning, from `custom_data.options`. ANSI escaping (`'it''s $p'`) is still
+  understood in all five dialects.
 
-- **CHANGELOG 13.11.32: «nada que migrar» no era cierto.** Esa entrada contaba el 200 con el
-  dato alterado y, dos párrafos después, decía que el operador no tenía nada que hacer. En
-  realidad, todo endpoint `SQL` ya publicado con un `$nombre` dentro de un literal pasa de
-  200 a 400 en todas las llamadas al actualizar. Queda corregido en su propia entrada, con la
-  auditoría y la corrección por motor de la 13.12.7.
+- **CHANGELOG 13.11.32: «nothing to migrate» was not true.** That entry mentioned the 200 with
+  altered data and, two paragraphs later, said the operator had nothing to do. In reality, every
+  published `SQL` endpoint with a `$name` inside a literal goes from 200 to 400 on all calls
+  after upgrading. This is corrected in that entry, with the audit and per-dialect fix from
+  13.12.7.
 
 ### Changed
 
-- **Documentación del handler `SQL`:** la sección «Comments and `$param` in literals»
-  (`src/docs/handlers/SQL/AI_SKILL.md`) menciona el aviso de guardado, el script de auditoría,
-  qué delimitador de identificador reconoce cada motor y cómo cierra cada uno un literal
-  (`\` como escape en MySQL/MariaDB, `E'…'` y `standardConformingStrings` en PostgreSQL).
+- **`SQL` handler documentation:** the «Comments and `$param` in literals» section
+  (`src/docs/handlers/SQL/AI_SKILL.md`) mentions the save-time warning, the audit script,
+  which identifier delimiter each engine recognizes, and how each closes literals (`\` as
+  escape in MySQL/MariaDB, `E'…'` and `standardConformingStrings` in PostgreSQL).
 
 ## [13.12.6] - 2026-10-03
 
 ### Changed
 
-- **Modelos `UserProfile` y `SystemUserProfile` retirados.** Estaban declarados en
-  `src/lib/db/models.js` y `src/lib/db/userprofile.js` y no los usaba nadie: no había
-  consultas, endpoints ni tareas que los tocaran. El ejemplo de nombre de herramienta MCP
-  `get_user_profile` pasa a `get_user_info` para no referenciar un modelo que ya no existe
-  (`src/docs/handlers/MCP/AI_SKILL.md`). Entrada añadida a posteriori: el bump a 13.12.6 se
-  hizo sin anotarla en el CHANGELOG, y `version_sync_test.js` lo detectaba.
+- **`UserProfile` and `SystemUserProfile` models removed.** They were declared in
+  `src/lib/db/models.js` and `src/lib/db/userprofile.js` and were unused: no queries,
+  endpoints, or tasks referenced them. The example MCP tool name `get_user_profile` is
+  changed to `get_user_info` to avoid referencing a model that no longer exists
+  (`src/docs/handlers/MCP/AI_SKILL.md`). Entry added retrospectively: the bump to 13.12.6
+  was made without noting it in the CHANGELOG, and `version_sync_test.js` detected it.
 
 ## [13.12.5] - 2026-10-01
 
 ### Fixed
 
-- **`data_test` se guardaba en la forma que el Tester no puede leer.** `data_test` guarda la
-  petición de ejemplo que reproduce el Tester del editor, y el body va en
-  `data_test.body.json.code` —eso leen el Tester, `execute_endpoint_test` con
-  `use_data_test_fallback` y el generador de documentación—. Pero la tool `endpoint_upsert` no lo
-  decía: su schema aceptaba cualquier JSON («payload de prueba guardado») y su descripción
-  recomendaba «un `data_test` (una petición de ejemplo guardada)». Un cliente que siguió esa guía
-  guardó el body en la raíz:
+- **`data_test` was saved in a format the Tester cannot read.** `data_test` stores the example
+  request that reproduces the editor's Tester, and the body goes in `data_test.body.json.code`
+  —that's what the Tester, `execute_endpoint_test` with `use_data_test_fallback`, and the
+  documentation generator read. But the `endpoint_upsert` tool didn't say this: its schema
+  accepted any JSON («saved test payload») and its description recommended «a `data_test` (a
+  saved example request)». A client following that guidance saved the body at the root:
 
   ```json
   {"corporativos":["1600395592"],"ejecutar_sincronizador":true,"dry_run":true}
   ```
 
-  No fallaba nada: el upsert devolvía 200 y guardaba bien lo que le habían mandado. El fallo era
-  que el Tester abría el endpoint y mostraba `{}` en Body → JSON, y `execute_endpoint_test` con
-  fallback no encontraba payload. La causa era de documentación, y la documentación era doble: la
-  misma frase se repetía en el seed y en el addon de runtime que `mcp.js` concatena a la
-  descripción de la tool en `tools/list`, así que arreglar solo el seed no cambiaba lo que el
-  agente leía.
+  Nothing failed: the upsert returned 200 and saved what was sent. The issue was that the Tester
+  opened the endpoint and showed `{}` in Body → JSON, and `execute_endpoint_test` with fallback
+  couldn't find the payload. The root cause was documentation, and it was duplicated: the same
+  phrase appeared in the seed and in the runtime addon that `mcp.js` concatenates to the tool's
+  description in `tools/list`, so fixing only the seed wouldn't change what the agent read.
 
-  Ahora el schema de `data_test` declara la estructura real —`query`, `headers`, `auth`, `body`
-  (`selection`, `json.code`, `xml`, `text`, `form`, `urlencoded`) y `last_response`— y la prosa
-  dice que **no es el body crudo**. Se mantiene permisivo (`anyOf` con objeto, array, string y
-  `null`) para no romper a quien ya enviaba `null` o un array, que antes pasaban.
+  The `data_test` schema now declares the real structure —`query`, `headers`, `auth`, `body`
+  (`selection`, `json.code`, `xml`, `text`, `form`, `urlencoded`), and `last_response`— and the
+  prose states it is **not the raw body**. It remains permissive (`anyOf` with object, array,
+  string, and `null`) to avoid breaking clients that already sent `null` or an array, which
+  previously passed.
 
-- **Un `data_test` con el body crudo en la raíz ahora se guarda donde sí se ve.** `normalizeDataTest`
-  (`src/lib/db/endpoint.js`) envuelve lo que parece un body en
-  `{body: {selection: 0, json: {code: <valor>}}}` y **no rechaza nada**: hay clientes que llevan
-  años guardando así. La respuesta del upsert incluye un `warnings` que dice dónde quedó el body,
-  para que quien llamó aprenda la forma buena. El listón para decidir «esto ya venía bien» es
-  alto a propósito: las filas de `query`/`headers` tienen que parecer filas
-  (`{enabled: <bool>, key}`) y `body`/`auth` tienen que parecerse a los del Tester, porque un body
-  crudo que use una clave del Tester por casualidad (`{"query":[{"field":"x"}]}`,
-  `{"body":{"texto":"hola"}}`) si no se guardaría roto **y sin aviso**, que es lo peor que puede
-  pasar. Cubierto por `dev/test/data_test_normalize_test.js`.
+- **A `data_test` with raw body at the root is now saved where it can be seen.**
+  `normalizeDataTest` (`src/lib/db/endpoint.js`) wraps what looks like a body in
+  `{body: {selection: 0, json: {code: <value>}}}` and **rejects nothing**: some clients have
+  been saving this way for years. The upsert response includes `warnings` explaining where the
+  body ended up, so callers learn the correct format. The bar for deciding "this was already
+  fine" is deliberately high: `query`/`headers` rows must look like rows (`{enabled: <bool>, key}`)
+  and `body`/`auth` must resemble Tester shapes, because a raw body that accidentally uses a
+  Tester key (`{"query":[{"field":"x"}]}`, `{"body":{"texto":"hola"}}`) could otherwise be saved
+  broken **without warning**, which is the worst outcome. Covered by
+  `dev/test/data_test_normalize_test.js`.
 
 ### Changed
 
-- **Autor de endpoints:** `headers_test` se documenta como lo que es —un objeto plano
-  `{"Header-Name": "value"}` que `execute_endpoint_test` envía como headers, mezclado con las filas
-  habilitadas de `data_test.headers`— y no como «cabeceras de prueba guardadas».
+- **Endpoint author:** `headers_test` is now documented for what it is —a flat object
+  `{"Header-Name": "value"}` that `execute_endpoint_test` sends as headers, merged with enabled
+  rows from `data_test.headers`— and not as «saved test headers».
 
 ## [13.12.4] - 2026-09-30
 
@@ -2437,13 +2433,13 @@ emitiendo los defaults intactos, y perderlos en el `ALTER` tampoco destruye los 
 la columna: en T-SQL un `ALTER COLUMN` sin `DEFAULT` los deja como estaban, que es lo que
 produce el `INSERT` de la columna de prueba (`7`, `dev`) y lo que se verificó en el esquema real.
 
-#### El recorte es gramatical, no una lista de palabras prohibidas
+#### Trimming is grammatical, not a blacklist
 
-La primera versión quita `DEFAULT`, `IDENTITY` y `PRIMARY KEY` uno a uno, y al probar contra
-el motor aparecieron `UNIQUE` y luego `CHECK`; cada uno era un `ALTER COLUMN` distinto que
-fallaba. En vez de seguir sumando palabras, `limpiarDefinicionAlterColumn` reduce la definición
-a lo que la gramática admite y conserva el tipo, la nulabilidad y las dos colas que
-`changeColumnQuery` mueve de sitio por su cuenta.
+The first version removed `DEFAULT`, `IDENTITY`, and `PRIMARY KEY` one by one, and when testing
+against the engine, `UNIQUE` and then `CHECK` appeared; each caused a different `ALTER COLUMN`
+to fail. Instead of adding more keywords, `limpiarDefinicionAlterColumn` reduces the definition
+to what the grammar allows and preserves the type, nullability, and the two tails that
+`changeColumnQuery` moves around on its own.
 
 Las dos colas se conservan **a propósito, no por descuido**: `REFERENCES` acaba en una cláusula
 `ADD FOREIGN KEY` aparte y `COMMENT` en el `sp_addextendedproperty`. Si el saneador se las
@@ -2772,22 +2768,21 @@ diagnosticar.
 Un log de arranque es de los primeros que se pega a un ticket y de los que se guarda más tiempo, y
 un secreto en él cambia de manos con el.
 
-#### Verificación
+#### Verification
 
-`db_startup_log_test.js` (puro, 5 bloques) fija las tres reglas de la redacción: ni la URL ni el
-volcado llevan la contraseña, el destino sigue siendo legible, y las dos entradas raras que pueden
-darse de verdad —`dialectOptions` sin resolver todavía y un destino que no sea URL— no tumban el
-arranque, que es el riesgo real de tocar una línea que se ejecuta antes de que exista nadie a quien
-reportarle un fallo.
+`db_startup_log_test.js` (pure, 5 blocks) enforces the three rules: neither the URL nor the
+dump contains the password; the destination remains readable; and the two edge cases that can
+actually happen —`dialectOptions` not yet resolved and a non-URL destination— don't break
+startup, which is the real risk of touching a line that runs before anyone is around to report
+a failure.
 
-Medido sobre el arranque real: **5 → 0** ocurrencias de la contraseña en el log, en las dos formas en
-que aparecía (la URL con el password URL-encoded y el volcado en claro). Packet de PostgreSQL:
-32/32.
+Measured on real startup: **5 → 0** password occurrences in logs, in both forms it appeared
+(URL with URL-encoded password and plain dump). PostgreSQL packet: 32/32.
 
 ---
 
-## Referencia
+## Reference
 
-- Versionado: `package.json`
-- Comprobación del contrato MCP tras cambios de documentación: `npm run test:mcp-contract`
-- Validación de documentación de handlers: `npm run docs:handlers`
+- Versioning: `package.json`
+- Check MCP contract after documentation changes: `npm run test:mcp-contract`
+- Validate handler documentation: `npm run docs:handlers`

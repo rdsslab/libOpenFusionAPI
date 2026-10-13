@@ -508,26 +508,26 @@ const estaEscapada = (query, pos) => {
 };
 
 /**
- * ¿En `query[i]` arranca un comentario de línea `--`?
+ * Does a line comment `--` start at `query[i]`?
  *
- * SQL Server, PostgreSQL y SQLite lo tratan siempre como comentario. MySQL y MariaDB
- * exigen, además, un espacio o un carácter de control detrás del segundo guion: sin él
- * `1--2` es la resta `1 - (-2)` y `1--x` referencia la columna `x`, no un comentario.
- * Un `--` a fin de cadena sí cierra comentario en los cinco motores.
+ * SQL Server, PostgreSQL and SQLite always treat it as a comment. MySQL and MariaDB also
+ * require a space or a control character after the second dash: without it `1--2` is the
+ * subtraction `1 - (-2)` and `1--x` references the column `x`, not a comment. A `--` at
+ * the end of the string does close a comment on all five engines.
  *
- * Sin dialecto se mantiene el comportamiento histórico (`--` siempre comenta), que es el
- * conservador cuando no se sabe contra qué motor se ejecutará.
+ * With no dialect, the historical behavior is kept (`--` always comments), which is the
+ * conservative choice when the target engine is unknown.
  *
  * @param {string} query
  * @param {number} i
- * @param {string|null} dialecto
+ * @param {string|null} dialect
  * @returns {boolean}
  */
-const esComentarioDeLinea = (query, i, dialecto) => {
+const isLineCommentAt = (query, i, dialect) => {
   if (query[i] !== "-" || query[i + 1] !== "-") return false;
-  if (dialecto !== "mysql" && dialecto !== "mariadb") return true;
-  const siguiente = query[i + 2];
-  return siguiente === undefined || /\s/.test(siguiente) || siguiente.charCodeAt(0) < 0x20;
+  if (dialect !== "mysql" && dialect !== "mariadb") return true;
+  const next = query[i + 2];
+  return next === undefined || /\s/.test(next) || next.charCodeAt(0) < 0x20;
 };
 
 /**
@@ -602,28 +602,28 @@ const scanSqlTokens = (query, contexto = null) => {
     const c = query[i];
     const next = query[i + 1];
 
-    // Comentario de línea: `-- …` hasta el fin de línea. MySQL/MariaDB solo lo abren si
-    // detrás hay un espacio o un control (ver `esComentarioDeLinea`); en el resto de
-    // motores, y sin dialecto, siempre comenta.
-    if (esComentarioDeLinea(query, i, dialecto)) {
+    // Line comment: `-- …` to end of line. MySQL/MariaDB only open it if a space or a
+    // control character follows (see `isLineCommentAt`); on the other engines, and with
+    // no dialect, it always comments.
+    if (isLineCommentAt(query, i, dialecto)) {
       const desde = i + 2;
       while (i < n && query[i] !== "\n") i++;
       anotar(tokens, NAMED_BIND, query, desde, i, EN_COMENTARIO_LINEA);
       continue;
     }
 
-    // Comentario de bloque: `/* … */`. Los ejecutables de MySQL/MariaDB (`/*! … */` y los
-    // hints `/*+ … */`) sí se ejecutan, así que su contenido es código: un `$name` de
-    // dentro es un bind real y se anota como EN_CODIGO para que no se neutralice ni se
-    // rechace. En los demás motores `/*! … */` es un comentario corriente.
+    // Block comment: `/* … */`. MySQL/MariaDB executable ones (`/*! … */` and the
+    // `/*+ … */` hints) do run, so their content is code: a `$name` inside is a real bind
+    // and is recorded as EN_CODIGO so it is neither neutralized nor rejected. On the other
+    // engines `/*! … */` is an ordinary comment.
     if (c === "/" && next === "*") {
-      const ejecutable =
+      const isExecutable =
         (query[i + 2] === "!" || query[i + 2] === "+") &&
         (dialecto === "mysql" || dialecto === "mariadb");
       const desde = i + 2;
       i += 2;
       while (i < n && !(query[i] === "*" && query[i + 1] === "/")) i++;
-      anotar(tokens, NAMED_BIND, query, desde, i, ejecutable ? EN_CODIGO : EN_COMENTARIO_BLOQUE);
+      anotar(tokens, NAMED_BIND, query, desde, i, isExecutable ? EN_CODIGO : EN_COMENTARIO_BLOQUE);
       i += 2;
       continue;
     }
@@ -723,21 +723,21 @@ const scanSqlTokens = (query, contexto = null) => {
         const tag = quoted[0];
         const end = query.indexOf(tag, i + tag.length);
         const desde = i + tag.length;
-        // El trozo anotado termina donde EMPIEZA la etiqueta de cierre. Incluirla hacía
-        // que `$tag$ … $tag$` marcara su propio `$tag` como bind dentro de un literal y
-        // la consulta se rechazara con SQL_BIND_INSIDE_LITERAL.
+        // The annotated chunk ends where the closing tag STARTS. Including it made
+        // `$tag$ … $tag$` mark its own `$tag` as a bind inside a literal and the query was
+        // rejected with SQL_BIND_INSIDE_LITERAL.
         const hasta = end === -1 ? n : end;
-        // Marca de la región entera (delimitadores incluidos). `prepararSqlParaBinds` la
-        // ignora porque solo mira `estilo === "bind"`, y `protegerDollarQuoted` la usa
-        // para apartar estos cuerpos de la regex de Sequelize sin tener que volver a
-        // escanear el SQL ni confundir un `$$` de dentro de un literal con uno real.
+        // Marker for the whole region (delimiters included). `prepararSqlParaBinds` ignores
+        // it because it only looks at `estilo === "bind"`, and `protectDollarQuoted` uses
+        // it to set these bodies aside from Sequelize's regex without having to re-scan the
+        // SQL or mistake a `$$` inside a literal for a real one.
         tokens.push({
           name: tag,
           estilo: EN_DOLLAR_QUOTED,
           contenedor: EN_DOLLAR_QUOTED,
           inicio: i,
           fin: end === -1 ? n : end + tag.length,
-          cerrado: end !== -1,
+          closed: end !== -1,
         });
         i = end === -1 ? n : end + tag.length;
         anotar(tokens, NAMED_BIND, query, desde, hasta, EN_DOLLAR_QUOTED);
@@ -879,7 +879,7 @@ export const stripNonExecutableComments = (query, contexto = null) => {
   while (i < n) {
     const c = query[i];
     const next = query[i + 1];
-    if (esComentarioDeLinea(query, i, dialecto)) {
+    if (isLineCommentAt(query, i, dialecto)) {
       i += 2;
       while (i < n && query[i] !== "\n") i++;
       if (i < n && query[i] === "\n") {
@@ -916,9 +916,9 @@ export const stripNonExecutableComments = (query, contexto = null) => {
         }
         continue;
       }
-      // Comentario no ejecutable: eliminarlo, con anidamiento básico para cubrir `/* a /* b */ ... */`.
-      // Al quitarlo se deja un espacio, porque el comentario separaba los tokens que ahora
-      // quedan pegados: `qty/*…*/FROM items` debe leerse `qty FROM items`, no `qtyFROM items`.
+      // Non-executable comment: drop it, with basic nesting to cover `/* a /* b */ ... */`.
+      // Removing it leaves a space, because the comment separated the tokens that now sit
+      // glued together: `qty/*…*/FROM items` must read `qty FROM items`, not `qtyFROM items`.
       let nest = 1;
       while (i < n && nest > 0) {
         const cc = query[i];
@@ -1041,59 +1041,59 @@ export const stripNonExecutableComments = (query, contexto = null) => {
 };
 
 /**
- * Aparta los cuerpos dollar-quoted (`$$…$$`, `$tag$…$tag$`) del alcance de la sustitución
- * de binds de Sequelize.
+ * Sets dollar-quoted bodies (`$$…$$`, `$tag$…$tag$`) aside from the reach of Sequelize's
+ * bind substitution.
  *
- * `AbstractQuery.formatBindParameters` sustituye con `sql.replace(/\B\$(\$|\w+)/g, …)`.
- * Esa regex no distingue el `$` que abre un cuerpo dollar-quoted del que abre un bind, así
- * que `$$ cuerpo $$` se convertía en `$ cuerpo $` (secuencia inválida para PostgreSQL) y
- * `$tag$ … $tag$` se leía como el bind `$tag`, que no existe. Aquí cada cuerpo se cambia
- * por un centinela sin `$` antes de delegar en Sequelize y se repone tal cual después, de
- * modo que el motor recibe exactamente el texto del endpoint.
+ * `AbstractQuery.formatBindParameters` substitutes with `sql.replace(/\B\$(\$|\w+)/g, …)`.
+ * That regex does not tell the `$` that opens a dollar-quoted body from the one that opens
+ * a bind, so `$$ body $$` became `$ body $` (an invalid sequence for PostgreSQL) and
+ * `$tag$ … $tag$` was read as the bind `$tag`, which does not exist. Here each body is
+ * swapped for a `$`-free sentinel before delegating to Sequelize and restored verbatim
+ * afterwards, so the engine receives exactly the endpoint text.
  *
- * Las regiones las da `scanSqlTokens`, no una búsqueda de `$$` a pelo: así un `$$` que en
- * realidad está DENTRO de un literal (`SELECT '$$' AS a, $name AS b, '$$' AS c`) no se
- * toma por un cuerpo dollar-quoted y no se traga el `$name` real que hay en medio.
+ * The regions come from `scanSqlTokens`, not from a raw `$$` search: that way a `$$` that
+ * is actually INSIDE a literal (`SELECT '$$' AS a, $name AS b, '$$' AS c`) is not taken
+ * for a dollar-quoted body and does not swallow the real `$name` in between.
  *
- * Solo tiene sentido en un motor con dollar-quoting (PostgreSQL); el parche de
- * `ConnectionPool` la aplica únicamente ahí.
+ * It only makes sense on an engine with dollar-quoting (PostgreSQL); the patch in
+ * `ConnectionPool` applies it there only.
  *
  * @param {string} query
- * @param {string|object|null} [contexto] dialecto/reglas del escáner
- * @returns {{sql: string, restaurar: (sql: string) => string}}
+ * @param {string|object|null} [context] scanner dialect/rules
+ * @returns {{sql: string, restore: (sql: string) => string}}
  */
-export const protegerDollarQuoted = (query, contexto = null) => {
-  const identidad = (sql) => sql;
+export const protectDollarQuoted = (query, context = null) => {
+  const identity = (sql) => sql;
   if (typeof query !== "string" || query.indexOf("$") === -1) {
-    return { sql: query, restaurar: identidad };
+    return { sql: query, restore: identity };
   }
 
-  const regiones = scanSqlTokens(query, contexto).filter(
-    (token) => token.estilo === EN_DOLLAR_QUOTED && token.cerrado,
+  const regions = scanSqlTokens(query, context).filter(
+    (token) => token.estilo === EN_DOLLAR_QUOTED && token.closed,
   );
-  if (regiones.length === 0) return { sql: query, restaurar: identidad };
+  if (regions.length === 0) return { sql: query, restore: identity };
 
-  // De derecha a izquierda: al sustituir una región ya no se mueven los offsets de las
-  // que quedan a su izquierda.
-  regiones.sort((a, b) => b.inicio - a.inicio);
-  const originales = [];
+  // Right to left: once a region is replaced, the offsets of the ones to its left no
+  // longer move.
+  regions.sort((a, b) => b.inicio - a.inicio);
+  const originals = [];
   let out = query;
-  for (const region of regiones) {
-    originales.push(out.slice(region.inicio, region.fin));
+  for (const region of regions) {
+    originals.push(out.slice(region.inicio, region.fin));
     out =
       out.slice(0, region.inicio) +
-      `\u0000${originales.length - 1}\u0000` +
+      `\u0000${originals.length - 1}\u0000` +
       out.slice(region.fin);
   }
 
-  const restaurar = (sql) => {
-    let r = sql;
-    for (let k = 0; k < originales.length; k++) {
-      r = r.split(`\u0000${k}\u0000`).join(originales[k]);
+  const restore = (sql) => {
+    let result = sql;
+    for (let k = 0; k < originals.length; k++) {
+      result = result.split(`\u0000${k}\u0000`).join(originals[k]);
     }
-    return r;
+    return result;
   };
-  return { sql: out, restaurar };
+  return { sql: out, restore };
 };
 
 export const prepararSqlParaBinds = (query, contexto = null) => {

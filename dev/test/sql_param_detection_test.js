@@ -8,7 +8,7 @@ import {
   sugerirLiteralSinBind,
   reglasDeEscaneo,
   stripNonExecutableComments,
-  protegerDollarQuoted,
+  protectDollarQuoted,
 } from "../../src/lib/handler/utils.js";
 
 /**
@@ -744,256 +744,258 @@ for (const c of escapeCasos) {
 }
 
 // ---------------------------------------------------------------------------
-// `stripNonExecutableComments`: el texto que se ejecuta de verdad.
+// `stripNonExecutableComments`: the text that actually runs.
 //
-// La suite de arriba mira QUE placeholders hay; esta mira el SQL que sale hacia
-// el motor. Cubre tres hallazgos de la validacion en vivo contra los cinco
-// motores (PostgreSQL, SQL Server, MySQL, MariaDB y SQLite):
+// The suite above looks at WHICH placeholders exist; this one looks at the SQL
+// that leaves toward the engine. It covers three findings from the live
+// validation across the five engines (PostgreSQL, SQL Server, MySQL, MariaDB and
+// SQLite):
 //
-//   H1 — al quitar un `/* … */` no ejecutable se dejaba el hueco sin separador,
-//        asi que `name/*x*/FROM` se leia `nameFROM`. El comentario hacia de
-//        espacio entre tokens.
-//   H2 — `--` sin espacio detras NO abre comentario en MySQL/MariaDB (`1--2` es
-//        1 - (-2) = 3, no `1`). Tratarlo como comentario se comia la resta.
-//   H5 — el atajo propio de Sequelize para SQLite (`sql.startsWith("-- ")`) hacia
-//        que una consulta empezada por comentario se ejecutara con el comentario
-//        dentro; quitarlo antes de delegar lo evita.
+//   H1 — dropping a non-executable `/* … */` left the gap with no separator, so
+//        `name/*x*/FROM` read as `nameFROM`. The comment acted as a space between
+//        tokens.
+//   H2 — `--` with no space after it does NOT open a comment on MySQL/MariaDB
+//        (`1--2` is 1 - (-2) = 3, not `1`). Treating it as a comment ate the
+//        subtraction.
+//   H5 — Sequelize's own SQLite shortcut (`sql.startsWith("-- ")`) made a query
+//        that starts with a comment run with the comment inside; dropping it
+//        before delegating avoids that.
 // ---------------------------------------------------------------------------
 
-/** @type {{name: string, query: string, dialecto: string, sql: string}[]} */
-const stripCasos = [
+/** @type {{name: string, query: string, dialect: string, sql: string}[]} */
+const stripCases = [
   {
-    name: "H1: bloque entre dos palabras deja separador",
+    name: "H1: a block between two words leaves a separator",
     query: "SELECT name/*x*/FROM items",
-    dialecto: "postgres",
+    dialect: "postgres",
     sql: "SELECT name FROM items",
   },
   {
-    name: "H1: varios bloques entre tokens",
+    name: "H1: several blocks between tokens",
     query: "SELECT a/*x*/+/*y*/b FROM t",
-    dialecto: "mssql",
+    dialect: "mssql",
     sql: "SELECT a + b FROM t",
   },
   {
-    name: "H1: bloque entre palabra y palabra clave",
+    name: "H1: a block between a word and a keyword",
     query: "SELECT qty/* c */FROM items",
-    dialecto: "mysql",
+    dialect: "mysql",
     sql: "SELECT qty FROM items",
   },
   {
-    name: "H1: bloque al principio conserva un separador",
+    name: "H1: a leading block keeps a separator",
     query: "/* c */SELECT 1",
-    dialecto: "postgres",
+    dialect: "postgres",
     sql: " SELECT 1",
   },
   {
-    name: "H2: `--` sin espacio en MySQL es resta, no comentario",
+    name: "H2: `--` with no space on MySQL is a subtraction, not a comment",
     query: "SELECT 1--2 AS x, $name AS eco",
-    dialecto: "mysql",
+    dialect: "mysql",
     sql: "SELECT 1--2 AS x, $name AS eco",
   },
   {
-    name: "H2: `--` sin espacio en MariaDB es resta",
+    name: "H2: `--` with no space on MariaDB is a subtraction",
     query: "SELECT 1--2 AS x",
-    dialecto: "mariadb",
+    dialect: "mariadb",
     sql: "SELECT 1--2 AS x",
   },
   {
-    name: "H2: `--` con espacio si es comentario en MySQL",
+    name: "H2: `--` with a space does comment on MySQL",
     query: "SELECT 1 -- x\n, 2 AS y",
-    dialecto: "mysql",
+    dialect: "mysql",
     sql: "SELECT 1 \n, 2 AS y",
   },
   {
-    name: "H2: `--` a fin de cadena si cierra comentario",
+    name: "H2: `--` at end of string does close a comment",
     query: "SELECT 1--",
-    dialecto: "mysql",
+    dialect: "mysql",
     sql: "SELECT 1",
   },
   {
-    name: "H2: `--` sin espacio en PostgreSQL si es comentario",
+    name: "H2: `--` with no space on PostgreSQL does comment",
     query: "SELECT 1--2 AS x",
-    dialecto: "postgres",
+    dialect: "postgres",
     sql: "SELECT 1",
   },
   {
-    name: "H4: `/*! … */` se conserva para el motor",
+    name: "H4: `/*! … */` is kept for the engine",
     query: "SELECT 1 AS x /*! , $name AS eco */",
-    dialecto: "mysql",
+    dialect: "mysql",
     sql: "SELECT 1 AS x /*! , $name AS eco */",
   },
   {
-    name: "H4: `/*+ … */` se conserva para el motor",
+    name: "H4: `/*+ … */` is kept for the engine",
     query: "SELECT /*+ INDEX(t i1) */ id FROM t",
-    dialecto: "mysql",
+    dialect: "mysql",
     sql: "SELECT /*+ INDEX(t i1) */ id FROM t",
   },
   {
-    name: "# de MariaDB tambien se quita (antes solo en MySQL)",
+    name: "MariaDB `#` is dropped too (used to be MySQL only)",
     query: "SELECT 1 # x\n",
-    dialecto: "mariadb",
+    dialect: "mariadb",
     sql: "SELECT 1 \n",
   },
 ];
 
-for (const c of stripCasos) {
+for (const c of stripCases) {
   try {
-    assert.strictEqual(stripNonExecutableComments(c.query, c.dialecto), c.sql, c.name);
+    assert.strictEqual(stripNonExecutableComments(c.query, c.dialect), c.sql, c.name);
   } catch (error) {
     failures++;
-    console.error(`FALLA: ${c.name}`);
+    console.error(`FAIL: ${c.name}`);
     console.error(`  ${error.message}`);
   }
 }
 
 // ---------------------------------------------------------------------------
-// El dialecto cambia lo que el escaner ve: `--` en MySQL/MariaDB y los
-// comentarios ejecutables `/*! … */` / `/*+ … */`.
+// The dialect changes what the scanner sees: `--` on MySQL/MariaDB and the
+// executable comments `/*! … */` / `/*+ … */`.
 // ---------------------------------------------------------------------------
 
-/** @type {{name: string, query: string, dialecto: string, bind: string[], rechaza: boolean, contenedor?: string}[]} */
-const dialectoCasos = [
+/** @type {{name: string, query: string, dialect: string, bind: string[], rejects: boolean, container?: string}[]} */
+const dialectCases = [
   {
-    name: "H2: en MySQL `1--2` no comenta y `$name` es un bind real",
+    name: "H2: on MySQL `1--2` does not comment and `$name` is a real bind",
     query: "SELECT 1--2 AS x, $name AS eco",
-    dialecto: "mysql",
+    dialect: "mysql",
     bind: ["name"],
-    rechaza: false,
+    rejects: false,
   },
   {
-    name: "H2: igual en MariaDB",
+    name: "H2: same on MariaDB",
     query: "SELECT 1--2 AS x, $name AS eco",
-    dialecto: "mariadb",
+    dialect: "mariadb",
     bind: ["name"],
-    rechaza: false,
+    rejects: false,
   },
   {
-    name: "H2: en PostgreSQL `1--2` si comenta; el $name se descarta",
+    name: "H2: on PostgreSQL `1--2` does comment; the $name is dropped",
     query: "SELECT 1--2 AS x, $name AS eco",
-    dialecto: "postgres",
+    dialect: "postgres",
     bind: [],
-    rechaza: false,
+    rejects: false,
   },
   {
-    name: "H4: `$name` dentro de `/*! … */` es bind en MySQL",
+    name: "H4: a `$name` inside `/*! … */` is a bind on MySQL",
     query: "SELECT 1 AS x /*! , $name AS eco */",
-    dialecto: "mysql",
+    dialect: "mysql",
     bind: ["name"],
-    rechaza: false,
+    rejects: false,
   },
   {
-    name: "H4: igual en MariaDB",
+    name: "H4: same on MariaDB",
     query: "SELECT 1 AS x /*! , $name AS eco */",
-    dialecto: "mariadb",
+    dialect: "mariadb",
     bind: ["name"],
-    rechaza: false,
+    rejects: false,
   },
   {
-    name: "H4: en PostgreSQL `/*! … */` es comentario; no hay bind",
+    name: "H4: on PostgreSQL `/*! … */` is a comment; there is no bind",
     query: "SELECT 1 AS x /*! , $name AS eco */",
-    dialecto: "postgres",
+    dialect: "postgres",
     bind: [],
-    rechaza: false,
+    rejects: false,
   },
   {
-    name: "H4: `$name` en un hint `/*+ … */` es bind en MySQL",
+    name: "H4: a `$name` in a `/*+ … */` hint is a bind on MySQL",
     query: "SELECT 1 /*+ $name */",
-    dialecto: "mysql",
+    dialect: "mysql",
     bind: ["name"],
-    rechaza: false,
+    rejects: false,
   },
   {
-    name: "H3: `$tag$ … $tag$` ya no se marca como literal",
+    name: "H3: `$tag$ … $tag$` is no longer marked as a literal",
     query: "SELECT $tag$ cuerpo $tag$ AS t, $name AS eco",
-    dialecto: "postgres",
+    dialect: "postgres",
     bind: ["name"],
-    rechaza: false,
+    rejects: false,
   },
   {
-    name: "H3: `$$ … $$` tampoco",
+    name: "H3: `$$ … $$` neither",
     query: "SELECT $$ cuerpo $$ AS t, $name AS eco",
-    dialecto: "postgres",
+    dialect: "postgres",
     bind: ["name"],
-    rechaza: false,
+    rejects: false,
   },
   {
-    name: "H3: un `$name` DENTRO de `$tag$ … $tag$` sigue rechazandose",
+    name: "H3: a `$name` INSIDE `$tag$ … $tag$` is still rejected",
     query: "SELECT $tag$ $name $tag$",
-    dialecto: "postgres",
+    dialect: "postgres",
     bind: [],
-    rechaza: true,
-    contenedor: "dollar_quoted",
+    rejects: true,
+    container: "dollar_quoted",
   },
 ];
 
-for (const c of dialectoCasos) {
+for (const c of dialectCases) {
   try {
-    assert.deepStrictEqual(scanSqlPlaceholders(c.query, c.dialecto).bind, c.bind, c.name);
-    const { rechazados } = prepararSqlParaBinds(c.query, c.dialecto);
-    if (c.rechaza) {
-      assert.ok(rechazados.length > 0, `${c.name}: debia rechazarse`);
-      if (c.contenedor) {
-        assert.strictEqual(rechazados[0].contenedor, c.contenedor, c.name);
+    assert.deepStrictEqual(scanSqlPlaceholders(c.query, c.dialect).bind, c.bind, c.name);
+    const { rechazados } = prepararSqlParaBinds(c.query, c.dialect);
+    if (c.rejects) {
+      assert.ok(rechazados.length > 0, `${c.name}: it should have been rejected`);
+      if (c.container) {
+        assert.strictEqual(rechazados[0].contenedor, c.container, c.name);
       }
     } else {
       assert.strictEqual(rechazados.length, 0, `${c.name}: ${JSON.stringify(rechazados)}`);
     }
   } catch (error) {
     failures++;
-    console.error(`FALLA: ${c.name}`);
+    console.error(`FAIL: ${c.name}`);
     console.error(`  ${error.message}`);
   }
 }
 
 // ---------------------------------------------------------------------------
-// H3: `protegerDollarQuoted` aparta los cuerpos dollar-quoted de la regex de
-// Sequelize (`\B\$(\$|\w+)`) y los repone. Sin esto, `$$ … $$` se convertia en
-// `$ … $` y `$tag$ … $tag$` se leia como el bind inexistente `$tag`.
+// H3: `protectDollarQuoted` sets dollar-quoted bodies aside from Sequelize's
+// regex (`\B\$(\$|\w+)`) and restores them. Without it, `$$ … $$` became
+// `$ … $` and `$tag$ … $tag$` was read as the non-existent bind `$tag`.
 // ---------------------------------------------------------------------------
 
-const dollarCasos = [
+const dollarCases = [
   "SELECT $$ cuerpo $$ AS t, $name AS eco",
   "SELECT $tag$ a $ b $tag$ AS t, $x AS eco",
   "SELECT $$x$$ , $$y$$ , $n",
   "SELECT 1 AS a, $name AS b",
 ];
 
-for (const query of dollarCasos) {
+for (const query of dollarCases) {
   try {
-    const { sql, restaurar } = protegerDollarQuoted(query);
-    assert.strictEqual(sql.indexOf("$$"), -1, `quedaba un \`$$\` visible en "${query}"`);
-    assert.strictEqual(restaurar(sql), query, `el round-trip altero "${query}"`);
-    // Y el centinela no debe contener `$`, o la regex de Sequelize volveria a tocarlo.
-    assert.strictEqual(sql.includes("$tag$"), false, `quedaba un \`$tag$\` visible en "${query}"`);
+    const { sql, restore } = protectDollarQuoted(query);
+    assert.strictEqual(sql.indexOf("$$"), -1, `a \`$$\` was left visible in "${query}"`);
+    assert.strictEqual(restore(sql), query, `the round-trip altered "${query}"`);
+    // And the sentinel must not contain `$`, or Sequelize's regex would touch it again.
+    assert.strictEqual(sql.includes("$tag$"), false, `a \`$tag$\` was left visible in "${query}"`);
   } catch (error) {
     failures++;
-    console.error(`FALLA: protegerDollarQuoted · ${query}`);
+    console.error(`FAIL: protectDollarQuoted · ${query}`);
     console.error(`  ${error.message}`);
   }
 }
 
-// Un `$$` que en realidad esta DENTRO de un literal no es un cuerpo dollar-quoted. Si se
-// tomara por tal, el masking se tragaria el `$name` real que va en medio y PostgreSQL
-// responderia 500 con "syntax error at or near $". El SQL debe quedar intacto y el bind
+// A `$$` that is actually INSIDE a literal is not a dollar-quoted body. If it were taken
+// for one, the masking would swallow the real `$name` in between and PostgreSQL would
+// answer 500 with "syntax error at or near $". The SQL must stay untouched and the bind
 // visible.
-const dollarIntactos = [
+const dollarIntactCases = [
   { query: "SELECT '$$' AS a, $name AS b, '$$' AS c", bind: ["name"] },
   { query: "SELECT 'pre $$ post' AS a, $x AS b, 'x $$ y' AS c", bind: ["x"] },
 ];
 
-for (const c of dollarIntactos) {
+for (const c of dollarIntactCases) {
   try {
-    const { sql, restaurar } = protegerDollarQuoted(c.query);
-    assert.strictEqual(sql, c.query, `no debia tocarse "${c.query}"`);
-    assert.strictEqual(restaurar(sql), c.query, `el round-trip altero "${c.query}"`);
+    const { sql, restore } = protectDollarQuoted(c.query);
+    assert.strictEqual(sql, c.query, `it should not be touched "${c.query}"`);
+    assert.strictEqual(restore(sql), c.query, `the round-trip altered "${c.query}"`);
     assert.deepStrictEqual(
       scanSqlPlaceholders(c.query, "postgres").bind,
       c.bind,
-      `los binds de "${c.query}" no deben esconderse`,
+      `the binds of "${c.query}" must not be hidden`,
     );
   } catch (error) {
     failures++;
-    console.error(`FALLA: protegerDollarQuoted (literal) · ${c.query}`);
+    console.error(`FAIL: protectDollarQuoted (literal) · ${c.query}`);
     console.error(`  ${error.message}`);
   }
 }
@@ -1095,10 +1097,10 @@ const total =
   avisoCasos.length +
   identCasos.length +
   escapeCasos.length +
-  stripCasos.length +
-  dialectoCasos.length +
-  dollarCasos.length +
-  dollarIntactos.length;
+  stripCases.length +
+  dialectCases.length +
+  dollarCases.length +
+  dollarIntactCases.length;
 
 // El escáner no debe degradarse ante entradas adversariales (SQL de terceros,
 // AppVars, etc.): siempre termina y siempre devuelve el contrato esperado.

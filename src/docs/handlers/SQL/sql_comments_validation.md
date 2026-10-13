@@ -1,256 +1,252 @@
-# Comentarios en el SQL del handler `SQL` — validación en vivo y correcciones
+# SQL comments in the `SQL` handler — live validation and fixes
 
-> Informe de la prueba en vivo del recorte de comentarios introducido en el commit
-> `f2f1b81` (`stripNonExecutableComments`), de los hallazgos que produjo y de las
-> correcciones aplicadas.
+> Report of the live test of the comment trimming introduced in commit `f2f1b81`
+> (`stripNonExecutableComments`), the findings it produced and the fixes applied.
 
 ---
 
-## 1. Qué se probó y por qué
+## 1. What was tested and why
 
-El commit `f2f1b81` añadió a `src/lib/handler/utils.js` la función
-`stripNonExecutableComments()`, que quita los comentarios **no ejecutables** (`--`, `#`
-de MySQL, `/* … */`) del SQL antes de entregárselo a Sequelize, conservando `/*! … */`
-y los hints `/*+ … */`. La invoca `ConnectionPool.js` dentro del parche
-`QueryConComentariosNeutros.formatBindParameters`, **solo cuando la petición trae
-`values`** (binds `$name`).
+Commit `f2f1b81` added to `src/lib/handler/utils.js` the function
+`stripNonExecutableComments()`, which removes the **non-executable** comments (`--`,
+MySQL `#`, `/* … */`) from the SQL before handing it to Sequelize, keeping `/*! … */`
+and the `/*+ … */` hints. It is called from `ConnectionPool.js` inside the
+`QueryConComentariosNeutros.formatBindParameters` patch, **only when the request carries
+`values`** (`$name` binds).
 
-El objetivo de la prueba era comprobar, contra motores reales, que el recorte hace lo
-que promete y **no rompe nada que antes funcionara**. La conclusión es que hacía lo
-prometido pero introducía una regresión, agravaba otra y dejaba dos defectos previos sin
-resolver. Los cuatro quedan corregidos aquí.
+The goal of the test was to check, against real engines, that the trimming does what it
+promises and **does not break anything that used to work**. The conclusion is that it did
+what it promised but introduced one regression, worsened another and left two pre-existing
+defects unresolved. All four are fixed here.
 
-### Motores y builds comparados
+### Engines and builds compared
 
-Se ejecutó cada caso dos veces, cambiando solo la URL, para aislar el efecto del commit:
+Each case was run twice, changing only the URL, to isolate the effect of the commit:
 
-| Build | Commit | Puerto | Rol |
+| Build | Commit | Port | Role |
 |---|---|---:|---|
-| **ANTES** | `42bafea` (padre de `f2f1b81`) | 3200 | línea base sin recorte |
-| **DESPUÉS** | `f2f1b81` (HEAD) | 3100 | con recorte |
+| **BEFORE** | `42bafea` (parent of `f2f1b81`) | 3200 | baseline without trimming |
+| **AFTER** | `f2f1b81` (HEAD) | 3100 | with trimming |
 
-Motores reales en Docker, todos con la base `sqltest` y las tablas `items`/`counters`
-sembradas:
+Real engines in Docker, all with the `sqltest` database and the `items`/`counters` tables
+seeded:
 
-| Motor | Dónde | Versión |
+| Engine | Where | Version |
 |---|---|---|
-| PostgreSQL | `127.0.0.1:5432` | imagen local |
-| SQL Server | `127.0.0.1:1433` | imagen local |
+| PostgreSQL | `127.0.0.1:5432` | local image |
+| SQL Server | `127.0.0.1:1433` | local image |
 | MySQL | `127.0.0.1:3306` | `mysql:8.4` |
 | MariaDB | `127.0.0.1:3307` | `mariadb:11.4` |
-| SQLite | `/tmp/opencode/sqltest.sqlite` | fichero |
-| SAP HANA | — | **fuera de alcance** |
+| SQLite | `/tmp/opencode/sqltest.sqlite` | file |
+| SAP HANA | — | **out of scope** |
 
-> **HANA queda fuera**: `sqlHana.js` no pasa por Sequelize ni por
-> `ConnectionPool.formatBindParameters` (usa su propio sustituto), así que el commit no
-> lo toca. Su sustituto propio ya ignoraba los `$` de comentarios y literales.
+> **HANA is out**: `sqlHana.js` does not go through Sequelize or
+> `ConnectionPool.formatBindParameters` (it uses its own substitute), so the commit does
+> not touch it. Its own substitute already ignored the `$` in comments and literals.
 
-### Arnés
+### Harness
 
-- `comments_matrix.mjs` — matriz de 95 casos × 5 motores (comentarios de línea,
-  bloque, multilínea, anidados, dentro de literales/identificadores, ejecutables,
-  alrededor de binds, AppVars `$_VAR_…`, apostrofes impares).
-- `edge_cases.mjs` — 15 casos límite (fusión de tokens, alcance, `--` en MySQL/MariaDB).
-- `extra_cases.mjs` — 6 extras (`#` con doble bind, `/*! */` con bind, `$$` en Postgres).
-- `sql_comments_test.js` (en el repo) — 20 casos contra SQL Server real.
-- `sql_param_detection_test.js` (en el repo) — suite **pura** del escáner.
+- `comments_matrix.mjs` — 95-case matrix × 5 engines (line comments, block, multiline,
+  nested, inside literals/identifiers, executable, around binds, AppVars `$_VAR_…`, odd
+  apostrophes).
+- `edge_cases.mjs` — 15 edge cases (token fusion, scope, `--` on MySQL/MariaDB).
+- `extra_cases.mjs` — 6 extras (`#` with a double bind, `/*! */` with a bind, `$$` on
+  Postgres).
+- `sql_comments_test.js` (in the repo) — 20 cases against a real SQL Server.
+- `sql_param_detection_test.js` (in the repo) — **pure** suite of the scanner.
 
 ---
 
-## 2. Resultados A/B
+## 2. A/B results
 
-| Prueba | ANTES (3200) | DESPUÉS sin corregir (3100) | Corregido |
+| Test | BEFORE (3200) | AFTER uncorrected (3100) | Fixed |
 |---|---:|---:|---:|
-| `comments_matrix` (95 × 5 motores) | 91/95 | 88/95 | **95/95** |
+| `comments_matrix` (95 × 5 engines) | 91/95 | 88/95 | **95/95** |
 | `edge_cases` | 13/15 | — | **15/15** |
 | `extra_cases` | 2/6 | — | 5/6\* |
 | `sql_comments_test` (MSSQL) | — | — | **20/20** |
-| `sql_param_detection_test` (pura) | — | — | **107 casos** |
+| `sql_param_detection_test` (pure) | — | — | **107 cases** |
 
-\* El único que sigue fallando es MariaDB con un `$bind` dentro de `/*! … */`; es una
-limitación del driver, no del handler (ver §4, H4).
+\* The only one still failing is MariaDB with a `$bind` inside `/*! … */`; it is a driver
+limitation, not the handler's (see §4, H4).
 
-El commit `f2f1b81` **arreglaba 2 casos** (los dos de SQLite que antes devolvían `200 null`)
-y **rompía 5** (la fusión de tokens, en los cinco motores). Los 2 de dollar-quoting de
-PostgreSQL fallaban antes y después: son defectos previos del camino con `bind`, ajenos al
-recorte.
+Commit `f2f1b81` **fixed 2 cases** (the two SQLite ones that used to return `200 null`)
+and **broke 5** (token fusion, on the five engines). The 2 PostgreSQL dollar-quoting ones
+failed before and after: they are pre-existing defects of the `bind` path, unrelated to
+the trimming.
 
 ---
 
-## 3. Hallazgos
+## 3. Findings
 
-### H1 · Regresión (alta) — el bloque borrado fusiona los tokens que separaba
+### H1 · Regression (high) — the dropped block fuses the tokens it separated
 
-Quitar un `/* … */` sin dejar separador pega las palabras que el comentario separaba:
+Removing a `/* … */` without leaving a separator glues the words the comment separated:
 
 ```sql
 SELECT id, qty/* nota */FROM items WHERE name <> $name ORDER BY id LIMIT 5
 ```
 
-se ejecutaba como `… qtyFROM items …` → `Unknown column 'qtyFROM'`. Confirmado con
-**HTTP 500 en los cinco motores**.
+ran as `… qtyFROM items …` → `Unknown column 'qtyFROM'`. Confirmed with
+**HTTP 500 on the five engines**.
 
-Detalle que costó verlo: solo ocurre cuando la petición trae binds (`values`), porque el
-recorte vive dentro de `formatBindParameters`. Con `:param` (replacements) o sin
-parámetros, el comentario llega intacto y la consulta funciona: el mismo SQL que falla
-con `?name=…` pasa con `/recurso` sin parámetros. Es la clase de regresión que una
-prueba de humo sin binds no ve.
+A detail that made it hard to see: it only happens when the request carries binds
+(`values`), because the trimming lives inside `formatBindParameters`. With `:param`
+(replacements) or with no parameters, the comment arrives intact and the query works: the
+same SQL that fails with `?name=…` passes with `/resource` and no parameters. It is the
+kind of regression a smoke test without binds does not catch.
 
-### H2 · Agravamiento (media) — `--` sin espacio en MySQL/MariaDB no es un comentario
+### H2 · Worsening (medium) — `--` with no space is not a comment on MySQL/MariaDB
 
-En MySQL y MariaDB, `--` **solo** abre comentario si detrás hay un espacio o un carácter
-de control. `1--2` es `1 - (-2)` = 3:
+On MySQL and MariaDB, `--` **only** opens a comment if a space or a control character
+follows. `1--2` is `1 - (-2)` = 3:
 
 ```
 MySQL   [SELECT 7--1+1] -> 9
 MariaDB [SELECT 7--1+1] -> 9
 ```
 
-El recorte trataba `--` como comentario en todos los motores, así que
+The trimming treated `--` as a comment on every engine, so
 
 ```sql
 SELECT 1--2 AS x, $name AS eco
 ```
 
-se recortaba a `SELECT 1`: el endpoint respondía **200 con un resultado equivocado**
-(desaparecían `AS x` y `eco`) en lugar del error 500 que daba antes del commit. Un 200
-silencioso con datos cambiados es peor que un 500.
+was trimmed to `SELECT 1`: the endpoint answered **200 with a wrong result** (the `AS x`
+and `eco` disappeared) instead of the 500 error it gave before the commit. A silent 200
+with changed data is worse than a 500.
 
-### H3 · Defecto previo (media) — dollar-quoting de PostgreSQL
+### H3 · Pre-existing defect (medium) — PostgreSQL dollar-quoting
 
-Dos síntomas, misma raíz: la regex de sustitución de bind de Sequelize
-(`lib/dialects/abstract/query.js:78`, `sql.replace(/\B\$(\$|\w+)/g, …)`) no distingue un
-`$` que abre un cuerpo dollar-quoted del que abre un bind.
+Two symptoms, same root: Sequelize's bind-substitution regex
+(`lib/dialects/abstract/query.js:78`, `sql.replace(/\B\$(\$|\w+)/g, …)`) does not tell a
+`$` that opens a dollar-quoted body from one that opens a bind.
 
-- **`$$ … $$`** → la regex convierte `$$` en `$` y PostgreSQL responde
+- **`$$ … $$`** → the regex turns `$$` into `$` and PostgreSQL answers
   `syntax error at or near "$"` (500).
-- **`$tag$ … $tag$`** → `$tag` se leía como bind y el guard lo rechazaba con
-  `SQL_BIND_INSIDE_LITERAL` (400), aunque el cuerpo no tuviera ningún `$nombre`.
+- **`$tag$ … $tag$`** → `$tag` was read as a bind and the guard rejected it with
+  `SQL_BIND_INSIDE_LITERAL` (400), even when the body had no `$name`.
 
 ```sql
-SELECT $$ cuerpo $$ AS txt, $name AS eco   -- 500 antes
-SELECT $tag$ cuerpo $tag$ AS t, $name AS eco -- 400 antes
+SELECT $$ cuerpo $$ AS txt, $name AS eco   -- 500 before
+SELECT $tag$ cuerpo $tag$ AS t, $name AS eco -- 400 before
 ```
 
-### H4 · Defecto previo (baja) — `$bind` dentro de comentarios ejecutables `/*! … */`
+### H4 · Pre-existing defect (low) — `$bind` inside executable comments `/*! … */`
 
-`/*! … */` se ejecuta en MySQL/MariaDB, así que un `$name` de dentro es un bind real.
-El código lo neutralizaba (insertaba un espacio: `$ name`) y la consulta moría con error
-de sintaxis.
+`/*! … */` runs on MySQL/MariaDB, so a `$name` inside is a real bind. The code neutralized
+it (inserting a space: `$ name`) and the query died with a syntax error.
 
 ```sql
-SELECT 1 AS x /*! , $name AS eco */   -- 500 antes, 200 con eco=zzz en MySQL
+SELECT 1 AS x /*! , $name AS eco */   -- 500 before, 200 with eco=zzz on MySQL
 ```
 
-### H5 · Efecto positivo — SQLite y el comentario inicial
+### H5 · Positive effect — SQLite and the leading comment
 
-Sequelize tiene un atajo para SQLite: si el SQL **empieza** por `-- ` hace
-`return resolve()` y lo ejecuta tal cual. Un endpoint que empezaba por `-- comentario`
-devolvía `200 null`; al quitar el comentario antes, devuelve filas. El recorte, aquí,
-arregla.
+Sequelize has a shortcut for SQLite: if the SQL **starts** with `-- ` it does
+`return resolve()` and runs it as is. An endpoint that started with `-- comment` returned
+`200 null`; by removing the comment first, it now returns rows. The trimming, here, fixes
+it.
 
 ---
 
-## 4. Solución aplicada
+## 4. Fix applied
 
 ### `src/lib/handler/utils.js`
 
-1. **`esComentarioDeLinea(query, i, dialecto)`** (nueva). Decide si en `query[i]` empieza
-   un comentario `--`. En MySQL/MariaDB exige espacio o control detrás (o fin de
-   cadena); en el resto, y sin dialecto, siempre comenta. Se usa en `scanSqlTokens()` y
-   en `stripNonExecutableComments()`. → **H2**.
+1. **`isLineCommentAt(query, i, dialect)`** (new). Decides whether a `--` comment starts
+   at `query[i]`. On MySQL/MariaDB it requires a space or a control character after it
+   (or end of string); elsewhere, and with no dialect, it always comments. Used by
+   `scanSqlTokens()` and `stripNonExecutableComments()`. → **H2**.
 
-2. **`stripNonExecutableComments()`**: al descartar un `/* … */` no ejecutable deja un
-   **espacio**, porque el comentario separaba tokens. → **H1**. Además, `#` se recorta
-   también en MariaDB (antes solo en MySQL), y `--` pasa por `esComentarioDeLinea()`.
+2. **`stripNonExecutableComments()`**: when dropping a non-executable `/* … */` it leaves
+   a **space**, because the comment separated tokens. → **H1**. Also, `#` is trimmed on
+   MariaDB too (it used to be MySQL only), and `--` goes through `isLineCommentAt()`.
    → **H2**.
 
 3. **`scanSqlTokens()`**:
-   - `--` pasa por `esComentarioDeLinea()`. → **H2**.
-   - El contenido de `/*! … */` y `/*+ … */` se anota como **código** en
-     MySQL/MariaDB, de modo que un `$name` de dentro es un bind real y no se neutraliza.
-     → **H4**.
-   - El rango del cuerpo dollar-quoted termina donde **empieza** la etiqueta de cierre
-     (antes la incluía y marcaba su propio `$tag` como bind). → **H3**.
-   - Cada cuerpo dollar-quoted deja además una **marca de región** con sus offsets, que
-     `protegerDollarQuoted()` consume.
+   - `--` goes through `isLineCommentAt()`. → **H2**.
+   - The content of `/*! … */` and `/*+ … */` is recorded as **code** on MySQL/MariaDB,
+     so a `$name` inside is a real bind and is not neutralized. → **H4**.
+   - The dollar-quoted body range ends where the closing tag **starts** (it used to
+     include it and mark its own `$tag` as a bind). → **H3**.
+   - Every dollar-quoted body also leaves a **region marker** with its offsets, which
+     `protectDollarQuoted()` consumes.
 
-4. **`protegerDollarQuoted(query, contexto)`** (nueva). Aparta los cuerpos
-   dollar-quoted (delimitadores incluidos) con un centinela sin `$` antes de delegar en
-   Sequelize y los repone después, de modo que el motor recibe el texto exacto del
-   endpoint. Las regiones salen del escáner, no de una búsqueda de `$$` a pelo: así un
-   `$$` **dentro de un literal** (`SELECT '$$' AS a, $name AS b, '$$' AS c`) no se toma
-   por un cuerpo y no se traga el `$name` real que va en medio. → **H3**.
+4. **`protectDollarQuoted(query, context)`** (new). Sets the dollar-quoted bodies
+   (delimiters included) aside with a `$`-free sentinel before delegating to Sequelize
+   and restores them afterwards, so the engine receives the exact text of the endpoint.
+   The regions come from the scanner, not from a raw `$$` search: that way a `$$`
+   **inside a literal** (`SELECT '$$' AS a, $name AS b, '$$' AS c`) is not taken for a
+   body and does not swallow the real `$name` in between. → **H3**.
 
 ### `src/lib/handler/ConnectionPool.js`
 
-En `formatBindParameters`, tras `prepararSqlParaBinds`, si el dialecto es **PostgreSQL**
-se llama a `protegerDollarQuoted()` y se repone el resultado:
+In `formatBindParameters`, after `prepararSqlParaBinds`, if the dialect is **PostgreSQL**
+it calls `protectDollarQuoted()` and restores the result:
 
 ```js
 if (contextoEscaneo.dialect === "postgres") {
-  const { sql: paraSequelize, restaurar } = protegerDollarQuoted(limpio, contextoEscaneo);
-  const [sqlFinal, parametros] = Original.formatBindParameters.call(this, paraSequelize, values, dialect, ...resto);
-  return [restaurar(sqlFinal), parametros];
+  const { sql: forSequelize, restore } = protectDollarQuoted(limpio, contextoEscaneo);
+  const [finalSql, parameters] = Original.formatBindParameters.call(this, forSequelize, values, dialect, ...resto);
+  return [restore(finalSql), parameters];
 }
 ```
 
-El resto de dialectos no se toca. → **H3**.
+The other dialects are untouched. → **H3**.
 
-### Tests de regresión (en el repo, dentro del packet)
+### Regression tests (in the repo, inside the packet)
 
-`dev/test/sql_param_detection_test.js` incorpora tres bloques puros nuevos:
+`dev/test/sql_param_detection_test.js` adds three new pure blocks:
 
-- `stripCasos` — H1, H2 (por dialecto) y H4 sobre el texto que se ejecuta.
-- `dialectoCasos` — H2/H3/H4 sobre `scanSqlPlaceholders` + `prepararSqlParaBinds`.
-- `dollarCasos` / `dollarIntactos` — H3 (`protegerDollarQuoted`), incluido el caso
-  ambiguo de `$$` dentro de literales.
-
----
-
-## 5. Limitaciones residuales (documentadas, no regresiones)
-
-- **MariaDB + `$bind` dentro de `/*! … */`** sigue respondiendo 500. El servidor acepta
-  `?` dentro de un comentario ejecutable (probado con `PREPARE`/`EXECUTE`), y el driver
-  de MariaDB con `execute()` también; pero Sequelize usa `connection.query()`, cuya
-  sustitución de `?` es del cliente y **no ve los comentarios ejecutables**, dejando el
-  `?` literal. No es corregible desde el handler sin cambiar de driver. En MySQL sí
-  funciona (200). La línea base también fallaba (500), así que no hay regresión.
-- **`SELECT '$$'`** (un único `$$` dentro de un literal) sigue devolviendo `$`: la regex
-  de Sequelize lo interpreta como `$$`→`$` y no hay una pareja que delimite un cuerpo.
-  Es comportamiento previo, fuera de los hallazgos.
-- **PostgreSQL y `$name` dentro de un cuerpo `$$ … $$`** se mantiene rechazado con 400
-  (`SQL_BIND_INSIDE_LITERAL`): un `$nombre` en el cuerpo de una función no debe
-  sustituirse en silencio. `protegerDollarQuoted()` no cambia ese criterio.
+- `stripCases` — H1, H2 (per dialect) and H4 on the text that runs.
+- `dialectCases` — H2/H3/H4 on `scanSqlPlaceholders` + `prepararSqlParaBinds`.
+- `dollarCases` / `dollarIntactCases` — H3 (`protectDollarQuoted`), including the
+  ambiguous `$$`-inside-literals case.
 
 ---
 
-## 6. Cómo reproducir
+## 5. Residual limitations (documented, not regressions)
+
+- **MariaDB + `$bind` inside `/*! … */`** still answers 500. The server accepts `?`
+  inside an executable comment (tested with `PREPARE`/`EXECUTE`), and the MariaDB driver
+  with `execute()` does too; but Sequelize uses `connection.query()`, whose `?`
+  substitution is client-side and **does not see executable comments**, leaving the `?`
+  literal. It is not fixable from the handler without changing driver. On MySQL it works
+  (200). The baseline failed too (500), so there is no regression.
+- **`SELECT '$$'`** (a single `$$` inside a literal) still returns `$`: Sequelize's regex
+  reads it as `$$`→`$` and there is no pair to delimit a body. It is pre-existing
+  behavior, outside the findings.
+- **PostgreSQL and `$name` inside a `$$ … $$` body** stays rejected with 400
+  (`SQL_BIND_INSIDE_LITERAL`): a `$name` in a function body must not be substituted
+  silently. `protectDollarQuoted()` does not change that rule.
+
+---
+
+## 6. How to reproduce
 
 ```bash
-# 1. Servidor con el código corregido (BD de plataforma en SQLite temporal)
+# 1. Server with the fixed code (platform DB in a temporary SQLite)
 rm -f /tmp/opencode/ofapi.sqlite
 PORT=3100 TMPDIR=/tmp/opencode BUILD_DB=true node ./src/server.js
 
-# 2. Línea base, worktree del commit padre 42bafea, en 3200
-#    (symlink de node_modules y copia de .env, ver §7)
+# 2. Baseline, worktree of the parent commit 42bafea, on 3200
+#    (node_modules symlink and .env copy, see §7)
 
-# 3. Comparativas (arnés de desarrollo, fuera del packet)
+# 3. Comparisons (development harness, outside the packet)
 OFAPI_BASE_URL=http://localhost:3100 node comments_matrix.mjs
 OFAPI_BASE_URL=http://localhost:3200 node comments_matrix.mjs
 
-# 4. Suites puras y contra motor, dentro del repo
+# 4. Pure and engine suites, inside the repo
 node dev/test/sql_param_detection_test.js
 OFAPI_BASE_URL=http://localhost:3100 OFAPI_TEST_MSSQL_PASSWORD='…' node dev/test/sql_comments_test.js
 ```
 
-## 7. Entorno de la prueba
+## 7. Test environment
 
-- Servidor local lanzado desde el árbol de trabajo, no el contenedor `openfusionapi`
-  (el contenedor del puerto 3000 no expone `/api/system/...`, así que no sirve de línea
-  base).
-- Línea base en un worktree de `42bafea` (`/tmp/opencode/ofapi-before`) con `node_modules`
-  enlazado y `.env` copiado, puerto 3200.
-- La BD de plataforma de cada servidor vive en su propio `TMPDIR` con `BUILD_DB=true`;
-  los motores de prueba son contenedores Docker con la base `sqltest` sembrada.
-
+- Local server launched from the working tree, not the `openfusionapi` container (the
+  port 3000 container does not expose `/api/system/...`, so it is useless as a baseline).
+- Baseline in a worktree of `42bafea` (`/tmp/opencode/ofapi-before`) with `node_modules`
+  linked and `.env` copied, port 3200.
+- Each server's platform DB lives in its own `TMPDIR` with `BUILD_DB=true`; the test
+  engines are Docker containers with the `sqltest` database seeded.

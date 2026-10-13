@@ -4,7 +4,7 @@ import Request from "tedious/lib/request.js";
 import BulkLoad from "tedious/lib/bulk-load.js";
 import { TYPES } from "tedious/lib/data-type.js";
 import { ISOLATION_LEVEL } from "tedious/lib/transaction.js";
-import { prepararSqlParaBinds, describirBindsRechazados, stripNonExecutableComments, protegerDollarQuoted } from "./utils.js";
+import { prepararSqlParaBinds, describirBindsRechazados, stripNonExecutableComments, protectDollarQuoted } from "./utils.js";
 
 const tediousDialectModule = {
   Connection,
@@ -215,10 +215,10 @@ function parchearBindsDeComentarios(sequelize) {
       // El contexto decide qué delimitadores de identificador reconoce el escáner
       // (`[… ]` solo en SQL Server; los backticks y las comillas dobles, siempre) y cómo
       // se escapan los literales en este motor.
-      // Para la ejecución, quitamos comentarios NO ejecutables (`--`, `#` MySQL/MariaDB,
-      // `/* */` estándar) pero conservamos `/*! ... */` y `/*+ ... */`. No cambia la
-      // validación (que ya ignora comentarios) y evita que Sequelize sustituya un `$name`
-      // que el motor nunca ejecutaría.
+      // For execution, drop the NON-executable comments (`--`, `#` MySQL/MariaDB, standard
+      // `/* */`) but keep `/*! ... */` and `/*+ ... */`. It does not change validation
+      // (which already ignores comments) and prevents Sequelize from substituting a `$name`
+      // the engine would never run.
       const sqlEjecutar = stripNonExecutableComments(sql, contextoEscaneo);
       const { sql: limpio, rechazados } = prepararSqlParaBinds(sqlEjecutar, contextoEscaneo);
 
@@ -235,19 +235,19 @@ function parchearBindsDeComentarios(sequelize) {
         throw error;
       }
 
-      // En PostgreSQL, `$$ … $$` y `$tag$ … $tag$` llevan `$` que la regex de Sequelize no
-      // distingue de un bind. Se apartan y se reponen alrededor de la sustitución para que
-      // el motor reciba el texto dollar-quoted intacto.
+      // On PostgreSQL, `$$ … $$` and `$tag$ … $tag$` carry `$` that Sequelize's regex does
+      // not tell from a bind. They are set aside and restored around the substitution so
+      // the engine receives the dollar-quoted text intact.
       if (contextoEscaneo.dialect === "postgres") {
-        const { sql: paraSequelize, restaurar } = protegerDollarQuoted(limpio, contextoEscaneo);
-        const [sqlFinal, parametros] = Original.formatBindParameters.call(
+        const { sql: forSequelize, restore } = protectDollarQuoted(limpio, contextoEscaneo);
+        const [finalSql, parameters] = Original.formatBindParameters.call(
           this,
-          paraSequelize,
+          forSequelize,
           values,
           dialect,
           ...resto,
         );
-        return [restaurar(sqlFinal), parametros];
+        return [restore(finalSql), parameters];
       }
 
       return Original.formatBindParameters.call(this, limpio, values, dialect, ...resto);
