@@ -11,6 +11,7 @@
     "test:mcp-schemas": "node ./dev/test/mcp_schema_smoke.mjs",
     "test:mcp-docs": "node ./dev/test/mcp_tool_descriptions.js",
     "test:mcp-names": "node ./dev/test/check_mcp_name_uniqueness.js --server-key openfusion_system_remote_prd --app system --environment prd --idapp cfcd2084-95d5-65ef-66e7-dff9f98764da",
+    "audit:sql-binds": "node ./dev/test/sql_bind_literal_audit.js",
     "test:smoke": "node ./dev/test/smoke_runtime.js",
     "docs:js-api": "node ./src/lib/server/generateDocs.js",
     "docs:js-api:check": "node ./src/lib/server/generateDocs.js --check",
