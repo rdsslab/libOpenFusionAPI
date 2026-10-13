@@ -18,6 +18,43 @@ see [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [13.12.10] - 2026-10-13
+
+### Fixed
+
+- **`ofapi_log` duplicaba cada petición decenas o cientos de veces y podía dejar de registrar por
+  completo.**
+  El `catch` de `LogBuffer.flush()` reencolaba **todo** el buffer, incluidos los lotes que ya se
+  habían confirmado en la base. Como cada copia recibe un `id` nuevo (`defaultValue: UUIDV4`), no
+  chocaban con la clave primaria y se insertaban una y otra vez en cada reintento (cada 5 s). Si la
+  base rechazaba una fila de forma permanente —por ejemplo un `ofapi-trace-id` que no es UUID, ya que
+  la columna `trace_id` es de tipo UUID/UNIQUEIDENTIFIER—, esa fila nunca salía del buffer y arrastraba
+  a su lote y a todos los posteriores, inflaba `trace_summary` y las gráficas, y hacía crecer la memoria
+  del worker sin límite. `flush()` ahora reencola **solo lo que no se insertó**; ante un lote rechazado
+  por datos lo biseca para aislar la fila inválida, la descarta con un aviso y sigue con el resto; ante
+  un error transitorio (conexión) sí reintenta. El buffer se acota a `maxBufferSize` cuando los flush
+  fallan de forma sostenida, descartando los más antiguos con aviso.
+  Además, `ensureTraceId()` valida el header `ofapi-trace-id` y genera un UUID si el recibido no lo es,
+  y `EndpointLogger` deja el `trace_id` sin valor (para que el modelo aplique su UUID) si llegara uno
+  inválido por otra vía.
+
+- **`stop({ flush: true })` no insertaba los logs pendientes al apagar.**
+  `stop()` marcaba `_stopped = true` antes de llamar a `flush()`, y `flush()` retorna de inmediato
+  cuando `_stopped` es verdadero, así que con `flush: true` no se hacía ningún flush final: todo lo que
+  quedaba en memoria se descartaba en silencio. Ahora el flush final se ejecuta antes de marcar
+  `_stopped`.
+
+- **El servidor no se apagaba de forma ordenada: los logs en memoria se perdían en cada reinicio.**
+  `src/server.js` no manejaba `SIGINT`/`SIGTERM`, así que el proceso moría sin cerrar Fastify: su hook
+  `onClose` no corría, `TasksInterval.stop()` no se ejecutaba, el worker del planificador no recibía
+  `"shutdown"` y `logBuffer.stop({ flush: true })` no llegaba a volcar (hasta 10 s de tráfico se
+  perdían). Ahora `SIGINT`/`SIGTERM` cierran Fastify (con un tope de seguridad de 10 s) y el flush final
+  se completa. Además, el worker cierra su conexión de base de datos de forma explícita antes de salir:
+  dejar que lo hiciera el desmontaje de `worker_threads` hacía que el cierre nativo de sqlite3 lanzara
+  sobre un `napi_env` ya destruido y el proceso terminara con `SIGABRT` (código 134).
+
+---
+
 ## [13.12.9] - 2026-10-13
 
 ### Fixed

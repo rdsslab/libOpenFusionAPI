@@ -19,3 +19,17 @@ export const validateAppName = (name) => {
   const regex = /^[a-zA-Z0-9_~.-]+$/;
   return regex.test(name);
 };
+
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Comprueba si un valor es un UUID. Las columnas `trace_id` de la base son de
+ * tipo UUID/UNIQUEIDENTIFIER, así que un valor que no lo sea hace que la base
+ * rechace la fila de log (y, por el defecto de `LogBuffer.flush`, bloqueaba el
+ * resto del buffer). Se usa para normalizar `ofapi-trace-id` antes de guardarlo.
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+export const isUuid = (value) =>
+  typeof value === "string" && UUID_REGEX.test(value.trim());

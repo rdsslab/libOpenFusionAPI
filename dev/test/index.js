@@ -131,6 +131,18 @@ async function runAllTests() {
         args: ["interval_task_upsert_test.js"],
       },
       {
+        // Puro: el LogBuffer real. Fija que un fallo en un lote no reinserta los
+        // lotes ya confirmados (antes cada reintento creaba copias con un id
+        // nuevo) y que una fila rechazada por la base se descarta en vez de
+        // bloquear su lote y todos los posteriores. También cubre que
+        // stop({ flush: true }) inserta lo pendiente (antes `_stopped` hacía que
+        // el flush final no hiciera nada) y que el buffer se acota si los flush
+        // fallan siempre.
+        label: "log_buffer_test.js",
+        command: "node",
+        args: ["log_buffer_test.js"],
+      },
+      {
         // Puro: no toca servidor ni base de datos. Cubre la detección de
         // placeholders SQL (bind vs replacements) sin los falsos positivos de los
         // casts `::tipo` y de los literales de texto.

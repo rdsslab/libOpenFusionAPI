@@ -2,6 +2,7 @@ import { Buffer } from "node:buffer";
 import { getIPFromRequest } from "../utils.js";
 import { getLogLevelForStatus } from "./utils.js";
 import { getCorrectedNow } from "../timeSync.js";
+import { isUuid } from "../validation.js";
 
 const DEFAULT_ID_APP = "62a03367-e2d5-459c-b236-b6878f546142";
 
@@ -39,7 +40,12 @@ export class EndpointLogger {
     }
 
     let data_log = {
-      trace_id: request.headers["ofapi-trace-id"],
+      // Solo un UUID es válido para la columna `trace_id`. Si llega otra cosa
+      // (p. ej. un header manipulado), se deja undefined para que el modelo
+      // aplique su UUID por defecto en lugar de hacer fallar el INSERT.
+      trace_id: isUuid(request.headers["ofapi-trace-id"])
+        ? request.headers["ofapi-trace-id"].trim()
+        : undefined,
       // getCorrectedNow() en vez de new Date(): este timestamp se persiste y alimenta
       // las gráficas de logs del dashboard (Requests per minute, Response Time per
       // Request, Requests by Status, Top error endpoints); si el reloj del

@@ -2,6 +2,7 @@ import {
   isEnvironmentExposed,
   getExposedEnvironmentsList,
 } from "../envExposure.js";
+import { isUuid } from "../validation.js";
 
 export class EndpointPreValidationService {
   constructor({
@@ -27,15 +28,30 @@ export class EndpointPreValidationService {
   }
 
   ensureTraceId(request, reply) {
-    if (!request.headers["ofapi-trace-id"]) {
-      let trace_id = this.getUUID();
+    const incoming = request.headers["ofapi-trace-id"];
+
+    // El header lo controla el cliente. Un valor que no sea UUID llegaría tal cual
+    // a la columna `trace_id` (tipo UUID), la base rechazaría la fila y —por el
+    // defecto de `LogBuffer.flush`— arrastraba al resto de su lote. Si falta o no
+    // es válido, se genera uno nuevo en lugar de propagar el valor inválido.
+    if (isUuid(incoming)) {
+      const trace_id = incoming.trim();
       request.headers["ofapi-trace-id"] = trace_id;
       reply.header("ofapi-trace-id", trace_id);
       return trace_id;
     }
 
-    reply.header("ofapi-trace-id", request.headers["ofapi-trace-id"]);
-    return request.headers["ofapi-trace-id"];
+    if (typeof incoming === "string" && incoming.trim() !== "") {
+      console.warn(
+        "[trace] ofapi-trace-id inválido (no es UUID); se genera uno nuevo.",
+        { received: incoming.slice(0, 200) }
+      );
+    }
+
+    const trace_id = this.getUUID();
+    request.headers["ofapi-trace-id"] = trace_id;
+    reply.header("ofapi-trace-id", trace_id);
+    return trace_id;
   }
 
   replyMappedError(error, request, reply) {

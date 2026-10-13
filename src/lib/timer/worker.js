@@ -1,5 +1,6 @@
 import { parentPort } from "worker_threads";
 import { createLogEntriesBulk } from "../db/log.js";
+import dbsequelize from "../db/sequelize.js";
 import { LogBuffer } from "./logBuffer.js";
 import {
   getIntervalTaskProcess,
@@ -622,6 +623,17 @@ async function shutdown() {
   try {
     await logBuffer.stop({ flush: true });
   } finally {
+    // Cerrar la conexión del worker de forma explícita ANTES de salir. Si se deja
+    // al desmontaje del entorno de worker_threads, el cierre nativo de sqlite3
+    // (`Database::Work_AfterClose`) corre durante la limpieza del `napi_env` y
+    // lanza sobre un entorno ya destruido, abortando el proceso (SIGABRT) justo
+    // después de un apagado ordenado.
+    try {
+      await dbsequelize.close();
+    } catch {
+      // Si la conexión ya estaba cerrada o falla el cierre, no hay nada más que
+      // hacer: el objetivo era liberarla de forma ordenada.
+    }
     process.exit(0);
   }
 }
