@@ -182,6 +182,89 @@ export function TableToApp(objeto) {
 
 
 /**
+ * Normaliza un parametro que puede llegar como array o como texto separado por
+ * comas a una lista de cadenas no vacias.
+ *
+ * El mismo parametro llega con dos formas segun el transporte:
+ *   - array, cuando el cliente lo manda en el body de un POST/PUT o cuando un
+ *     llamador interno pasa la lista directamente;
+ *   - string separado por comas, cuando viaja por query string (cualquier GET,
+ *     HEAD o DELETE: `?attributes=idapp,app`). `URLSearchParams` no emite claves
+ *     repetidas para un array, y Fastify entrega el valor ya aplanado.
+ *
+ * Es el denominador comun de dos controles que se perdian en silencio por no
+ * reconocer la forma CSV: el filtro `attributes` y la lista de `idtask` de un
+ * borrado en lote (`delete_interval_task`).
+ *
+ * @param {unknown} value - array, string CSV, o cualquier otra cosa.
+ * @returns {string[]|null} lista no vacia de elementos, o null si no hay valor.
+ */
+export const toStringList = (value) => {
+  let raw = null;
+  if (Array.isArray(value)) {
+    raw = value;
+  } else if (typeof value === "string") {
+    raw = value.split(",");
+  }
+
+  if (!raw) return null;
+
+  const list = raw
+    .map((item) => String(item ?? "").trim())
+    .filter((item) => item.length > 0);
+
+  return list.length > 0 ? list : null;
+};
+
+/**
+ * @param {unknown} value - `attributes` como array o string CSV.
+ * @returns {string[]|null} lista de columnas, o null si no hay filtro.
+ */
+export const toAttributeList = (value) => toStringList(value);
+
+/**
+ * Aplica el filtro de columnas a un objeto de opciones de Sequelize.
+ *
+ * Solo deja pasar nombres que existan en el modelo: un nombre inventado llegaria
+ * a `options.attributes` y Sequelize lanzaria al construir el SELECT, es decir,
+ * un filtro mal escrito convertiria una respuesta valida (todas las columnas) en
+ * un 500. Los nombres desconocidos se descartan con un aviso; si no queda
+ * ninguno, se devuelve la fila completa, que es el comportamiento historico.
+ *
+ * @param {Record<string, any>} options - opciones de Sequelize (`{}` o `{ where }`).
+ * @param {unknown} value - `attributes` tal como llego (array o string CSV).
+ * @param {import("sequelize").ModelStatic<any>} model - modelo destino.
+ * @returns {Record<string, any>} las mismas options, con `attributes` si aplica.
+ */
+export const applyAttributesToOptions = (options, value, model) => {
+  const requested = toAttributeList(value);
+  if (!requested) return options;
+
+  const known = model?.rawAttributes
+    ? new Set(Object.keys(model.rawAttributes))
+    : null;
+
+  const allowed = known
+    ? requested.filter((name) => known.has(name))
+    : requested;
+  const dropped = known
+    ? requested.filter((name) => !known.has(name))
+    : [];
+
+  if (dropped.length > 0) {
+    console.warn(
+      `[attributes] columnas desconocidas ignoradas: ${dropped.join(", ")}`,
+    );
+  }
+
+  if (allowed.length > 0) {
+    options.attributes = allowed;
+  }
+
+  return options;
+};
+
+/**
  * Validates security policies for passwords
  */
 export const validatePasswordSecurity = (password) => {

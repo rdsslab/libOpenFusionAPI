@@ -10,6 +10,7 @@ import {
 import { getIntervalTaskRuns } from "../../../../../db/interval_task_run.js";
 import { getEndpointById } from "../../../../../db/endpoint.js";
 import { validateCron, describeTaskTimeoutMismatch } from "../../../../../timer/schedule.js";
+import { toStringList } from "../../../../../db/utils.js";
 import { readIntervalTaskSkill } from "../../../../intervalTaskDocs.js";
 import {
   recordAudit,
@@ -337,23 +338,27 @@ export async function fndeleteIntervalTask(params) {
     // Si no se lee también de `request.query`, `idtask` es siempre undefined y la
     // tool `delete_interval_task` falla con "invalid undefined value".
     const body = params.request.body;
-    const idtask =
+    const raw =
       (body && typeof body === "object" && !Array.isArray(body) ? body.idtask : body)
       ?? params.request.query?.idtask;
+
+    // Normaliza array o CSV a lista antes de la auditoria: sin esto, el CSV de un
+    // DELETE en lote se registraba como un unico `entity_id: "a,b"`.
+    const idtask = toStringList(raw);
 
     r.data = await deleteIntervalTask(idtask);
     r.code = 200;
     if (r.data) wakeIntervalTaskWorker(params);
 
-    const isArray = Array.isArray(idtask);
+    const ids = idtask || [];
     await recordAudit(params, {
       action: AUDIT_ACTIONS.DELETE,
       entity_type: AUDIT_ENTITY_TYPES.INTERVAL_TASK,
-      entity_id: isArray ? null : idtask || null,
+      entity_id: ids.length === 1 ? ids[0] : null,
       idapp: null,
       status: Boolean(r.data),
       result_code: r.data ? 200 : 404,
-      message: isArray ? `Deleted ${r.data || 0} interval task(s)` : null,
+      message: ids.length > 1 ? `Deleted ${ids.length} interval task(s)` : null,
     });
   } catch (error) {
     r.data = error;

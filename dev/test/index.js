@@ -321,6 +321,27 @@ async function runAllTests() {
         args: ["bulk_insert_options_test.js"],
       },
       {
+        // Puro + SQLite temporal: una tool MCP GET manda los argumentos por query
+        // string y uFetch aplana el array `attributes` a "a,b"; la guarda
+        // `Array.isArray` descartaba el filtro en silencio y apps_list devolvia
+        // jwt_key aunque se pidieran tres columnas. Comprueba la normalizacion,
+        // que las tres funciones de DB apliquen el filtro, y que la respuesta ya
+        // no traiga las columnas sensibles.
+        label: "get_attributes_filter_test.js",
+        command: "node",
+        args: ["get_attributes_filter_test.js"],
+      },
+      {
+        // Puro + SQLite temporal: mismo colapso de uFetch, otro endpoint. Un
+        // DELETE en lote llega como CSV, `where: { idtask: "a,b" }` no casaba
+        // ninguna fila y el borrado de varias interval tasks no hacia nada (MCP
+        // y GUI). Comprueba que el CSV y el array borran igual y que un id que no
+        // es UUID se descarta en vez de abortar la consulta.
+        label: "delete_interval_task_ids_test.js",
+        command: "node",
+        args: ["delete_interval_task_ids_test.js"],
+      },
+      {
         // Puro: la documentación MCP dice cosas que el código no cumple. Comprueba que
         // el filtro idclient de audit_log_search llegue al where, que los links de
         // agent_onboarding cuadren con su outputSchema, y que user_create y

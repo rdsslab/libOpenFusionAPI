@@ -17,6 +17,7 @@ import {
 // —un entero >= 1, y un valor que no vale cae al de por defecto y no a 1— y dos
 // interpretaciones distintas de "el limite" en el mismo repo es como se cuelan.
 import { normalizarLimite } from "./concurrency.js";
+import { toStringList } from "./utils.js";
 
 /**
  * Columnas de estado observado del scheduler. Las escribe el worker, nunca el usuario:
@@ -556,11 +557,25 @@ export const getNextIntervalTaskRun = async () => {
 };
 
 // DELETE
+//
+// `idtaskList` puede llegar como un id suelto, un array de ids o el texto CSV que
+// queda de un array al pasar por la query string de un GET/HEAD/DELETE (`uFetch`
+// usa `new URLSearchParams`). Antes se pasaba tal cual a `where: { idtask }`: un
+// array funciona, pero un CSV `"a,b"` no casa con ninguna fila —y en PostgreSQL, al
+// ser la columna `uuid`, aborta con 22P02—, asi que el borrado en lote de la tool
+// MCP y del GUI no hacia nada. Se normaliza a lista y se filtran los ids que no
+// tienen forma de UUID por la misma razon que en el restore (ver `esUUIDTask`).
 export const deleteIntervalTask = async (idtaskList) => {
   try {
+    const ids = toStringList(idtaskList)?.filter(esUUIDTask);
+
+    if (!ids || ids.length === 0) {
+      return false;
+    }
+
     const deletedCount = await IntervalTask.destroy({
       where: {
-        idtask: idtaskList,
+        idtask: ids,
       },
     });
 
@@ -570,7 +585,7 @@ export const deleteIntervalTask = async (idtaskList) => {
 
     return false; // User not found
   } catch (error) {
-    console.error("Error deleting idendpoint:", error);
+    console.error("Error deleting interval task:", error);
     throw error;
   }
 };

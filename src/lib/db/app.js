@@ -23,6 +23,7 @@ import { mapConCierre, crearCierraDePaso, limiteDesdeEntorno } from "./concurren
 import { system_app } from "./default/system.js";
 import { validateEndpointCode } from "../validation/codeValidator.js";
 import { parseAppVarBoolean } from "./appvarType.js";
+import { applyAttributesToOptions } from "./utils.js";
 
 /**
  * Puerta de paso de las escrituras del arranque.
@@ -690,10 +691,7 @@ export const getAppFullById = async (
 
 export const getAllApps = async (attributes = null) => {
   try {
-    const options = {};
-    if (attributes && Array.isArray(attributes) && attributes.length > 0) {
-      options.attributes = attributes;
-    }
+    const options = applyAttributesToOptions({}, attributes, Application);
     const apps = await Application.findAll(options);
     return apps;
   } catch (error) {

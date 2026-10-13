@@ -1,6 +1,7 @@
 import { Endpoint } from "./models.js";
 import { createEndpointBackup } from "./endpoint_backup.js";
 import { Op } from "sequelize";
+import { applyAttributesToOptions } from "./utils.js";
 
 const normalizeMcpConfig = (mcp) => {
   if (!mcp) {
@@ -456,14 +457,11 @@ export const getEndpointById = async (
   attributes = null
 ) => {
   try {
-    const options = {};
-    if (attributes && Array.isArray(attributes) && attributes.length > 0) {
-      options.attributes = attributes;
-    }
+    const options = applyAttributesToOptions({}, attributes, Endpoint);
     const endpoint = await Endpoint.findByPk(idendpoint, options);
     return endpoint;
   } catch (error) {
-    console.error("Error retrieving user:", error);
+    console.error("Error retrieving endpoint:", error);
     throw error;
   }
 };
@@ -566,10 +564,7 @@ export const getEndpointByIdApp = async (
     if (environment) {
       where.environment = environment;
     }
-    const options = { where };
-    if (attributes && Array.isArray(attributes) && attributes.length > 0) {
-      options.attributes = attributes;
-    }
+    const options = applyAttributesToOptions({ where }, attributes, Endpoint);
     const endpoints = await Endpoint.findAll(options);
     return endpoints;
   } catch (error) {
