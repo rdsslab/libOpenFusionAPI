@@ -724,10 +724,14 @@ export const demo_app = {
       "custom_data": {},
       "headers_test": {},
       "data_test": {
-        "query": {},
-        "body": {},
-        "headers": {},
-        "auth": {}
+        "query": [],
+        "body": {
+          "selection": 0
+        },
+        "headers": [],
+        "auth": {
+          "selection": 0
+        }
       },
       "idendpoint": "5509b6b9-5d52-4b33-a20f-c372c739575d",
       "rowkey": 273,

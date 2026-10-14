@@ -287,16 +287,31 @@ const esAuthDeDataTest = (auth) =>
   esObjetoSimple(auth) && typeof auth.selection === "number";
 
 /**
+ * Un slot del Tester presente pero todavía vacío (`{}`): `body`/`auth` recién
+ * creados, antes de que el editor les ponga `selection`. No aporta señal, pero
+ * tampoco es un body crudo: no hay nada dentro que se pueda perder.
+ */
+const esSlotVacioDeDataTest = (value) =>
+  esObjetoSimple(value) && Object.keys(value).length === 0;
+
+/**
  * Un objeto cuyas claves son todas del Tester es suyo, siempre que lo que haya
  * dentro también lo sea. Sin esa segunda mitad, un body crudo que casualmente use
  * una clave del Tester —`{"body":{"texto":"hola"}}`,
  * `{"headers":[{"name":"X-Trace"}]}`— se aceptaría como formato canónico y
  * quedaría inservible, sin aviso.
+ *
+ * Un slot presente pero vacío (`body: {}`, `auth: {}`) sí se acepta: es lo que
+ * deja el editor cuando el test está a medio configurar
+ * —`{query: [], body: {}, headers: [], auth: {}}`— y envolverlo como body crudo
+ * era el fallo que metía la config del Tester dentro de `body.json.code`.
  */
 const soloClavesDeDataTest = (value) => {
   if (!Object.keys(value).every((key) => CLAVES_DE_DATA_TEST.has(key))) return false;
-  if (value.body !== undefined && !esBodyDeDataTest(value.body)) return false;
-  if (value.auth !== undefined && !esAuthDeDataTest(value.auth)) return false;
+  if (value.body !== undefined && !esBodyDeDataTest(value.body) && !esSlotVacioDeDataTest(value.body))
+    return false;
+  if (value.auth !== undefined && !esAuthDeDataTest(value.auth) && !esSlotVacioDeDataTest(value.auth))
+    return false;
   return ["query", "headers"].every((key) => {
     const lista = value[key];
     if (!Array.isArray(lista) || lista.length === 0) return true;
