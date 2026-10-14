@@ -18,6 +18,25 @@ see [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [13.12.12] - 2026-10-13
+
+### Fixed
+
+- **Un `data_test` del Tester a medio llenar se guardaba envuelto como body crudo y la
+  configuración reaparecía como JSON en la pestaña Body.**
+  `normalizeDataTest` solo reconocía un `data_test` cuando traía una señal clara del Tester
+  (`body.selection`, `auth.selection`, filas en `query`/`headers`, …). Una configuración vacía o
+  recién creada —`{query:[], body:{}, headers:[], auth:{}}`, o con los slots `body`/`auth` en `{}`—
+  no tenía ninguna, así que se clasificaba como body crudo y quedaba envuelta en
+  `{body:{selection:0, json:{code:<data_test real>}}}`. Al reabrir el endpoint, el editor pintaba ese
+  envoltorio en la pestaña Body en lugar de repartirlo por Query/Headers/Auth.
+  El heurístico ahora acepta un slot presente pero vacío (`esSlotVacioDeDataTest`): no hay nada dentro
+  que se pueda perder, así que no es un body crudo. Un body crudo de verdad
+  (`{"sql":"select 1","enabled":true}`) sigue envolviéndose como antes. El ejemplo `example04` del
+  app demo se siembra ya en la forma canónica.
+
+---
+
 ## [13.12.11] - 2026-10-13
 
 ### Changed
