@@ -8,6 +8,7 @@ import {
   parseJsonConfig,
   replyException,
   resolveAppVarPlaceholder,
+  resolveAppVarsInConfig,
   sendHandlerError,
 } from "./utils.js";
 //process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
@@ -199,12 +200,15 @@ export const soapFunction = async (context) => {
     // console.log(">>>>>>>>>>>>> method.code -----> ", method.code);
     let SOAPParameters;
 
+    // getAppVarContext fuera del if/else: la resolución de AppVars aplica tanto a
+    // la configuración tomada del custom_data como a la tomada del code.
+    const { appVars, environment } = getAppVarContext(endpoint);
+
     if (endpoint?.custom_data?.wsdl) {
       // Toma el wsdl del custom_data, que es cuando el usuario ingresa los parametros manualmente
       SOAPParameters = endpoint?.custom_data;
     } else {
       // Toma el wsdl del code, que es cuando el usuario usa una variable de aplicación
-      const { appVars, environment } = getAppVarContext(endpoint);
       const soapConfigValue = resolveAppVarPlaceholder(
         endpoint.code,
         appVars,
@@ -222,6 +226,12 @@ export const soapFunction = async (context) => {
         );
       }
     }
+
+    // Resuelve placeholders $_VAR_* dentro de la configuración, a cualquier
+    // profundidad (p. ej. "BasicAuthSecurity": "$_VAR_SAP_PO_AUTH"). Debe quedar
+    // ANTES del mergeObjects de mas abajo: solo se resuelve la configuración del
+    // endpoint, nunca los valores que manda el llamador en el query/body.
+    SOAPParameters = resolveAppVarsInConfig(SOAPParameters, appVars, environment);
 
     //    console.log(SOAPParameters);
     let dataRequest = {};

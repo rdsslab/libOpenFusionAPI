@@ -143,6 +143,17 @@ async function runAllTests() {
         args: ["log_buffer_test.js"],
       },
       {
+        // Puro: no toca servidor ni base de datos. Cubre la resolución de
+        // placeholders $_VAR_* DENTRO de la configuración JSON del handler SOAP
+        // (resolveAppVarsInConfig): formato canónico estricto ($_VAR_, nunca un
+        // "$_ALGO" suelto), sin resolución en cadena, sin mutar custom_data, y
+        // que una variable inexistente da 400 nombando la variable sin exponer
+        // ningún valor.
+        label: "soap_config_appvars_test.js",
+        command: "node",
+        args: ["soap_config_appvars_test.js"],
+      },
+      {
         // Puro: no toca servidor ni base de datos. Cubre la detección de
         // placeholders SQL (bind vs replacements) sin los falsos positivos de los
         // casts `::tipo` y de los literales de texto.

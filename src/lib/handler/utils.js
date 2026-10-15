@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { buildErrorPayload } from "../server/errorPayload.js";
+import { APPVAR_NAME_REGEX } from "../db/appvarName.js";
 
 export const setCacheReply = (reply, data, headers) => {
   if (reply) {
@@ -374,6 +375,54 @@ export const resolveAppVarPlaceholder = (value, appVars, environment = "dev") =>
   }
 
   return resolved;
+};
+
+/**
+ * Resolve AppVar placeholders (strict `$_VAR_*` names) anywhere inside a
+ * configuration object, at any depth.
+ *
+ * Used by the SOAP handler so a single shared AppVar (e.g. the SAP PO BasicAuth
+ * credentials) can be referenced from an inline JSON config instead of copying
+ * the secret into one variable per interface.
+ *
+ * Rules:
+ *  - Only string values whose TRIMMED content matches APPVAR_NAME_REGEX
+ *    (`$_VAR_` prefix included) are resolved. A bare `$_ALGO`, a partial text
+ *    like "http://$_VAR_X/host" or a text that merely contains a placeholder
+ *    is left untouched.
+ *  - The resolved value is inserted AS-IS (JSON values come back as objects)
+ *    and is NOT walked again: no chained resolution, so cycles and hidden
+ *    dependencies between variables are impossible.
+ *  - A name that matches the regex but does not exist throws the same 400 used
+ *    by resolveAppVarPlaceholder; the error names the variable, never its value.
+ *  - Returns a new object; the input is never mutated (custom_data is the
+ *    endpoint's in-memory object, reused across requests).
+ *
+ * @param {any} config - Parsed configuration (object/array/scalar).
+ * @param {object} appVars - The app_vars object from endpoint context.
+ * @param {string} environment - Current environment (dev, qa, prd).
+ * @returns {any} A copy of the configuration with the placeholders resolved.
+ */
+export const resolveAppVarsInConfig = (config, appVars, environment = "dev") => {
+  const walk = (value) => {
+    if (typeof value === "string") {
+      return APPVAR_NAME_REGEX.test(value.trim())
+        ? resolveAppVarPlaceholder(value, appVars, environment)
+        : value;
+    }
+
+    if (Array.isArray(value)) {
+      return value.map(walk);
+    }
+
+    if (value && typeof value === "object") {
+      return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, walk(entry)]));
+    }
+
+    return value;
+  };
+
+  return walk(config);
 };
 
 export const parseJsonConfig = (

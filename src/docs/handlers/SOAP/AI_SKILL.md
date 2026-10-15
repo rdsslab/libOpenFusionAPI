@@ -51,7 +51,11 @@ When using `endpoint_upsert` with `handler: "SOAP"` to create/update an endpoint
 - `handler`: `SOAP`.
 - `custom_data`: Object containing `wsdl`, `functionName`, and optional `endpoint`, `options`. When `custom_data.wsdl` is present the handler uses `custom_data` as the configuration and ignores `code`; otherwise the configuration is read from `code`. See "Core Instructions & Constraints" above for full details.
 
-**Application Variables in SOAP**: unlike the SQL-family handlers, the AppVar reference goes in **`code`**, not in `custom_data`. The handler only reads `code` when `custom_data.wsdl` is absent: if `custom_data` already carries a `wsdl`, it is used inline and `code` is ignored entirely. The AppVar value must be a JSON configuration object (it is parsed as JSON), not a bare WSDL URL string. Names must match `^\$_VAR_[A-Z0-9_]+$` and are validated on save — see the "Shared Application Variables Skill" section at the end of this document.
+**Application Variables in SOAP**: an AppVar reference can be used in two ways:
+1. The **whole** `code` field is the AppVar name (`$_VAR_SOAP_SERVICE_WSDL`) and the variable holds the entire JSON configuration. The handler only reads `code` when `custom_data.wsdl` is absent: if `custom_data` already carries a `wsdl`, it is used inline and `code` is ignored entirely. The AppVar value must be a JSON configuration object (it is parsed as JSON), not a bare WSDL URL string.
+2. **Inside** the JSON configuration (from `code` or `custom_data`), at any depth: any string value that is exactly a `$_VAR_*` name is replaced by that variable's value at call time (e.g. `"BasicAuthSecurity": "$_VAR_SAP_PO_AUTH"`). A name that matches the pattern but does not exist in the endpoint's environment fails with `400`; values sent by the caller in query/body are never replaced.
+
+Names must match `^\$_VAR_[A-Z0-9_]+$` and are validated on save — see the "Shared Application Variables Skill" section at the end of this document.
 
 ## Minimal Working Example / Template
 * **Custom Data (`custom_data`)**:

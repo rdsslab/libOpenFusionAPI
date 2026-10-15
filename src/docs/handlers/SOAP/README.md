@@ -67,6 +67,28 @@ For testing or simple integrations you can provide the config inline:
 }
 ```
 
+**Application Variables inside the JSON configuration** _(recommended when several endpoints share a secret)_:
+
+Any configuration value that is **exactly** a `$_VAR_*` name is replaced by that variable's value at call time, at any depth, in both `code` and `custom_data` configurations. This lets many SOAP endpoints share **one** credentials variable instead of copying the secret into one variable per endpoint:
+
+```json
+{
+  "wsdl": "https://example.com/po/wsdl?senderService=BS_POS_PRD",
+  "functionName": "SI_Validacupocliente_Sync_Out",
+  "BasicAuthSecurity": "$_VAR_SAP_PO_AUTH"
+}
+```
+
+With `$_VAR_SAP_PO_AUTH` = `{"User":"userwsprd","Password":"..."}` per environment, `BasicAuthSecurity` is sent to `node-soap` as a `{User, Password}` object.
+
+Rules:
+
+- Only values that, trimmed, match `^\$_VAR_[A-Z0-9_]+$` are resolved. A bare `$_NAME` (without the full `$_VAR_` prefix), a partial text like `"http://$_VAR_HOST/x"`, or a text that merely contains a placeholder is left untouched.
+- The resolved value is inserted as-is: a variable holding JSON becomes an object. It is **not** walked again, so there is no chained resolution between variables.
+- Referencing a name that matches the pattern but does not exist in the endpoint's environment fails with `400 AppVar $_VAR_X not found for environment dev`. The error names the variable; it never exposes any value.
+- Only the endpoint configuration is resolved. Values sent by the caller in the query or body are never replaced, even if they look like `$_VAR_*`.
+- The SOAP client cache key includes the resolved options (e.g. the `Authorization` header), so rotating the variable's value creates a fresh client automatically.
+
 **`endpoint` field — override the runtime SOAP URL**:
 
 By default the SOAP client sends envelopes to the `soap:address location` declared inside the WSDL. If you need to redirect them to a different URL (e.g. a load balancer, a different environment, or the WSDL is a local copy), add an `endpoint` property alongside `wsdl`:
@@ -126,7 +148,7 @@ In that case:
 - Correct `functionName`: `SubmitOrder`
 - Incorrect `functionName`: `orderRequest`
 
-**`custom_data`** is used by the SOAP handler only when it contains a `wsdl` property: in that case it is taken as the inline configuration and the `code` field is ignored. When `custom_data.wsdl` is absent, the configuration is read from `code` (an Application Variable reference or an inline JSON config). Note that `custom_data` is **not** AppVar-resolved — a `$_VAR_…` string placed there never resolves; put the reference in `code`.
+**`custom_data`** is used by the SOAP handler only when it contains a `wsdl` property: in that case it is taken as the inline configuration and the `code` field is ignored. When `custom_data.wsdl` is absent, the configuration is read from `code` (an Application Variable reference or an inline JSON config). In **both** sources, values that are exactly a `$_VAR_*` name are resolved as described in the "Application Variables inside the JSON configuration" section above. Note that a `$_VAR_*` string used as the **whole** `custom_data` object (without a `wsdl` property) is not resolved: in that case `custom_data` is ignored and the configuration comes from `code`.
 
 </details>
 

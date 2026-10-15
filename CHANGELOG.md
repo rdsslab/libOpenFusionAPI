@@ -18,6 +18,35 @@ see [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [13.13.0] - 2026-10-15
+
+### Added
+
+- **El handler SOAP resuelve AppVars `$_VAR_*` dentro de la configuración JSON, a
+  cualquier profundidad** (`resolveAppVarsInConfig` en `src/lib/handler/utils.js`, aplicada
+  en `soapFunction.js` antes del merge con el body). Cualquier valor string de la
+  configuración — venga del `code` o del `custom_data` — que sea exactamente un nombre
+  `^\$_VAR_[A-Z0-9_]+$` se reemplaza por el valor de esa variable en el ambiente del
+  endpoint; si el valor es JSON se inserta el objeto ya parseado
+  (p. ej. `"BasicAuthSecurity": "$_VAR_SAP_PO_AUTH"` → `{User, Password}`).
+  Esto permite que ~40 interfaces SAP PO compartan UNA variable de credenciales en lugar
+  de copiar la clave por interfaz (en `code` o en el historial de versiones).
+  Reglas: solo el formato canónico `$_VAR_*` (un `$_ALGO` suelto queda literal); el valor
+  insertado no se vuelve a recorrer (sin resolución en cadena ni ciclos); una variable
+  inexistente da `400` nombando la variable y el ambiente, sin exponer ningún valor; solo
+  se resuelve la configuración del endpoint, nunca los valores que manda el llamador en
+  query/body; la configuración resultante es una copia (no se muta `custom_data`).
+  **Compatible hacia atrás**: una configuración que hoy funciona (una sola AppVar en
+  `code`, o JSON sin placeholders) se resuelve igual que antes. Como el handler también
+  recorre ahora el contenido de `custom_data`, un endpoint SOAP existente cuya AppVar
+  referenciada contenga un texto que sea exactamente otro `$_VAR_*` cambiaría de comportamiento:
+  auditar las AppVars de los endpoints SOAP existentes antes de desplegar.
+  Detalle y pruebas: `dev/test/soap_config_appvars_test.js`,
+  `src/docs/handlers/SOAP/README.md` (sección "Application Variables inside the JSON
+  configuration").
+
+---
+
 ## [13.12.12] - 2026-10-13
 
 ### Fixed
