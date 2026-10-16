@@ -9,6 +9,11 @@
  * de un chat agrega la actividad de todas ellas. Los cursores de deduplicación
  * siguen en la app system:
  *
+ * Cada vínculo trae `environment` y `notify_activity`. El digest se filtra por
+ * ambos: solo se reportan los logs del entorno vinculado y solo se envía cuando la
+ * ventana cumple el modo (`all`, `errors` —default—, `5xx` u `off`). El comando
+ * `/activity` (respond_inline) ignora el filtro porque lo pide el usuario.
+ *
  * Config vía AppVars (env prd):
  *  - $_VAR_TELEGRAM_TOKEN       token del bot (placeholder = sin configurar)
  *  - $_VAR_GROUP_APP_CURSORS    { chat_id: "ISO" } cursor por grupo (escritura del scan)
@@ -27,6 +32,10 @@ import {
   writeAppGroupLink,
   removeAppGroupLink,
   setNotifyChanges,
+  setNotifyActivity,
+  normalizeNotifyActivity,
+  NOTIFY_ACTIVITY_MODES,
+  DEFAULT_NOTIFY_ACTIVITY,
 } from "./groupLinks.js";
 
 const SYSTEM_APP_ID = "cfcd2084-95d5-65ef-66e7-dff9f98764da";
@@ -112,12 +121,21 @@ const fmtTime = (d) => {
   }
 };
 
-/** Actividad de una app en la ventana [from, to]: totales por clase y top endpoints. */
-async function collectActivity({ idapp, from, to }) {
+/**
+ * Actividad de una app en la ventana [from, to]: totales por clase, top endpoints,
+ * detalle de 5xx y detalle de 4xx (con el cliente de origen: un barrido de rutas
+ * se reconoce por muchas 4xx desde la misma IP).
+ *
+ * `environment` filtra por el entorno del vínculo. Los logs anteriores a la columna
+ * `environment` quedan en NULL y `getLogs` solo los incluye cuando se filtra por
+ * `prd`; un vínculo `qa`/`dev` no los ve.
+ */
+async function collectActivity({ idapp, environment, from, to }) {
   const rows = await getLogs({
     start_date: iso(new Date(from)),
     end_date: iso(new Date(to)),
     ...(idapp ? { idapp } : {}),
+    ...(environment ? { environment } : {}),
     lightweight: true,
     raw: true,
     limit: 2000,
@@ -126,6 +144,8 @@ async function collectActivity({ idapp, from, to }) {
   const classes = { "2xx": 0, "3xx": 0, "4xx": 0, "5xx": 0 };
   const endpoints = new Map();
   const errors = [];
+  const client_errors = [];
+  const client_errors_by_ip = new Map();
   let total = 0;
 
   for (const r of rows) {
@@ -142,17 +162,73 @@ async function collectActivity({ idapp, from, to }) {
         url: r.url || "?",
         status: code,
         ms: Number(r.response_time) || 0,
+        client: r.client || null,
       });
+    }
+    if (code >= 400 && code < 500) {
+      client_errors.push({
+        time: r.timestamp,
+        method: r.method || "?",
+        url: r.url || "?",
+        status: code,
+        ms: Number(r.response_time) || 0,
+        client: r.client || null,
+      });
+      if (r.client) client_errors_by_ip.set(r.client, (client_errors_by_ip.get(r.client) || 0) + 1);
     }
   }
 
-  return { total, classes, topEndpoints: [...endpoints.entries()].sort((a, b) => b[1] - a[1]), errors };
+  return {
+    total,
+    classes,
+    topEndpoints: [...endpoints.entries()].sort((a, b) => b[1] - a[1]),
+    errors,
+    client_errors,
+    // IP con más 4xx en la ventana: la firma de un barrido de rutas de login/admin.
+    top_offenders: [...client_errors_by_ip.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3),
+  };
 }
 
-/** Arma el digest HTML de una app; devuelve null si no hay actividad en la ventana. */
-async function buildReport({ idapp, from, to }) {
-  const activity = await collectActivity({ idapp, from, to });
-  if (!activity.total) return null;
+/**
+ * ¿La ventana cumple el filtro del vínculo? El modo decide con qué tráfico se
+ * envía el digest; `errors` es el default de los vínculos sin `notify_activity`.
+ */
+function digestGate(mode, activity) {
+  switch (mode) {
+    case "off":
+      return false;
+    case "errors":
+      return activity.classes["4xx"] > 0 || activity.classes["5xx"] > 0;
+    case "5xx":
+      return activity.classes["5xx"] > 0;
+    case "all":
+    default:
+      return activity.total > 0;
+  }
+}
+
+/**
+ * Arma el digest HTML de una app y decide, por el modo del vínculo, si corresponde.
+ *
+ * Devuelve `{ text, mode, filtered }`. `text` es null cuando no hay nada que enviar:
+ * porque la ventana no cumplió el filtro (`filtered: true`) o porque no hubo actividad
+ * (`filtered: false`). El llamador debe avanzar el cursor igual en ambos casos: una
+ * ventana filtrada no se reenvía después, se pierde, que es lo que se espera cuando
+ * alguien apagó el digest o pidió solo errores.
+ *
+ * @param {object} params
+ * @param {boolean} [params.ignore_filter] - `true` cuando el reporte es bajo demanda
+ *   (comando /activity del bot): el usuario lo pidió explícitamente, así que el
+ *   filtro del vínculo no aplica y se reporta lo que haya.
+ */
+async function buildReport({ idapp, environment, notify_activity, from, to, ignore_filter = false }) {
+  const activity = await collectActivity({ idapp, environment, from, to });
+  const mode = normalizeNotifyActivity(notify_activity) || DEFAULT_NOTIFY_ACTIVITY;
+
+  if (!ignore_filter && !digestGate(mode, activity)) {
+    return { text: null, mode, filtered: activity.total > 0 };
+  }
+  if (!activity.total) return { text: null, mode, filtered: false };
 
   const name = await getAppName(idapp);
   const appLabel = name && name !== idapp ? `${name} [${idapp}]` : idapp;
@@ -164,7 +240,7 @@ async function buildReport({ idapp, from, to }) {
 
   const lines = [
     `<b>🆕 OpenFusionAPI — activity digest</b>`,
-    `📦 App: <b>${esc(appLabel)}</b>`,
+    `📦 App: <b>${esc(appLabel)}</b> · <code>${esc(environment || ENV)}</code>`,
     `📊 <b>${activity.total}</b> requests · [2xx · 3xx · 4xx · 5xx] ${statusLine}`,
   ];
   if (failures.length) lines.push(`⚠️ ${esc(failures.join(" / "))}`);
@@ -175,14 +251,37 @@ async function buildReport({ idapp, from, to }) {
       lines.push(`• <code>${esc(ep)}</code> × ${count}`);
     }
   }
+
+  // Detalle de errores: el 5xx siempre que lo haya; el 4xx solo en modo `errors`,
+  // porque el default `errors` existe para que un grupo vea fallos y no tráfico
+  // normal, y el detalle de los 4xx es la señal de un barrido de rutas.
   if (activity.errors.length) {
     lines.push("<b>Errors (5xx)</b>");
     for (const e of activity.errors.slice(0, 6)) {
-      lines.push(`• ${fmtTime(e.time)} UTC · ${esc(e.method)} <code>${esc(e.url)}</code> → ${e.status} (${e.ms}ms)`);
+      lines.push(
+        `• ${fmtTime(e.time)} UTC · ${esc(e.method)} <code>${esc(e.url)}</code> → ${e.status} (${e.ms}ms)` +
+          (e.client ? ` · <code>${esc(e.client)}</code>` : ""),
+      );
     }
   }
+  if (mode === "errors" && activity.client_errors.length) {
+    lines.push("<b>Errors (4xx)</b>");
+    for (const e of activity.client_errors.slice(0, 6)) {
+      lines.push(
+        `• ${fmtTime(e.time)} UTC · ${esc(e.method)} <code>${esc(e.url)}</code> → ${e.status} (${e.ms}ms)` +
+          (e.client ? ` · <code>${esc(e.client)}</code>` : ""),
+      );
+    }
+    // Varias 4xx desde la misma IP suelen ser un barrido automatizado (login/admin),
+    // no un enlace roto. Se avisa cuando la concentración es clara.
+    const offenders = activity.top_offenders.filter(([, count]) => count >= 5);
+    for (const [ip, count] of offenders.slice(0, 2)) {
+      lines.push(`⚠️ ${count}× 4xx from <code>${esc(ip)}</code> — possible route probing`);
+    }
+  }
+
   lines.push(`🕐 Window: ${fmtTime(from)} UTC → ${fmtTime(to)} UTC`);
-  return lines.join("\n");
+  return { text: lines.join("\n"), mode, filtered: false };
 }
 
 async function sendReport({ token, chatId, text }) {
@@ -233,7 +332,7 @@ export async function fnAppGroupScan(params) {
     const cursors = parseJsonVar(await getAppVarValue(CURSORS_VAR), {});
     const now = Date.now();
 
-    const counts = { linked: byChat.size, sent: 0, quiet: 0, skipped: 0 };
+    const counts = { linked: byChat.size, sent: 0, quiet: 0, filtered: 0, skipped: 0 };
     const byGroup = [];
 
     for (const [chatId, links] of byChat) {
@@ -254,8 +353,17 @@ export async function fnAppGroupScan(params) {
         }
         appsInChat.push(idapp);
         try {
-          const report = await buildReport({ idapp, environment: link.environment || ENV, from, to: now });
-          if (report) reports.push(report);
+          const report = await buildReport({
+            idapp,
+            environment: link.environment || ENV,
+            notify_activity: link.notify_activity,
+            from,
+            to: now,
+            // El comando /activity lo pide el usuario; el filtro del vínculo no aplica.
+            ignore_filter: respondInline,
+          });
+          if (report.text) reports.push(report.text);
+          else if (report.filtered) counts.filtered += 1;
         } catch (error) {
           console.error(`[fnAppGroupScan] collect ${chatId} -> ${idapp}:`, error.message);
           counts.skipped += 1;
@@ -319,8 +427,9 @@ export async function fnAppGroupScan(params) {
 
 /**
  * Agregador de vínculos chat -> apps para el bot (y MCP). Solo lectura.
- * Respuesta: { links: [{ chat_id, idapp, environment, linked_by, linked_at, notify_changes? }],
- *              by_chat: { chat_id: [link, ...] } }.
+ * Respuesta: { links: [{ chat_id, idapp, environment, linked_by, linked_at,
+ *              notify_changes?, notify_activity }], by_chat: { chat_id: [link, ...] } }.
+ * `notify_activity` es el modo efectivo (default `errors` si el vínculo no lo trae).
  */
 export async function fnAppGroupLinks(params) {
   const initial = { code: 200, data: undefined };
@@ -345,7 +454,12 @@ export async function fnAppGroupLinks(params) {
  * `$_VAR_TELEGRAM_GROUPS` de la app destino, vía capa DB (sin borrar caché).
  *
  * Body:
- *   { action: "link"|"unlink"|"set_notify", chat_id, idapp, linked_by?, environment?, notify_changes? }
+ *   { action: "link"|"unlink"|"set_notify"|"set_notify_activity", chat_id, idapp,
+ *     linked_by?, environment?, notify_changes?, notify_activity? }
+ *
+ * `set_notify_activity` valida el modo contra `NOTIFY_ACTIVITY_MODES` y responde 400
+ * si no es válido: un valor desconocido no se persiste, para que el filtro no quede
+ * en un estado que el scan no sepa interpretar.
  */
 export async function fnAppGroupLinkWrite(params) {
   const initial = { code: 200, data: undefined };
@@ -375,12 +489,23 @@ export async function fnAppGroupLinkWrite(params) {
       }
       // Cadena vacía/undefined => la capa DB decide (conserva el entorno previo o usa ENV).
       const envRaw = typeof body.environment === "string" ? body.environment.trim() : body.environment;
+      // Un `notify_activity` explícito se valida igual que en `set_notify_activity`;
+      // omitido, la capa DB conserva el previo (o queda en el default `errors` al leer).
+      if (body.notify_activity !== undefined && !normalizeNotifyActivity(body.notify_activity)) {
+        initial.data = {
+          error: `"notify_activity" must be one of ${NOTIFY_ACTIVITY_MODES.join(", ")}`,
+          received: body.notify_activity,
+        };
+        initial.code = 400;
+        return initial;
+      }
       await writeAppGroupLink({
         idapp: idappRaw,
         chat_id: chatId,
         linked_by: body.linked_by,
         environment: envRaw || undefined,
         notify_changes: body.notify_changes,
+        notify_activity: body.notify_activity,
       });
       initial.data = { ok: true, action, chat_id: chatId, idapp: idappRaw };
       return initial;
@@ -418,7 +543,44 @@ export async function fnAppGroupLinkWrite(params) {
       return initial;
     }
 
-    initial.data = { error: `unknown action "${action}" (expected link|unlink|set_notify)` };
+    if (action === "set_notify_activity") {
+      if (!idappRaw) {
+        initial.data = { error: "idapp is required for action 'set_notify_activity'" };
+        initial.code = 400;
+        return initial;
+      }
+      const requested = normalizeNotifyActivity(body.notify_activity);
+      if (!requested) {
+        initial.data = {
+          error: `"notify_activity" must be one of ${NOTIFY_ACTIVITY_MODES.join(", ")}`,
+          received: body.notify_activity,
+        };
+        initial.code = 400;
+        return initial;
+      }
+      const updated = await setNotifyActivity({
+        idapp: idappRaw,
+        chat_id: chatId,
+        notify_activity: requested,
+      });
+      if (!updated) {
+        initial.data = { ok: false, error: "link not found", action, chat_id: chatId, idapp: idappRaw };
+        initial.code = 404;
+        return initial;
+      }
+      initial.data = {
+        ok: true,
+        action,
+        chat_id: chatId,
+        idapp: idappRaw,
+        notify_activity: updated,
+      };
+      return initial;
+    }
+
+    initial.data = {
+      error: `unknown action "${action}" (expected link|unlink|set_notify|set_notify_activity)`,
+    };
     initial.code = 400;
   } catch (error) {
     console.error("[fnAppGroupLinkWrite]", error);

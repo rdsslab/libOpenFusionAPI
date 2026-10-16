@@ -7,6 +7,7 @@ import {
   getIntervalTaskById,
   esUUIDTask,
 } from "../../../../../db/interval_task.js";
+import { findDuplicateTaskGroups } from "../../../../../db/interval_task_duplicates.js";
 import { getIntervalTaskRuns } from "../../../../../db/interval_task_run.js";
 import { getEndpointById } from "../../../../../db/endpoint.js";
 import { validateCron, describeTaskTimeoutMismatch } from "../../../../../timer/schedule.js";
@@ -59,6 +60,44 @@ export async function fnGetIntervalTasksByIdApp(params) {
     console.log(error);
 
     r.data = error;
+    r.code = 500;
+  }
+  return r;
+}
+
+/**
+ * Detecta tareas que llaman al mismo endpoint con los mismos `params` (identidad
+ * operativa `idendpoint + params`). Solo lectura.
+ *
+ * No es un error por sí mismo: la misma llamada programada a horas distintas puede
+ * ser intencional, y por eso cada grupo trae `same_schedule`. `same_schedule: true`
+ * (mismo horario) es el patrón del seed duplicado en bases anteriores a la migración
+ * a UUID; `false` suele ser una decisión deliberada y no requiere acción.
+ *
+ * `idapp` es opcional: sin él se revisan todas las aplicaciones, que es lo que quiere
+ * un operador revisando el servidor. Con `idapp`, solo esa aplicación.
+ */
+export async function fnListIntervalTaskDuplicates(params) {
+  let r = { code: 200, data: undefined };
+  try {
+    const query = params?.request?.query || {};
+    const body = params?.request?.body || {};
+    const idapp = String(query.idapp || body.idapp || "").trim();
+
+    const tasks = await getIntervalTask(idapp ? { app: { idapp } } : {});
+    const groups = findDuplicateTaskGroups(tasks);
+
+    r.data = {
+      idapp: idapp || null,
+      total_tasks: tasks.length,
+      duplicate_groups: groups.length,
+      duplicate_tasks: groups.reduce((total, group) => total + group.count, 0),
+      groups,
+    };
+    r.code = 200;
+  } catch (error) {
+    console.error("[fnListIntervalTaskDuplicates]", error);
+    r.data = { error: error?.message || String(error) };
     r.code = 500;
   }
   return r;

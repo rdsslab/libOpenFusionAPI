@@ -23,7 +23,7 @@ import { mapConCierre, crearCierraDePaso, limiteDesdeEntorno } from "./concurren
 import { system_app } from "./default/system.js";
 import { validateEndpointCode } from "../validation/codeValidator.js";
 import { parseAppVarBoolean } from "./appvarType.js";
-import { applyAttributesToOptions } from "./utils.js";
+import { applyAttributesToOptions, stableStringify } from "./utils.js";
 
 /**
  * Puerta de paso de las escrituras del arranque.
@@ -127,6 +127,46 @@ function replace_Old_FUNCTIONS_NAMES(code) {
 }
 
 /**
+ * Parsea el `params` de una tarea (objeto, string JSON o vacío) a un objeto comparable.
+ * @param {unknown} raw
+ * @returns {object}
+ */
+function normalizeTaskParams(raw) {
+  if (raw === undefined || raw === null || raw === "") return {};
+  if (typeof raw === "object") return raw;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Tareas que ya existen en el endpoint dado y cuyo `params` es equivalente al del seed.
+ *
+ * La equivalencia operativa de una tarea es (idendpoint + params): es lo que viaja al
+ * endpoint y lo que decide qué hace. La comparación usa `stableStringify` porque el
+ * orden de las claves de un objeto JSON no es parte del valor.
+ *
+ * @param {string} idendpoint
+ * @param {unknown} params
+ * @returns {Promise<Array<{idtask: string, note?: string}>>}
+ */
+async function findEquivalentIntervalTasks(idendpoint, params) {
+  const rows = await IntervalTask.findAll({
+    where: { idendpoint },
+    attributes: ["idtask", "note", "params"],
+  });
+
+  const want = stableStringify(normalizeTaskParams(params));
+
+  return rows
+    .map((r) => (r.toJSON ? r.toJSON() : r))
+    .filter((r) => stableStringify(normalizeTaskParams(r.params)) === want);
+}
+
+/**
  * Restaura las tareas (interval tasks) que vienen al nivel raíz del backup,
  * en el mismo nivel que endpoints (app.tasks), no anidadas en cada endpoint.
  *
@@ -166,9 +206,16 @@ function replace_Old_FUNCTIONS_NAMES(code) {
  * @param {Array} tasks - tareas provenientes del backup (app.tasks)
  * @param {Map<string, string>} idendpoint_map - idendpoint del backup -> idendpoint real
  * @param {Map<number, number>} idkey_map - idkey del backup -> idkey real
+ * @param {{adopt_equivalent_tasks?: boolean}} [options] - `adopt_equivalent_tasks` solo se
+ *   activa en el camino del seed (y de `checkSystemApp(restore)`): antes de insertar una
+ *   tarea cuyo UUID no existe, se busca una fila equivalente por (idendpoint + params).
+ *   Un restore de usuario NO lo usa: para él, identidad es el UUID y un UUID ausente es
+ *   una tarea nueva.
  * @returns {Promise<Array>}
  */
-async function restoreIntervalTasks(tasks, idendpoint_map, idkey_map = new Map()) {
+async function restoreIntervalTasks(tasks, idendpoint_map, idkey_map = new Map(), options = {}) {
+  const { adopt_equivalent_tasks = false } = options;
+
   if (!Array.isArray(tasks) || tasks.length === 0) {
     return [];
   }
@@ -176,6 +223,8 @@ async function restoreIntervalTasks(tasks, idendpoint_map, idkey_map = new Map()
   const pending = [];
   const skipped = [];
   const orphan_keys = [];
+  const adopted_tasks = [];
+  const ambiguous_tasks = [];
 
   for (const t of tasks) {
     const target = idendpoint_map.get(t.idendpoint) || t.idendpoint;
@@ -241,10 +290,47 @@ async function restoreIntervalTasks(tasks, idendpoint_map, idkey_map = new Map()
     if (existing) {
       data.idtask = existing.idtask;
     } else if (esUUIDTask(t.idtask)) {
-      // Se inserta honrando el UUID del backup. Es lo que hace que el restore sea
-      // idempotente y que el seed no se realinee: si el UUID no existe, la tarea es
-      // nueva y ese UUID es su identidad desde ahora.
-      data.idtask = t.idtask;
+      // Guarda anti-duplicados del seed. Una base migrada de la era autoincremental
+      // conserva sus tareas con UUID aleatorio (el seed declaraba ids 2..6 y la base
+      // asignaba otros), así que `findByPk(5eed…)` no las encuentra y el seed insertaría
+      // una copia de una tarea que ya existe. El planificador ejecutaría las dos con el
+      // mismo cursor y el endpoint recibiría el doble de corridas.
+      //
+      // Solo se adopta con UNA equivalencia: con varias, elegir una sería arbitrario y
+      // borrar la otra perdería la única copia de esa configuración. En ese caso no se
+      // inserta nada y se avisa para que un humano decida (por eso existe también el
+      // endpoint `list_interval_task_duplicates`).
+      let adopted = null;
+      let ambiguous = false;
+
+      if (adopt_equivalent_tasks) {
+        const equivalents = await findEquivalentIntervalTasks(target, t.params);
+
+        if (equivalents.length === 1) {
+          adopted = equivalents[0];
+        } else if (equivalents.length > 1) {
+          ambiguous = true;
+          ambiguous_tasks.push({
+            idendpoint: target,
+            note: t.note,
+            idtasks: equivalents.map((r) => r.idtask),
+          });
+        }
+      }
+
+      if (ambiguous) continue;
+
+      if (adopted) {
+        // Se actualiza la fila existente en su sitio: conserva su `idtask` y con él el
+        // historial de `ofapi_intervaltask_run` que ya apunta a esa tarea.
+        data.idtask = adopted.idtask;
+        adopted_tasks.push({ idtask: adopted.idtask, idendpoint: target, note: t.note });
+      } else {
+        // Se inserta honrando el UUID del backup. Es lo que hace que el restore sea
+        // idempotente y que el seed no se realinee: si el UUID no existe, la tarea es
+        // nueva y ese UUID es su identidad desde ahora.
+        data.idtask = t.idtask;
+      }
     } else {
       // Sin `idtask` utilizable: la base asigna uno.
       delete data.idtask;
@@ -281,6 +367,20 @@ async function restoreIntervalTasks(tasks, idendpoint_map, idkey_map = new Map()
     console.warn(
       `[restoreIntervalTasks] ${skipped.length} task(s) skipped: idendpoint not found`,
       skipped.map((t) => ({ idtask: t.idtask, idendpoint: t.idendpoint }))
+    );
+  }
+
+  if (adopted_tasks.length > 0) {
+    console.info(
+      `[restoreIntervalTasks] ${adopted_tasks.length} seed task(s) adopted an existing equivalent row (same idendpoint + params); their idtask was kept so the run history stays attached`,
+      adopted_tasks
+    );
+  }
+
+  if (ambiguous_tasks.length > 0) {
+    console.warn(
+      `[restoreIntervalTasks] ${ambiguous_tasks.length} seed task(s) skipped: several existing rows share the same idendpoint + params, so there is no single equivalence to adopt. Remove the duplicates (see interval task duplicates detection) before they are seeded`,
+      ambiguous_tasks
     );
   }
 
@@ -884,7 +984,17 @@ export const upsertApp = async (
     };
  */
 
-export const restoreAppFromBackup = async (app) => {
+/**
+ * Restaura una app (seed o backup) sobre la instancia.
+ *
+ * @param {object} app
+ * @param {{adopt_equivalent_tasks?: boolean}} [options] - `adopt_equivalent_tasks` se pasa
+ *   a `restoreIntervalTasks`. Lo usan el seed (`defaultApps`) y el auto-reparado de la app
+ *   system (`checkSystemApp(true)`), que sí pueden encontrarse tareas anteriores a la
+ *   migración a UUID. Un restore de usuario no lo pasa: para él, un UUID ausente es una
+ *   tarea nueva.
+ */
+export const restoreAppFromBackup = async (app, options = {}) => {
   try {
     if (app.idapp) {
       // Si ya existe una app con el mismo nombre pero con un idapp distinto
@@ -1236,7 +1346,7 @@ export const restoreAppFromBackup = async (app) => {
         // FK idendpoint. Las tareas que existan en BD pero no estén en el
         // backup NO se eliminan; solo se upsertean las que vienen en él.
         if (Array.isArray(app.tasks) && app.tasks.length > 0) {
-          await restoreIntervalTasks(app.tasks, idendpoint_map, idkey_map);
+          await restoreIntervalTasks(app.tasks, idendpoint_map, idkey_map, options);
         }
       }
 
@@ -1259,7 +1369,7 @@ export const restoreAppFromBackup = async (app) => {
 export const defaultApps = async () => {
   let promises = default_apps.map(async (app) => {
     try {
-      let r = await restoreAppFromBackup(app);
+      let r = await restoreAppFromBackup(app, { adopt_equivalent_tasks: true });
       return { app: app, result: r };
     } catch (error) {
       console.log("Error defaultApps:", error);
@@ -1632,7 +1742,9 @@ export async function checkSystemApp(restore = false, endpoint_class = null) {
 
     // Si se solicita sincronizar, restaurar lo que falte y volver a verificar.
     if (restore && !result.valid) {
-      const restored = await restoreAppFromBackup(system_app);
+      const restored = await restoreAppFromBackup(system_app, {
+        adopt_equivalent_tasks: true,
+      });
 
       // Invalidar caché en memoria para que el servidor sirva lo restaurado
       if (endpoint_class?.deleteEndpointsByIdApp) {

@@ -223,6 +223,32 @@ export const toStringList = (value) => {
 export const toAttributeList = (value) => toStringList(value);
 
 /**
+ * Serializa un valor a JSON con las claves ordenadas en todos los niveles.
+ *
+ * `JSON.stringify` respeta el orden de inserción de las claves, así que
+ * `{a:1,b:2}` y `{b:2,a:1}` producen strings distintos aunque sean el mismo
+ * objeto. Para comparar el `params` de dos tareas —una clave natural que el
+ * usuario escribe a mano o que un backup serializa en distinto orden— esa
+ * diferencia de orden convertiría el mismo payload en dos distintos y una tarea
+ * equivalente parecería nueva. Ordenar las claves elimina la ambigüedad.
+ *
+ * @param {unknown} value
+ * @returns {string}
+ */
+export function stableStringify(value) {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableStringify(item)).join(",")}]`;
+  }
+
+  if (value && typeof value === "object") {
+    const keys = Object.keys(value).sort();
+    return `{${keys.map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(",")}}`;
+  }
+
+  return JSON.stringify(value ?? null);
+}
+
+/**
  * Aplica el filtro de columnas a un objeto de opciones de Sequelize.
  *
  * Solo deja pasar nombres que existan en el modelo: un nombre inventado llegaria

@@ -552,6 +552,10 @@ export const getLogs = async (options = {}) => {
     // ellas aunque la base tenga dev, prd y null a la vez, que es exactamente lo que
     // hace un diagnóstico creer que el filtro no funciona. Son 20 bytes por fila y
     // evita una clase entera de conclusiones equivocadas.
+    //
+    // `client` (origen de la petición) entra por el mismo motivo cuando se reporta
+    // actividad por lotes: muchas 4xx desde el mismo `client` son un barrido de
+    // rutas, y sin la columna el digest solo ve "404" y no puede decir de quién.
     const lightweightAttributes = [
       "id",
       "timestamp",
@@ -562,6 +566,7 @@ export const getLogs = async (options = {}) => {
       "method",
       "status_code",
       "environment",
+      "client",
       "log_level",
       "response_time",
     ];

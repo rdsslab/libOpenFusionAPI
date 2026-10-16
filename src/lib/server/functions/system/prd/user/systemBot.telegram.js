@@ -59,7 +59,7 @@
 //    /health           - Salud general del sistema
 //
 // Vínculos: cada aplicación guarda su propia $_VAR_TELEGRAM_GROUPS =
-// { chat_id: { environment, linked_by, linked_at, notify_changes? } } y el bot
+// { chat_id: { environment, linked_by, linked_at, notify_changes?, notify_activity? } } y el bot
 // consulta/escribe vía los endpoints internos /system/appgroup/links (lectura
 // agregada chat -> apps) y /system/appgroup/link (escritura). Un mismo grupo
 // puede estar vinculado a varias apps; los cursores de deduplicación siguen en
@@ -138,6 +138,7 @@ const GROUP_HELP = [
   "/traceslow - Slowest requests of the linked app",
   "/logs [error|warn|info] - Recent logs of the linked app",
   "/changes [on|off] - Configuration change notifications (peek; toggle as admin)",
+  "/notify [all|errors|5xx|off] - Activity digest filter for this group (peek; toggle as admin)",
   "/activity - Recent activity of the linked application",
   "/errors - Recent 5xx errors of the linked application",
   "/tasks - List interval tasks of the linked app",
@@ -292,10 +293,10 @@ const unlinkAppFromGroup = async (idapp, chatId) => {
   return !!r.ok;
 };
 
-const setGroupNotify = async (idapp, chatId, flag) => {
+const setGroupNotifyActivity = async (idapp, chatId, mode) => {
   const res = await api("/appgroup/link", "post", {
     token: scanToken(),
-    data: { action: "set_notify", chat_id: String(chatId), idapp: String(idapp), notify_changes: !!flag },
+    data: { action: "set_notify_activity", chat_id: String(chatId), idapp: String(idapp), notify_activity: mode },
   });
   const r = await parseBody(res);
   return !!r.ok;
@@ -1418,7 +1419,8 @@ $BOT.command("appinfo", async (ctx) => {
     lines.push(
       `• <b>${esc(name)}</b> — <code>${esc(entry.idapp)}</code>`,
       `  Environment: ${esc(entry.environment || ENV)} · Linked by: ${esc(entry.linked_by || "?")} · ${esc(String(entry.linked_at || "?").replace("T", " ").slice(0, 19))} UTC` +
-        (entry.notify_changes === false ? "\n  🔕 change notifications disabled" : "")
+        (entry.notify_changes === false ? "\n  🔕 change notifications disabled" : "") +
+        (entry.notify_activity ? `\n  📰 activity digest: <code>${esc(entry.notify_activity)}</code>` : "")
     );
   }
   await ctx.reply(lines.join("\n"), { parse_mode: "HTML" });
@@ -1952,6 +1954,72 @@ $BOT.command("unsubscribe", async (ctx) => {
     ofapi.log({ message: `unsubscribe: ${error?.message}` });
     await ctx.reply("An unexpected error occurred. Try again.");
   }
+});
+
+$BOT.command("notify", async (ctx) => {
+  const entries = await linkedEntries(ctx);
+  if (!entries.length) return;
+  const args = String((ctx.message?.text || "")).trim().split(/\s+/);
+  const arg = (args[1] || "").toLowerCase();
+  const validModes = ["all", "errors", "5xx", "off"];
+  if (validModes.includes(arg)) {
+    if (!(await isGroupAdmin(ctx.chat, ctx.from.id))) {
+      await ctx.reply("Only group administrators can change the activity filter.");
+      return;
+    }
+    const user = await validateUser(ctx.from.id);
+    if (!user.valid) {
+      await ctx.reply("You are not a validated OpenFusionAPI user. First run /link in a private chat with me to link your account.");
+      return;
+    }
+    const appArg = (args[2] || "").trim().toLowerCase();
+    try {
+      let targets = entries;
+      if (appArg) {
+        const apps = await getAppsIndex();
+        const matches = searchApps([...apps.entries()], appArg);
+        if (!matches.length) {
+          await ctx.reply(`No application matches "<b>${esc(appArg)}</b>". Use /appinfo to list the linked apps.`, { parse_mode: "HTML" });
+          return;
+        }
+        if (matches.length > 1) {
+          await ctx.reply("More than one application matches. Use the full idapp of the application.");
+          return;
+        }
+        const id = String(matches[0][0]);
+        targets = entries.filter((e) => e.idapp === id);
+        if (!targets.length) {
+          await ctx.reply("This group is not linked to that application.");
+          return;
+        }
+      }
+      let changed = 0;
+      let failed = 0;
+      for (const t of targets) {
+        const ok = await setGroupNotifyActivity(t.idapp, String(ctx.chat.id), arg);
+        ok ? (changed += 1) : (failed += 1);
+      }
+      const label = targets.length === 1 ? "this application" : `${changed} application${changed === 1 ? "" : "s"}`;
+      await ctx.reply(
+        failed
+          ? `Activity digest filter: ${changed} updated, ${failed} failed.`
+          : `Activity digest filter set to <b>${esc(arg)}</b> for ${label}.`,
+        { parse_mode: "HTML" },
+      );
+    } catch (error) {
+      ofapi.log({ message: `notify: ${error?.message}` });
+      await ctx.reply("An unexpected error occurred. Try again.");
+    }
+    return;
+  }
+  const apps = await getAppsIndex();
+  const lines = ["<b>Activity digest filter</b> (default: <code>errors</code>)"];
+  for (const entry of entries) {
+    const name = apps.get(String(entry.idapp)) || entry.idapp;
+    lines.push(`• <b>${esc(name)}</b>: <code>${esc(entry.notify_activity || "errors")}</code>`);
+  }
+  lines.push("\nUse /notify all|errors|5xx|off [app] to change it (admin).");
+  await ctx.reply(lines.join("\n"), { parse_mode: "HTML" });
 });
 
 // ── Flujo de texto (solo chat privado) ───────────────────────────────────────

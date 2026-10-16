@@ -13596,11 +13596,11 @@ export const system_app = {
       "handler": "FUNCTION",
       "access": 2,
       "title": "App Groups Activity Scan",
-      "description": "Sends per-group activity digests ('news') for applications linked to Telegram groups via the per-app AppVar $_VAR_TELEGRAM_GROUPS ({ chat_id: { environment, linked_by, linked_at, notify_changes? } }). One chat can be linked to several apps: reads logs by idapp since each group cursor in $_VAR_GROUP_APP_CURSORS and posts an aggregated summary per linked group (or a single group with respond_inline=true + chat_id).",
+      "description": "Sends per-group activity digests ('news') for applications linked to Telegram groups via the per-app AppVar $_VAR_TELEGRAM_GROUPS ({ chat_id: { environment, linked_by, linked_at, notify_changes?, notify_activity? } }). One chat can be linked to several apps: reads logs by idapp and environment since each group cursor in $_VAR_GROUP_APP_CURSORS and posts an aggregated summary per linked group (or a single group with respond_inline=true + chat_id). Each link's notify_activity decides whether the window is sent: all, errors (default; only if the window has 4xx/5xx), 5xx, or off. In errors mode the digest also lists 4xx requests with their origin client (many 4xx from one IP is a route-probing signature). respond_inline=true ignores the filter because the user asked explicitly (/activity).",
       "price_by_request": 1,
       "price_kb_request": 1,
       "price_kb_response": 1,
-      "keywords": "appgroup,scan,telegram,novedades,digest,groups",
+      "keywords": "appgroup,scan,telegram,novedades,digest,groups,notify_activity",
       "code": "fnAppGroupScan",
       "cache_time": 0,
       "createdAt": "2026-09-13T00:00:00.000Z",
@@ -13654,11 +13654,11 @@ export const system_app = {
       "handler": "FUNCTION",
       "access": 2,
       "title": "App Groups Links (read)",
-      "description": "Read-only aggregator of group<->app links. Each application stores its own $_VAR_TELEGRAM_GROUPS AppVar ({ chat_id: { environment, linked_by, linked_at, notify_changes? } }); this endpoint returns the flattened list and the by_chat index. Used by the unified Telegram bot (/appinfo, /status, /activity, /myapps, /unlinkapp) and consumable via MCP.",
+      "description": "Read-only aggregator of group<->app links. Each application stores its own $_VAR_TELEGRAM_GROUPS AppVar ({ chat_id: { environment, linked_by, linked_at, notify_changes?, notify_activity? } }); this endpoint returns the flattened list and the by_chat index. notify_activity is the effective mode (default errors). Used by the unified Telegram bot (/appinfo, /status, /activity, /myapps, /unlinkapp) and consumable via MCP.",
       "price_by_request": 1,
       "price_kb_request": 1,
       "price_kb_response": 1,
-      "keywords": "appgroup,links,telegram,groups,link,appinfo,myapps",
+      "keywords": "appgroup,links,telegram,groups,link,appinfo,myapps,notify_activity",
       "code": "fnAppGroupLinks",
       "cache_time": 0,
       "createdAt": "2026-09-24T00:00:00.000Z",
@@ -13683,11 +13683,11 @@ export const system_app = {
       "handler": "FUNCTION",
       "access": 2,
       "title": "App Groups Links (write)",
-      "description": "Writes group<->app links into the per-app AppVar $_VAR_TELEGRAM_GROUPS. Body: { action: \"link\"|\"unlink\"|\"set_notify\", chat_id, idapp, linked_by?, environment?, notify_changes? }. Uses the DB layer (no endpoint cache invalidation); the groups travel with each app's backup. Used by the unified Telegram bot (/linkapp, /unlinkapp, /changes) and consumable via MCP.",
+      "description": "Writes group<->app links into the per-app AppVar $_VAR_TELEGRAM_GROUPS. Body: { action: \"link\"|\"unlink\"|\"set_notify\"|\"set_notify_activity\", chat_id, idapp, linked_by?, environment?, notify_changes?, notify_activity? }. notify_activity must be one of all|errors|5xx|off; invalid values are rejected with 400. The digest filter defaults to errors for links created without notify_activity. Uses the DB layer (no endpoint cache invalidation); the groups travel with each app's backup. Used by the unified Telegram bot (/linkapp, /unlinkapp, /changes) and consumable via MCP.",
       "price_by_request": 1,
       "price_kb_request": 1,
       "price_kb_response": 1,
-      "keywords": "appgroup,link,unlink,telegram,groups,notify_changes",
+      "keywords": "appgroup,link,unlink,telegram,groups,notify_changes,notify_activity",
       "code": "fnAppGroupLinkWrite",
       "cache_time": 0,
       "createdAt": "2026-09-24T00:00:00.000Z",
@@ -14161,6 +14161,113 @@ export const system_app = {
       "cache_time": 0,
       "createdAt": "2025-11-21T22:04:52.726Z",
       "updatedAt": "2026-07-13T17:27:59.812Z"
+    },
+    {
+      "ctrl": {},
+      "cors": {},
+      "mcp": {
+        "enabled": true,
+        "name": "list_interval_task_duplicates",
+        "title": "List Duplicate Interval Tasks",
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics. Use it to find scheduled tasks that do the same work — same endpoint AND same `params` — so a duplicate left by an old seed or a mistaken copy can be spotted before it keeps firing twice.\nA group in the response is not automatically an error: `same_schedule: true` (all copies share interval/cron/timezone) is almost always an accidental duplicate, while `same_schedule: false` usually means the same call was scheduled at different times on purpose. Read each group's `tasks` (idtask, note, enabled, schedule, idkey, last_run) and decide.\nSend `idapp` to scan a single application; omit it to scan every application on the server (a task always belongs to one app; there is no server-wide task list elsewhere).\nThis tool only reports. To remove a duplicate use 'delete_interval_task', and to change one while keeping its history use 'upsert_interval_task'. Run 'list_interval_tasks' afterwards to confirm.",
+        "operation_mode": "read",
+        "requires_explicit_confirmation": false,
+        "side_effects": "No persistent write side effects expected.",
+        "safe_alternative": "N/A",
+        "notes": [
+          "Two tasks with the same endpoint but different `params` are NOT duplicates: `params` is what the endpoint receives, so a different payload is different work.",
+          "`same_schedule: false` groups are the same call at different times; deleting one silently removes a scheduled call. Confirm intent before deleting.",
+          "A group where some copies are disabled (`enabled: false` or `disabled_by: 'system'`) may be an already-fixed duplicate that only needs the leftover row removed."
+        ]
+      },
+      "json_schema": {
+        "in": {
+          "enabled": true,
+          "schema": {
+            "title": "IntervalTaskDuplicatesRequest",
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "idapp": {
+                "type": "string",
+                "format": "uuid",
+                "description": "Optional. UUID of the application to scan. Omit to scan every application on the server. Obtain it from 'apps_catalog'."
+              }
+            }
+          }
+        },
+        "out": {
+          "enabled": false,
+          "schema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": true
+          }
+        }
+      },
+      "custom_data": {},
+      "headers_test": {},
+      "data_test": {
+        "query": [
+          {
+            "enabled": false,
+            "key": "",
+            "value": "",
+            "internal_hash_row": "c5c647b00670bea65a11ab75bf3c77407cc89d1e12a5a013b5fa8146d30f9368"
+          }
+        ],
+        "body": {
+          "selection": 0,
+          "json": {
+            "code": {}
+          },
+          "xml": {
+            "code": ""
+          },
+          "text": {
+            "value": ""
+          },
+          "form": {}
+        },
+        "headers": [
+          {
+            "enabled": false,
+            "key": "",
+            "value": "",
+            "internal_hash_row": "c5c647b00670bea65a11ab75bf3c77407cc89d1e12a5a013b5fa8146d30f9368"
+          }
+        ],
+        "auth": {
+          "basic": {
+            "username": "",
+            "password": ""
+          },
+          "bearer": {
+            "token": ""
+          },
+          "selection": 0
+        }
+      },
+      "idendpoint": "7d3e9c21-6b48-4f1a-9c2e-8b5a1f0d3e47",
+      "rowkey": 1014,
+      "enabled": true,
+      "idapp": "cfcd2084-95d5-65ef-66e7-dff9f98764da",
+      "environment": "prd",
+      "timeout": 30,
+      "resource": "/interval_tasks/duplicates",
+      "method": "GET",
+      "handler": "FUNCTION",
+      "access": 2,
+      "title": "List duplicate interval tasks",
+      "description": "Lists scheduled interval tasks that share the same endpoint and the same params (operational identity), so duplicates left by an old seed or a mistaken copy can be found. Optional idapp filters to one application; without it the whole server is scanned. Read-only: the response reports groups with their schedule so the operator decides whether the duplication was intentional.",
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "keywords": "interval_tasks,duplicates,duplicate,seed,diagnostics,system,prd",
+      "code": "fnListIntervalTaskDuplicates",
+      "cache_time": 0,
+      "createdAt": "2026-10-16T00:00:00.000Z",
+      "updatedAt": "2026-10-16T00:00:00.000Z"
     },
     {
       "ctrl": {},
