@@ -197,7 +197,7 @@ export const system_app = {
       "params": {},
       "exec_time_limit": 30,
       "history_limit": 50,
-      "max_failed_attempts": 10,
+      "max_failed_attempts": 0,
       "allow_concurrent": 0,
       "iduser": null,
       "idkey": null
@@ -216,7 +216,7 @@ export const system_app = {
       },
       "exec_time_limit": 60,
       "history_limit": 50,
-      "max_failed_attempts": 10,
+      "max_failed_attempts": 0,
       "allow_concurrent": 0,
       "iduser": null,
       "idkey": null
@@ -236,7 +236,7 @@ export const system_app = {
       },
       "exec_time_limit": 60,
       "history_limit": 50,
-      "max_failed_attempts": 10,
+      "max_failed_attempts": 0,
       "allow_concurrent": 0,
       "iduser": null,
       "idkey": null
@@ -255,7 +255,7 @@ export const system_app = {
       },
       "exec_time_limit": 60,
       "history_limit": 50,
-      "max_failed_attempts": 10,
+      "max_failed_attempts": 0,
       "allow_concurrent": 0,
       "iduser": null,
       "idkey": null
@@ -272,7 +272,7 @@ export const system_app = {
       "params": {},
       "exec_time_limit": 60,
       "history_limit": 50,
-      "max_failed_attempts": 10,
+      "max_failed_attempts": 0,
       "allow_concurrent": 0,
       "iduser": null,
       "idkey": null

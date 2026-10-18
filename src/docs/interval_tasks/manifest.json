@@ -37,7 +37,7 @@
     },
     "default_interval_seconds": 300,
     "default_exec_time_limit_seconds": 30,
-    "default_max_failed_attempts": 10,
+    "default_max_failed_attempts": 0,
     "suspension": {
       "column": "disabled_by",
       "reason_column": "disabled_reason",

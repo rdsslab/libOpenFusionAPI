@@ -83,7 +83,7 @@ Configuration you own:
 | `idkey` | — | ApiKey used as Bearer. See §6. |
 | `exec_time_limit` | `30` | Seconds one execution may take before it is aborted. |
 | `allow_concurrent` | `false` | Whether a new execution may start while the previous one runs. |
-| `max_failed_attempts` | `10` | Consecutive failures before the scheduler suspends the task (`disabled_by = 'system'`). `0` never suspends. |
+| `max_failed_attempts` | `0` | Consecutive failures before the scheduler suspends the task (`disabled_by = 'system'`). `0` never suspends. Only values > 0 suspend after that many failures; invalid values fall back to 0. |
 | `history_limit` | `50` | Executions kept per task. `0` disables history. |
 | `note` | — | Free-text label. Not part of any key: two tasks may share it and a task may have none. To identify a task use its `idtask`, which is stable across backups and instances. |
 
