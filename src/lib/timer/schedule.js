@@ -32,7 +32,7 @@ const MAX_BACKOFF_SECONDS = 3600;
  * Debe coincidir con el `defaultValue` de la columna en `models.js` y con
  * `default_max_failed_attempts` en `docs/interval_tasks/manifest.json`.
  */
-const MAX_FAILED_ATTEMPTS_DEFAULT = 10;
+const MAX_FAILED_ATTEMPTS_DEFAULT = 0;
 
 /**
  * Tope duro de `max_backoff_seconds` por tarea (30 días). Solo existe para atrapar
@@ -464,16 +464,16 @@ export function shouldDisableForFailures(task, failedAttempts) {
   const raw = task?.max_failed_attempts;
 
   if (raw === undefined || raw === null || raw === "") {
-    return Number(failedAttempts) >= MAX_FAILED_ATTEMPTS_DEFAULT;
+    return false; // default 0: nunca suspender
   }
 
   const max = Number(raw);
   if (!Number.isFinite(max) || max < 0) {
-    return Number(failedAttempts) >= MAX_FAILED_ATTEMPTS_DEFAULT;
+    return false; // valor no válido: nunca suspender
   }
 
   if (max === 0) {
-    return false;
+    return false; // 0 explícito: nunca suspender
   }
 
   return Number(failedAttempts) >= max;

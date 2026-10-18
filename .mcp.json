@@ -1,5 +1,10 @@
 {
   "mcpServers": {
+    "graphify_local": {
+      "command": "graphify-mcp",
+      "args": ["graphify-out/graph.json"],
+      "env": {}
+    },
     "openfusion_system_remote_prd": {
       "type": "http",
       "url": "http://localhost:3000/api/system/mcp/server/prd",
