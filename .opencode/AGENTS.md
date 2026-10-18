@@ -20,4 +20,6 @@
 - "¿Cuál es el camino más corto entre `Endpoint` y `BotLifecycleTask`?"
 - "¿Qué archivos contribuyen al ciclo `log.js -> models.js -> utils.js`?"
 
+Nota: Antes de cualquier cambio que afecte el comportamiento del proyecto, consultar `.opencode/MCP_SKILL_SYNC.md` para sincronizar skills e instrucciones MCP.
+
 Nota: El grafo se generó con `--code-only` (sin docs ni imágenes semánticas). Para actualizarlo después de cambios grandes: `graphify update .`
