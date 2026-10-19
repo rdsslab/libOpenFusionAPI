@@ -1,34 +1,34 @@
 # HIVE-DRIVER Handler — Impala / Hive
 
-El **HIVE-DRIVER** conecta OpenFusionAPI con servidores **Apache Hive** o **Cloudera Impala** mediante el driver puro `hive-driver` (Thrift sobre TCP). No requiere dependencias nativas del sistema (C++, unixODBC, compiladores), por lo que funciona en `node:alpine` sin problemas.
+The **HIVE-DRIVER** connects OpenFusionAPI to **Apache Hive** or **Cloudera Impala** servers via the pure-JS `hive-driver` (Thrift over TCP). No native OS dependencies (C++, unixODBC, compilers) are required, so it works on `node:alpine` with no issues.
 
 ---
 
 <details>
-<summary>🧠 Cómo funciona</summary>
+<summary>🧠 How It Works</summary>
 
-Cuando un endpoint usa el handler `HIVE_DRIVER` (registro `HIVE_DRIVER`):
+When an endpoint uses the handler `HIVE_DRIVER`:
 
-1. El handler recibe la consulta SQL (`method.code`) y la configuración de conexión (`method.custom_data`).
-2. Resuelve variables de entorno (`AppVar`) y aplica overrides de conexión seguros (`connection_override_allow`).
-3. Extrae parámetros (`bind`, `replacements`, `params`) del request HTTP (GET/POST) igual que `SQL` y `HANA`.
-4. Sustituye los placeholders `:param` / `$param` con valores literales escapados de forma segura (no hay `PreparedStatement` nativo en Impala; la sustitución es literal protegida).
-5. Ejecuta la consulta dentro de un **Worker** (`node:worker_threads`) para que la deserialización de resultados Thrift nunca bloquee el event loop principal.
-6. Usa paginación por lotes (`maxRows`) para evitar traer millones de filas de golpe.
-7. Devuelve el resultado como JSON (`{ rows: [...], count: N }`); valores `BIGINT` > `MAX_SAFE_INTEGER` se convierten a `String` para preservar precisión.
-8. Cierra el cliente (`client.close()`), la sesión (`session.close()`) y la operación (`operation.close()`) automáticamente.
+1. The handler receives the SQL statement (`method.code`) and connection settings (`method.custom_data`).
+2. It resolves environment variables (`AppVar`) and applies secure connection overrides (`connection_override_allow`).
+3. It extracts bind parameters (`bind`, `replacements`, `params`) from the HTTP request (GET/POST) the same way `SQL` and `HANA` do.
+4. It safely substitutes `$param` / `:param` placeholders with escaped SQL literal values (there is no native `PreparedStatement` in Impala; protected literal substitution is used instead).
+5. It executes inside a **Worker** (`node:worker_threads`) so large Thrift result deserialization never blocks the main event loop.
+6. It paginates by batches (`maxRows`) to avoid pulling millions of rows at once.
+7. It returns `{ rows: [...], count: N }`; `BIGINT` values > `MAX_SAFE_INTEGER` are returned as `String` to preserve precision.
+8. It automatically closes the client (`client.close()`), session (`session.close()`), and operation (`operation.close()`) when done.
 
-**Soporta** `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `CREATE`, `ALTER`, etc. (sujeto a permisos del usuario de base de datos).
+**Supported**: `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `CREATE`, `ALTER`, etc. (subject to database user privileges).
 
-**Nota de protocolo / compatibilidad**: usa `HIVE_CLI_SERVICE_PROTOCOL_V10` por defecto, compatible con **Apache Hive 3.x / 4.x** y **Cloudera Impala** (ambos usan `TCLIService` Thrift). Probado con contenedor real `mirror.gcr.io/apache/hive:4.0.0` y `3.1.3` (`localhost:10000`, TCP abierto, sesiones `Hive Session ID` confirmadas con `NoSasl` / `PLAIN`). Si tu clúster Impala requiere `V6`, modifica `hive-worker.js` (`client_protocol`).
+**Protocol note / compatibility**: uses `HIVE_CLI_SERVICE_PROTOCOL_V10` by default, compatible with **Apache Hive 3.x / 4.x** and **Cloudera Impala** (same `TCLIService` Thrift protocol). Tested with real containers: `mirror.gcr.io/apache/hive:4.0.0` and `3.1.3` (`TCP 10000` open, `Hive Session ID` confirmed with `NoSasl` / `PLAIN`). For clusters that require `V6`, adjust `hive-worker.js` (`client_protocol`).
 </details>
 
 ---
 
 <details>
-<summary>⚙️ Configuración del Endpoint</summary>
+<summary>⚙️ Endpoint Configuration</summary>
 
-Ejemplo de endpoint en OpenFusionAPI:
+Example endpoint in OpenFusionAPI:
 
 ```json
 {
@@ -41,26 +41,26 @@ Ejemplo de endpoint en OpenFusionAPI:
 }
 ```
 
-El `custom_data` es JSON. Puede ser un objeto literal o una referencia a `AppVar`: `"$_VAR_IMPALA_CONFIG"`.
+The `custom_data` is JSON; it may be an object literal or an AppVar reference: `\"$_VAR_IMPALA_CONFIG\"`.
 
 ---
 
 <details>
-<summary>📄 Definición de la Consulta y Parámetros (Bind)</summary>
+<summary>📄 Query Definition & Parameters (Bind)</summary>
 
-### Sintaxis de placeholders
+### Placeholder syntax
 
-- `$nombre` — valor escalar (número, string, booleano, `NULL`).
-- `:nombre` — igual que `$nombre`; el sistema limpia el prefijo (`:`, `$`, `@`) antes de sustituir.
-- **Arrays** (`IN (:list)`): cada elemento se expande como `?, ?, ...` y se escapa individualmente.
+- `$name` — scalar value (number, string, boolean, `NULL`).
+- `:name` — same as `$name`; the system strips the prefix (`:`, `$`, `@`) before substituting.
+- **Arrays** (`IN (:list)`): each element expands as `?, ?, ...` and is escaped individually.
 
-### Ejemplo con array
+### Example with an array
 
 ```sql
 SELECT * FROM pedidos WHERE status IN ($status_list) AND region = $region
 ```
 
-Con body de request:
+With request body:
 
 ```json
 {
@@ -71,41 +71,41 @@ Con body de request:
 }
 ```
 
-Internamente se convierte en:
+Internally it becomes:
 
 ```sql
 SELECT * FROM pedidos WHERE status IN ('PENDIENTE', 'APROBADO') AND region = 'NORTE'
 ```
 
-**Importante**: nunca concatenar valores directamente en `method.code`. Siempre usar `bind` o `replacements`.
+**Important**: never concatenate values directly into `method.code`. Always use `bind` or `replacements`.
 
-### Parámetros en GET
+### GET parameters
 
-- `GET /api/demo/impala/dev?bind={"region":"NORTE"}`
-- `GET /api/demo/impala/dev?region=NORTE` (si no hay clave `bind`, los campos sueltos se convierten en bind automáticamente, igual que `sqlFunction`).
+- `GET /api/demo/impala/dev?bind={"region":"NORTH"}`
+- `GET /api/demo/impala/dev?region=NORTH` (without `bind`, loose fields become bind automatically — same as `sqlFunction`).
 - Repeated keys: `?id=1&id=2` → `bind: { id: ["1", "2"] }` (Fastify semantics).
 </details>
 
 ---
 
 <details>
-<summary>🔧 Parámetros de Conexión (`custom_data` / AppVar)</summary>
+<summary>🔧 Connection Parameters (`custom_data` / AppVar)</summary>
 
-| Campo | Tipo | Requerido | Descripción |
+| Field | Type | Required | Notes |
 |---|---|---|---|
-| `host` | string | sí | Hostname / IP de HiveServer2 / Impala |
-| `port` | number | no | Puerto Thrift binario. Default `21050` |
-| `username` | string | sí (PLAIN) / no (NONE) | Usuario de dominio (LDAP) |
-| `password` | string | sí (PLAIN) / no (NONE) | Clave de dominio |
-| `database` | string | no | Base de datos por defecto (igual a `USE`) |
-| `useTLS` | boolean | no | Activa TLS en el socket tcp (`ssl: true`). Default `false` |
-| `tls` | object | no | Opciones TLS (`ca`, `rejectUnauthorized`, `cert`, `key`) pasadas al `TcpConnection` |
-| `authType` | string | no | `PLAIN` (actual / LDAP), `NONE` / `NOSASL` (para servidores sin autenticación SASL), `KERBEROS` (reservado; requiere instalar `kerberos`) |
-| `maxRows` | number | no | Filas por lote Thrift. Default `1000` |
-| `timeoutMs` | number | no | Timeout de ejecución de la consulta. Default `30000` |
-| `connection_override_allow` | array | no | Lista de rutas permitidas para `connection` override (ej. `["host","port"]`) |
+| `host` | string | yes | Hostname / IP of HiveServer2 / Impala |
+| `port` | number | no | Default `21050` |
+| `username` | string | yes (PLAIN) | Domain user (LDAP) |
+| `password` | string | yes (PLAIN) | Domain password (protected via TLS in production) |
+| `database` | string | no | Default database (same as `USE`) |
+| `useTLS` | boolean | no | Enables SSL on the TCP socket (`ssl: true`). Default `false` |
+| `tls` | object | no | TLS options (`ca`, `rejectUnauthorized`, `cert`, `key`) passed to `TcpConnection` |
+| `authType` | string | no | `PLAIN` (today / LDAP), `NONE` / `NOSASL` (for SASL-less servers), `KERBEROS` (reserved; requires installing `kerberos`) |
+| `maxRows` | number | no | Batch fetch size per Thrift fetch. Default `1000` (it is NOT the total result limit) |
+| `timeoutMs` | number | no | Query timeout. Default `30000` |
+| `connection_override_allow` | array | no | Allowlist of connection override keys (e.g. `["host","port"]`) |
 
-**Ejemplo con TLS**:
+**Example with TLS**:
 
 ```json
 {
@@ -119,15 +119,15 @@ SELECT * FROM pedidos WHERE status IN ('PENDIENTE', 'APROBADO') AND region = 'NO
 }
 ```
 
-> ⚠️ **Seguridad**: si envías `password` sin `useTLS: true`, la contraseña viaja en texto plano por TCP. Siempre usa TLS en producción.
+> ⚠️ **Security**: if you send `password` without `useTLS: true`, the credential travels in clear text over TCP. Always enable TLS in production.
 </details>
 
 ---
 
 <details>
-<summary>🌐 Ejemplos de Peticiones</summary>
+<summary>🌐 Example Requests</summary>
 
-### POST con array (`IN`) y variables de conexión
+### POST with array (`IN`) and connection override
 
 ```bash
 curl -X POST https://example.com/api/demo/impala/prd \
@@ -147,13 +147,13 @@ curl -X POST https://example.com/api/demo/impala/prd \
   }'
 ```
 
-### SQL configurado
+### SQL configured
 
 ```sql
 SELECT id, name, category FROM enddb.demo WHERE category IN ($categories) AND id >= $min_id LIMIT 1000;
 ```
 
-### Respuesta exitosa
+### Successful response
 
 ```json
 {
@@ -169,73 +169,72 @@ SELECT id, name, category FROM enddb.demo WHERE category IN ($categories) AND id
 ---
 
 <details>
-<summary>🔐 Autenticación y Acceso</summary>
+<summary>🔐 Authentication & Access</summary>
 
-Soporta los modos estándar de OpenFusionAPI:
+Supports the standard OpenFusionAPI access modes:
 
-- **Público**
+- **Public**
 - **Basic Authentication**
 - **Token (JWT)**
 
-**Recomendación**: usar tokens con permisos de solo lectura (`SELECT`) para endpoints públicos; restringir `INSERT/UPDATE/DELETE` a roles específicos.
+**Recommendation**: use read-only tokens for public endpoints (`SELECT`); restrict `INSERT/UPDATE/DELETE` to specific roles.
 </details>
 
 ---
 
 <details>
-<summary>🪵 Registro (Logs)</summary>
+<summary>🪵 Logs</summary>
 
-Cada petición registra (global OpenFusionAPI):
+Each request logs globally on OpenFusionAPI:
 
 - Timestamp
-- SQL ejecutado (con bind resuelto o con placeholders según nivel de log)
-- Tiempo de ejecución (ms)
-- Host / puerto de conexión
-- Resultado (`statusCode` / error)
-- Si hay timeout (`504`)
+- SQL executed (resolved bind or raw placeholder depending on log level)
+- Execution time (ms)
+- Connection host / port
+- Result (`statusCode` / error)
+- Timeout (`504`) if applicable
 </details>
 
 ---
 
 <details>
-<summary>📊 Resumen de Capacidades</summary>
+<summary>📊 Capability Summary</summary>
 
-| Característica | Soportado |
+| Feature | Supported |
 |---|---|
-| Impala / HiveServer2 (TCP binario) | ✅ |
-| LDAP / PLAIN (autenticación por dominio) | ✅ |
-| Kerberos (reservado, sin instalar hoy) | ⏳ (listo para `authType: "KERBEROS"`) |
-| TLS / SSL | ✅ (`useTLS` + `tls`) |
-| Parámetros (`$`, `:`, arrays `IN`) | ✅ |
-| Paginación por lotes (`maxRows`) | ✅ |
-| Aislamiento de event loop (`Worker`) | ✅ |
-| Precisión BIGINT (`Int64` → `String`) | ✅ |
-| Precisión DECIMAL | ⚠️ Depende de `hive-driver`; usar `CAST(col AS STRING)` si se requiere |
-| Múltiples consultas por request | ❌ (una por request) |
-| Bulk insert eficiente | ❌ (usar `SQL_BULK_I` con otro motor) |
+| Impala / HiveServer2 (TCP binary) | ✅ |
+| LDAP / PLAIN domain auth | ✅ |
+| Kerberos (reserved; not installed today) | ⏳ ready for `authType: "KERBEROS"` |
+| TLS / SSL (`useTLS` + `tls`) | ✅ |
+| Parameters (`$`, `:`, arrays `IN`) | ✅ |
+| Batch pagination (`maxRows`) | ✅ |
+| Event loop isolation (`Worker`) | ✅ |
+| BIGINT precision (`Int64` → `String`) | ✅ |
+| DECIMAL precision | ⚠️ depends on `hive-driver`; use `CAST(col AS STRING)` |
+| Multiple queries per request | ❌ (one per request) |
+| Efficient bulk insert | ❌ (use `SQL_BULK_I` with another engine) |
 | Caching | ✅ (global OpenFusionAPI) |
-
 </details>
 
 ---
 
 <details>
-<summary>💡 Casos de Uso Típicos</summary>
+<summary>💡 Typical Use Cases</summary>
 
-- Exponer tablas / vistas de Impala como REST (dashboards, reporting).
-- Consultas analíticas con agregaciones (`GROUP BY`, `SUM`) y filtros por arrays (`IN`).
-- Validación de datos entre sistemas (ej: comparar IDs de dominio con lista de códigos).
-- Integración con blogs / APIs que consumen datos de Big Data sin instalar ODBC en la imagen Docker.
+- Expose Hive/Impala tables and views as REST endpoints (dashboards, reporting).
+- Analytical queries with aggregations (`GROUP BY`, `SUM`) and filters by arrays (`IN`).
+- Cross-system data validation (e.g., compare IDs against a code list).
+- Integrate Big Data consumers (blogs, APIs) without installing ODBC in the Docker image.
 </details>
 
 ---
 
-## Notas & Limitaciones
+## Notes & Limitations
 
-- **No hay `PreparedStatement` nativo**: todos los parámetros se sustituyen como literales protegidos. Nunca uses concatenación manual.
-- **Tipos grandes**: `BIGINT` > `MAX_SAFE_INTEGER` se devuelve como `String`; para preservar como número en el cliente, usa `CAST(col AS STRING)` o convierte a `BigInt` en JS.
-- **Event Loop**: el `Worker` aísla la deserialización Thrift, pero un `SELECT` con millones de filas puede crecer en memoria del worker; usa `maxRows` y `LIMIT`.
-- **Kerberos**: requiere instalar `npm i kerberos` y configurar `principal` / `keytabPath`; hoy no se instala para evitar dependencias nativas y se deja como `authType` futuro.
-- **Versión del protocolo**: por defecto `V10` (compatible Hive 3.x/4.x). Si tu clúster requiere `V6`, modifica `hive-worker.js` (`TCLIService_types.TProtocolVersion.HIVE_CLI_SERVICE_PROTOCOL_V6`).
+- **No native `PreparedStatement`**: all parameters are substituted as protected literals. Never concatenate manually.
+- **Large types**: `BIGINT` > `MAX_SAFE_INTEGER` is returned as `String`; if you need a number in the client, cast to `STRING` in SQL or convert to `BigInt` in JS.
+- **Event Loop**: the Worker isolates Thrift deserialization, but a `SELECT` with millions of rows can grow the worker memory; always use `maxRows` or a `LIMIT` in your SQL.
+- **Kerberos**: requires `npm i kerberos` and a configured `principal` / `keytabPath`; not installed today to avoid native dependencies and is left as a reserved `authType`.
+- **Protocol version**: defaults to `V10` (Hive 3.x / 4.x compatible). If your cluster requires `V6`, edit `hive-worker.js` (`TCLIService_types.TProtocolVersion.HIVE_CLI_SERVICE_PROTOCOL_V6`).
 
 © 2026 — OpenFusionAPI · `hive-driver` integration

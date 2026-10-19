@@ -392,6 +392,63 @@ export const demo_app = {
       "environment": "prd",
       "createdAt": "2026-09-28T00:00:00.000Z",
       "updatedAt": "2026-09-28T00:00:00.000Z"
+    },
+    {
+      "value": {
+        "host": "localhost",
+        "port": 10000,
+        "username": "",
+        "password": "",
+        "authType": "NONE",
+        "useTLS": false,
+        "maxRows": 1000,
+        "timeoutMs": 30000
+      },
+      "idvar": "7e9a26e0-32ea-4a12-92a2-a4c5d6f99828",
+      "idapp": "c4ca4238-a0b9-2382-0dcc-509a6f75849b",
+      "name": "$_VAR_HIVE_CONFIG",
+      "type": "json",
+      "environment": "dev",
+      "createdAt": "2026-10-19T10:00:00.000Z",
+      "updatedAt": "2026-10-19T10:00:00.000Z"
+    },
+    {
+      "value": {
+        "host": "localhost",
+        "port": 10000,
+        "username": "",
+        "password": "",
+        "authType": "NONE",
+        "useTLS": false,
+        "maxRows": 1000,
+        "timeoutMs": 30000
+      },
+      "idvar": "2de5b6d1-4ba7-418e-b015-01e42d513531",
+      "idapp": "c4ca4238-a0b9-2382-0dcc-509a6f75849b",
+      "name": "$_VAR_HIVE_CONFIG",
+      "type": "json",
+      "environment": "qa",
+      "createdAt": "2026-10-19T10:00:00.000Z",
+      "updatedAt": "2026-10-19T10:00:00.000Z"
+    },
+    {
+      "value": {
+        "host": "localhost",
+        "port": 10000,
+        "username": "",
+        "password": "",
+        "authType": "NONE",
+        "useTLS": false,
+        "maxRows": 1000,
+        "timeoutMs": 30000
+      },
+      "idvar": "522dad64-9b91-44ff-8356-ab139ce15187",
+      "idapp": "c4ca4238-a0b9-2382-0dcc-509a6f75849b",
+      "name": "$_VAR_HIVE_CONFIG",
+      "type": "json",
+      "environment": "prd",
+      "createdAt": "2026-10-19T10:00:00.000Z",
+      "updatedAt": "2026-10-19T10:00:00.000Z"
     }
   ],
   "bots": [
@@ -7592,6 +7649,64 @@ export const demo_app = {
       "cache_time": 0,
       "createdAt": "2026-09-28T00:00:00.000Z",
       "updatedAt": "2026-09-28T00:00:00.000Z"
+    },
+    {
+      "ctrl": { "admin": true, "users": [], "log": {} },
+      "cors": {},
+      "mcp": { "enabled": false, "name": "", "title": "", "description": "" },
+      "json_schema": { "in": { "enabled": true, "schema": { "type": "object", "properties": { "categories": { "type": "array", "items": { "type": "string" } }, "min_id": { "type": "integer" } }, "additionalProperties": true } }, "out": { "enabled": false, "schema": { "type": "object", "properties": {}, "additionalProperties": true } } },
+      "custom_data": "$_VAR_HIVE_CONFIG",
+      "headers_test": {},
+      "data_test": { "auth": { "basic": {}, "bearer": {}, "selection": 0 }, "body": { "selection": 0, "json": { "code": { "bind": { "categories": ["X", "Y"], "min_id": 1 } } } }, "query": [{ "enabled": false, "key": "", "value": "", "internal_hash_row": "hive-demo-bind-q1" }], "headers": [{ "enabled": false, "key": "", "value": "", "internal_hash_row": "hive-demo-bind-h1" }], "last_response": { "data": "", "sizeKBResponse": -1, "MimeType": "" } },
+      "idendpoint": "c80415fa-1d7b-48c2-93aa-2607fd0f3804",
+      "rowkey": 994,
+      "enabled": true,
+      "idapp": "c4ca4238-a0b9-2382-0dcc-509a6f75849b",
+      "environment": "dev",
+      "timeout": 30,
+      "resource": "/api/demo/hive/dev",
+      "method": "POST",
+      "handler": "HIVE_DRIVER",
+      "access": 0,
+      "title": "Hive/Impala bind demo (IN array)",
+      "description": "Demo de HIVE-DRIVER con bind de array (IN $categories) y conexion via AppVar $_VAR_HIVE_CONFIG (host localhost:10000, authType NONE).",
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "keywords": "example,hive,impala,hive-driver,bind,array",
+      "code": "SELECT id, name, category FROM enddb.demo WHERE category IN ($categories) AND id >= $min_id LIMIT 1000;",
+      "cache_time": 0,
+      "createdAt": "2026-10-19T10:00:00.000Z",
+      "updatedAt": "2026-10-19T10:00:00.000Z"
+    },
+    {
+      "ctrl": { "admin": true, "users": [], "log": {} },
+      "cors": {},
+      "mcp": { "enabled": false, "name": "", "title": "", "description": "" },
+      "json_schema": { "in": { "enabled": true, "schema": { "type": "object", "properties": { "name": { "type": "string" } }, "additionalProperties": true } }, "out": { "enabled": false, "schema": { "type": "object", "properties": {}, "additionalProperties": true } } },
+      "custom_data": "$_VAR_HIVE_CONFIG",
+      "headers_test": {},
+      "data_test": { "auth": { "basic": {}, "bearer": {}, "selection": 0 }, "body": { "selection": 0, "json": { "code": { "bind": { "categories": ["X", "Y"] } } } }, "query": [{ "enabled": false, "key": "", "value": "", "internal_hash_row": "hive-demo-get-q1" }], "headers": [{ "enabled": false, "key": "", "value": "", "internal_hash_row": "hive-demo-get-h1" }] },
+      "idendpoint": "f367f4e2-223a-4466-bf05-2288dc571224",
+      "rowkey": 995,
+      "enabled": true,
+      "idapp": "c4ca4238-a0b9-2382-0dcc-509a6f75849b",
+      "environment": "dev",
+      "timeout": 30,
+      "resource": "/api/demo/hive/constant",
+      "method": "GET",
+      "handler": "HIVE_DRIVER",
+      "access": 0,
+      "title": "Hive/Impala constant demo",
+      "description": "Demo de HIVE-DRIVER con consulta constante SELECT 1 y conexion via AppVar $_VAR_HIVE_CONFIG. Prueba de conectividad basica con HiveServer2.",
+      "price_by_request": 1,
+      "price_kb_request": 1,
+      "price_kb_response": 1,
+      "keywords": "example,hive,impala,hive-driver,constant",
+      "code": "SELECT 1 AS test_hive;",
+      "cache_time": 0,
+      "createdAt": "2026-10-19T10:00:00.000Z",
+      "updatedAt": "2026-10-19T10:00:00.000Z"
     }
   ]
 }
