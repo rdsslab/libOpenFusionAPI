@@ -18,6 +18,7 @@ Each active handler must keep its material inside its own folder:
 | [FETCH](./FETCH/README.md) | Fetch | active | - |
 | [FUNCTION](./FUNCTION/README.md) | Function | active | - |
 | [HANA](./HANA/README.md) | HANA | active | - |
+| [HIVE_DRIVER](./HIVE_DRIVER/README.md) | HIVE-DRIVER | active | - |
 | [JS](./JS/README.md) | JavaScript | active | libraries/README.md |
 | [MCP](./MCP/README.md) | MCP | active | - |
 | [MONGODB](./MONGODB/README.md) | MongoDB | active | - |
@@ -25,7 +26,6 @@ Each active handler must keep its material inside its own folder:
 | [SOAP](./SOAP/README.md) | SOAP | active | - |
 | [SQL](./SQL/README.md) | SQL | active | - |
 | [SQL_BULK_I](./SQL_BULK_I/README.md) | SQL Bulk Insert | active | - |
-| [SQL_DRIVER](./SQL_DRIVER/README.md) | HIVE-DRIVER | active | - |
 | [TEXT](./TEXT/README.md) | Text | active | - |
 
 > Auto-generated from `src/lib/handler/handler.js` and per-handler `manifest.json` files.

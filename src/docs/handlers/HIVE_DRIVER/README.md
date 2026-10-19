@@ -7,7 +7,7 @@ El **HIVE-DRIVER** conecta OpenFusionAPI con servidores **Apache Hive** o **Clou
 <details>
 <summary>🧠 Cómo funciona</summary>
 
-Cuando un endpoint usa el handler `HIVE_DRIVER` (registro `SQL_DRIVER`):
+Cuando un endpoint usa el handler `HIVE_DRIVER` (registro `HIVE_DRIVER`):
 
 1. El handler recibe la consulta SQL (`method.code`) y la configuración de conexión (`method.custom_data`).
 2. Resuelve variables de entorno (`AppVar`) y aplica overrides de conexión seguros (`connection_override_allow`).
@@ -20,7 +20,7 @@ Cuando un endpoint usa el handler `HIVE_DRIVER` (registro `SQL_DRIVER`):
 
 **Soporta** `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `CREATE`, `ALTER`, etc. (sujeto a permisos del usuario de base de datos).
 
-**Nota de protocolo**: por defecto usa `HIVE_CLI_SERVICE_PROTOCOL_V10` (compatible con Hive 3.x / 4.x); si tu clúster requiere V6, puedes ajustarlo en el código del worker (`hive-worker.js`).
+**Nota de protocolo / compatibilidad**: usa `HIVE_CLI_SERVICE_PROTOCOL_V10` por defecto, compatible con **Apache Hive 3.x / 4.x** y **Cloudera Impala** (ambos usan `TCLIService` Thrift). Probado con contenedor real `mirror.gcr.io/apache/hive:4.0.0` y `3.1.3` (`localhost:10000`, TCP abierto, sesiones `Hive Session ID` confirmadas con `NoSasl` / `PLAIN`). Si tu clúster Impala requiere `V6`, modifica `hive-worker.js` (`client_protocol`).
 </details>
 
 ---
@@ -32,7 +32,7 @@ Ejemplo de endpoint en OpenFusionAPI:
 
 ```json
 {
-  "handler": "SQL_DRIVER",
+  "handler": "HIVE_DRIVER",
   "method": "GET",
   "resource": "/api/demo/impala/dev",
   "environment": "dev",

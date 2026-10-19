@@ -1,5 +1,5 @@
 {
-  "handler": "SQL_DRIVER",
+  "handler": "HIVE_DRIVER",
   "label": "HIVE-DRIVER",
   "status": "active",
   "summary": "Pure Node.js Hive / Impala driver using hive-driver (Thrift over TCP) with LDAP/PLAIN authentication. Ready for future Kerberos migration.",

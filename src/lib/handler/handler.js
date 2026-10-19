@@ -65,7 +65,7 @@ export const Handlers = {
     css_class: "",
     description: "Easily execute SQL queries on SAP HANA databases. The endpoint can receive parameters that will be sent to the query and returns the query result.",
   },
-  SQL_DRIVER: {
+  HIVE_DRIVER: {
     label: "HIVE-DRIVER",
     fn: hiveFunction,
     css_icon: "fa-solid fa-database",

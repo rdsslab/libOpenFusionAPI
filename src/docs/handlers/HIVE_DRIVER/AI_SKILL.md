@@ -2,11 +2,11 @@
 
 ## Purpose
 
-Use the `SQL_DRIVER` handler (label `HIVE-DRIVER` in the registry) to connect OpenFusionAPI endpoints to Apache Hive / Cloudera Impala via the pure-JS `hive-driver` (Thrift TCP). This avoids native OS dependencies (unixODBC, C++ compilation), making it ideal for lightweight Docker images (`node:alpine`).
+Use the `HIVE_DRIVER` handler (label `HIVE-DRIVER` in the registry) to connect OpenFusionAPI endpoints to Apache Hive / Cloudera Impala via the pure-JS `hive-driver` (Thrift TCP). This avoids native OS dependencies (unixODBC, C++ compilation), making it ideal for lightweight Docker images (`node:alpine`).
 
 ## When to use
 
-- The source is HiveServer2 / Impala with TCP binary transport (port 21050 by default).
+- The source is HiveServer2 / Impala with TCP binary transport (port 21050 by default). Tested with real containers: `mirror.gcr.io/apache/hive:4.0.0` and `3.1.3` (`TCP 10000`, `Hive Session ID` confirmed; `authType: NONE` and `PLAIN` tested).
 - You need LDAP/PLAIN domain authentication (`username`/`password`).
 - You must receive parameters (`bind` / `replacements`) from HTTP requests, including arrays for `IN (...)` filters.
 - You want event-loop isolation for large result sets (`maxRows` pagination + `Worker` thread).
@@ -23,7 +23,7 @@ Use the `SQL_DRIVER` handler (label `HIVE-DRIVER` in the registry) to connect Op
 
 ```json
 {
-  "handler": "SQL_DRIVER",
+  "handler": "HIVE_DRIVER",
   "code": "SELECT * FROM enddb.demo WHERE category IN ($categories)",
   "custom_data": "{\"host\":\"impala.company.local\",\"port\":21050,\"authType\":\"PLAIN\",\"maxRows\":1000}"
 }
@@ -83,7 +83,7 @@ Response format: `{ "rows": [{...}], "count": N }`
 
 ```json
 {
-  "handler": "SQL_DRIVER",
+  "handler": "HIVE_DRIVER",
   "method": "POST",
   "resource": "/api/demo/hive/dev",
   "environment": "dev",

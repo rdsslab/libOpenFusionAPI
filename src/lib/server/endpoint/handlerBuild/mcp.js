@@ -556,7 +556,7 @@ export const CreateMCPHandler = async (app_name, environment) => {
   };
 
   const hasStructuredRuntimeSpecificPayload = (handler) => {
-    return ["SOAP", "HANA", "MONGODB", "MCP", "SQL_BULK_I", "SQL_DRIVER"].includes(handler);
+    return ["SOAP", "HANA", "MONGODB", "MCP", "SQL_BULK_I", "HIVE_DRIVER"].includes(handler);
   };
 
   const isEndpointUpsertLikeTool = (toolName) => {
