@@ -1,0 +1,15 @@
+{
+  "handler": "SQL_DRIVER",
+  "label": "HIVE-DRIVER",
+  "status": "active",
+  "summary": "Pure Node.js Hive / Impala driver using hive-driver (Thrift over TCP) with LDAP/PLAIN authentication. Ready for future Kerberos migration.",
+  "docs": {
+    "main": "README.md",
+    "generated": [],
+    "examples": []
+  },
+  "configuration": {
+    "code": "SQL query to be executed against Impala (e.g., SELECT * FROM db.table). Uses $name or :name bind markers that are substituted safely from request parameters.",
+    "custom_data": "Connection config object with host, port, username, password, useTLS, tls, authType (PLAIN|KERBEROS future), maxRows, timeoutMs."
+  }
+}

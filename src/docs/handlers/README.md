@@ -25,6 +25,7 @@ Each active handler must keep its material inside its own folder:
 | [SOAP](./SOAP/README.md) | SOAP | active | - |
 | [SQL](./SQL/README.md) | SQL | active | - |
 | [SQL_BULK_I](./SQL_BULK_I/README.md) | SQL Bulk Insert | active | - |
+| [SQL_DRIVER](./SQL_DRIVER/README.md) | HIVE-DRIVER | active | - |
 | [TEXT](./TEXT/README.md) | Text | active | - |
 
 > Auto-generated from `src/lib/handler/handler.js` and per-handler `manifest.json` files.

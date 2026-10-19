@@ -8,6 +8,7 @@ import { sqlHana } from "./sqlHana.js";
 import { sqlFunctionInsertBulk } from "./sqlFunctionInsertBulk.js";
 import { mongodbFunction } from "./mongoDB.js";
 import { mcpFunction } from "./mcpFunction.js";
+import { hiveFunction } from "./hiveDriver.js";
 import { replyException } from "./utils.js";
 import { listFunctionsVars } from "../server/functionVars.js";
 import { readHandlerDocBundle, getHandlerLibraryDoc as readHandlerLibraryDoc } from "../server/handlerDocs.js";
@@ -63,6 +64,13 @@ export const Handlers = {
     css_icon: "fa-solid fa-database",
     css_class: "",
     description: "Easily execute SQL queries on SAP HANA databases. The endpoint can receive parameters that will be sent to the query and returns the query result.",
+  },
+  SQL_DRIVER: {
+    label: "HIVE-DRIVER",
+    fn: hiveFunction,
+    css_icon: "fa-solid fa-database",
+    css_class: "link",
+    description: "It allows you to connect to Apache Hive / Cloudera Impala using a pure Node.js Thrift driver (no native dependencies). The endpoint can receive parameters that will be sent to the query and returns the query result. Queries run in an isolated worker thread so large result sets do not block the event loop.",
   },
   FUNCTION: {
     label: "Function",

@@ -18,6 +18,15 @@ see [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [13.13.3] - 2026-10-19
+
+### Added
+
+- **Handler `HIVE_DRIVER` (label `HIVE-DRIVER`, key `SQL_DRIVER`)**: nuevo handler para Apache Hive / Cloudera Impala mediante `hive-driver` puro JS (Thrift TCP, sin dependencias nativas). Incluye `hive-worker.js` con aislamiento `node:worker_threads`, bind con arrays (`IN (...)`), paginación (`maxRows`), TLS opcional (`useTLS` + `tls`), autenticación pluggable (`PLAIN` hoy; `KERBEROS` reservado) y documentación completa (`README.md`, `manifest.json`, `AI_SKILL.md`). El endpoint recibe parámetros igual que `SQL` (`bind` / `replacements`). Registro: `src/lib/handler/handler.js` (clave `SQL_DRIVER`). Pruebas estructurales de bind/array: PASS (`/tmp/test_bind.js`). Verificación de conexión real con contenedor `mirror.gcr.io/apache/hive:4.0.0` (`TCP 10000` abierto, `Hive Session ID` generada) y `hive:3.1.3`. Precauciones de volumen documentadas en `AI_SKILL.md`: `maxRows` es solo batch, no límite total; `SELECT *` sin `LIMIT` trae todo; arrays muy grandes pueden exceder límites del parser; `timeoutMs` no protege memoria.
+- Actualizado `CHANGELOG.md` con la versión `13.13.3` y `package.json` (`npm run set_version`). Regenerado índice de handlers (`npm run docs:handlers:index`) y validado (`npm run docs:handlers:validate`). Añadido `SQL_DRIVER` a `hasStructuredRuntimeSpecificPayload` en `mcp.js` para que los agentes consulten `handler_documentation`. Carpeta docs renombrada a `SQL_DRIVER` para cumplir el contrato (`docs/handlers/<handler_key>`).
+
+---
+
 ## [13.13.0] - 2026-10-15
 
 ### Added
