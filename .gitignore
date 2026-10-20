@@ -126,3 +126,11 @@ package-lock.json
 *.sqlite3
 # Artefactos de pruebas con Playwright (CLI)
 .playwright-cli/
+
+# Artifacts de graphify (solo GRAPH_REPORT.md se mantiene; resto regenerado con --update --code-only)
+graphify-out/graph.html
+graphify-out/graph.json
+graphify-out/cache/
+graphify-out/.graphify_*
+graphify-out/manifest.json
+graphify-out/2*/
