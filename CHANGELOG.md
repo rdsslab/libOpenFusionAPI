@@ -18,6 +18,16 @@ see [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [13.13.5] - 2026-10-20
+
+### Fixed
+
+- **Handler `HIVE_DRIVER`: lectura de resultados incompatible con Impala.** `hive-worker.js` llamaba a `operation.fetch()` sin orientación; en `hive-driver@1.0.1` eso se traduce a un `TFetchResults` con `TFetchOrientation.FETCH_FIRST`, que Impala rechaza con `Restarting of fetch requires enabling of query result caching.` cuando la consulta no tiene activa la caché de resultados (`impala.resultset.cache.size`). El worker ahora lee siempre con `FETCH_NEXT` (`= 1`), que Impala y Hive aceptan por igual. Afectaba a **todas** las consultas contra Impala (HTTP 500), mientras que con Hive (que sí acepta `FETCH_FIRST`) no se reproducía.
+- **Handler `HIVE_DRIVER`: duplicación de filas al paginar.** `hive-driver` acumula cada lote en `operation.getData()` y `getValue()` devuelve el acumulado, por lo que el bucle del worker insertaba de nuevo las filas de lotes anteriores (en pruebas: 1 300 filas devueltas para 250 reales). Ahora se invoca `operation.flush()` tras leer cada lote, de modo que la paginación con `maxRows` no pierde ni repite filas.
+- Actualizado `CHANGELOG.md` con la versión `13.13.5` y `package.json` (`npm run set_version`).
+
+---
+
 ## [13.13.3] - 2026-10-19
 
 ### Added

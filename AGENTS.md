@@ -2,7 +2,7 @@
 
 ## Quick commands (verified in this repo)
 
-- Version: `13.13.4` (bumped from 13.13.3)
+- Version: `13.13.5` (bumped from 13.13.4)
 - Build / syntax check: `node --check src/lib/handler/hive-worker.js && node --check src/lib/handler/hiveDriver.js`
 - Full handler docs: `npm run docs:handlers` (rebuilds `docs/index` and validates handler docs)
 - Version bump script: `npm run set_version`

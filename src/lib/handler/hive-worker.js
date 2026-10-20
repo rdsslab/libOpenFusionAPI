@@ -98,15 +98,23 @@ async function main() {
 
     const rows = [];
     operation.setMaxRows(maxRows || 1000);
+    // Impala rechaza FETCH_FIRST (valor 0 por defecto de hive-driver) si no hay caché de resultados activa.
+    // Usamos FETCH_NEXT (1) para que la primera lectura funcione tanto con Hive como con Impala.
+    const FETCH_NEXT = 1;
     let more = true;
     while (more) {
-      const status = await operation.fetch();
+      const status = await operation.fetch(FETCH_NEXT);
       if (status?.operationState === TCLIService_types.TOperationState.FINISHED_STATE) {
         // Terminado
       }
       const result = utils.getResult(operation)?.getValue();
       if (Array.isArray(result)) {
         rows.push(...result);
+      }
+      // Evita duplicación de filas: hive-driver acumula los lotes en this.data;
+      // sin flush, getValue() devolvería filas de lotes previos en cada iteración.
+      if (typeof operation.flush === "function") {
+        operation.flush();
       }
       const hasMore = operation.hasMoreRows?.() || false;
       if (!hasMore) {
