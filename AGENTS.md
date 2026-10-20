@@ -48,5 +48,5 @@
 - Build report + mapeo: `graphify . --update --code-only` (~40 s, sin LLM).
 - Query: `graphify query "<question>"`.
 - Refresh clusters/report: `graphify cluster-only .`.
-- Si otro agente de IA necesita el grafo sin clonar+regenerar, publica `graphify-out/graph.html` en Pages o crea un workflow que lo genere y desccnche.
+- Si otro agente de IA necesita el grafo sin clonar+regenerar, publica `graphify-out/graph.html` en GitHub Pages o crea un workflow que lo genere y lo descarte.
 - Nota: el historial antiguo de `graphify-out/` (~5 MB) no se elimina automáticamente; si lo quieres reducir globalmente usa `git filter-repo` o BFG.
