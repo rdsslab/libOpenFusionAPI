@@ -20,7 +20,10 @@ import { recordConnectionOverride } from "./connectionOverrideLog.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const RESERVED_HIVE_REQUEST_KEYS = new Set(["bind", "replacements", "connection"]);
+const RESERVED_HIVE_REQUEST_KEYS = new Set([
+  "bind", "replacements", "connection",
+  "protocol", "client_protocol", "transport"
+]);
 
 /**
  * Handler HIVE-DRIVER (Impala / Hive via hive-driver puro JS)
@@ -74,7 +77,8 @@ export const hiveFunction = async (context) => {
         }
         const hiveCeiling = new Set([
           "host", "port", "username", "password", "database",
-          "useTLS", "tls", "authType", "maxRows", "timeoutMs"
+          "useTLS", "tls", "authType", "maxRows", "timeoutMs",
+          "protocol", "client_protocol", "transport"
         ]);
         const overrideAllowlist = resolveConnectionOverrideAllowlist(
           hiveCeiling,

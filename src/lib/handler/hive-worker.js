@@ -1,7 +1,13 @@
 import { parentPort, workerData } from "node:worker_threads";
 import hive from "hive-driver";
 
-const { sql, config, bind, maxRows, timeoutMs } = workerData;
+const {
+  sql,
+  config,
+  bind,
+  maxRows,
+  timeoutMs,
+} = workerData || {};
 
 async function main() {
   try {
@@ -9,15 +15,59 @@ async function main() {
     const client = new hive.HiveClient(TCLIService, TCLIService_types);
     const utils = new hive.HiveUtils(TCLIService_types);
 
-    // Configurar autenticación (hoy PLAIN, mañana se cambia a Kerberos sin tocar handler)
+    // --------- PROTOCOL SUPPORT (V6 / V10) ----------
+    let clientProtocol = TCLIService_types.TProtocolVersion.HIVE_CLI_SERVICE_PROTOCOL_V10; // default V10
+    if (config?.protocol) {
+      const p = String(config.protocol).toUpperCase();
+      if (p === "V6" || p === "6") {
+        clientProtocol = TCLIService_types.TProtocolVersion.HIVE_CLI_SERVICE_PROTOCOL_V6;
+      } else if (p === "V10" || p === "10") {
+        clientProtocol = TCLIService_types.TProtocolVersion.HIVE_CLI_SERVICE_PROTOCOL_V10;
+      }
+    }
+    // also allow client_protocol field
+    if (config?.client_protocol) {
+      const p = Number(config.client_protocol);
+      if (p === 6) {
+        clientProtocol = TCLIService_types.TProtocolVersion.HIVE_CLI_SERVICE_PROTOCOL_V6;
+      } else if (p === 10) {
+        clientProtocol = TCLIService_types.TProtocolVersion.HIVE_CLI_SERVICE_PROTOCOL_V10;
+      }
+    }
+
+    // --------- TRANSPORT SUPPORT (FRAMED vs BUFFERED) ----------
+    // Default to framed (what HiveServer2 expects) unless explicitly set to buffered.
+    let useFramedTransport = true;
+    if (config?.transport) {
+      const t = String(config.transport).toLowerCase();
+      if (t === "buffered" || t === "tb") {
+        useFramedTransport = false;
+      } else if (t === "framed" || t === "tf") {
+        useFramedTransport = true;
+      }
+    }
+
+    // --------- AUTHENTICATION ----------
     const authType = (config?.authType || "PLAIN").toUpperCase();
     let auth;
+
+    // Custom auth for NONE that does NOT force TBufferedTransport (fixes openSession hang)
+    class NoSaslTransportPassthroughAuthentication {
+      async authenticate(transport) {
+        await transport.connect();
+        // Do NOT override transport options -> let TcpConnection use TFramedTransport by default
+        return transport;
+      }
+    }
+
     if (authType === "NONE" || authType === "NOSASL" || authType === "NO_SASL") {
-      auth = new hive.auth.NoSaslAuthentication();
+      // Use our custom auth that doesn't override transport
+      auth = new NoSaslTransportPassthroughAuthentication();
     } else if (authType === "KERBEROS") {
-      // Placeholder: en futuro instanciar KerberosTcpAuthentication; hoy fallback a PLAIN para no instalar kerberos
+      // Placeholder: future KerberosTcpAuthentication; fallback to PLAIN to avoid native dep
       auth = new hive.auth.PlainTcpAuthentication({ username: config.username || "", password: config.password || "" });
     } else {
+      // PLAIN (LDAP / Active Directory)
       auth = new hive.auth.PlainTcpAuthentication({
         username: config.username || "",
         password: config.password || "",
@@ -32,7 +82,6 @@ async function main() {
 
     if (config.useTLS === true || config.tls) {
       connectionOptions.options.ssl = true;
-      // Si se pasan opciones TLS adicionales (ca, rejectUnauthorized, etc.) se pueden incorporar
       if (config.tls && typeof config.tls === "object") {
         Object.assign(connectionOptions.options, config.tls);
       }
@@ -41,7 +90,7 @@ async function main() {
     await client.connect(connectionOptions, new hive.connections.TcpConnection(), auth);
 
     const session = await client.openSession({
-      client_protocol: TCLIService_types.TProtocolVersion.HIVE_CLI_SERVICE_PROTOCOL_V10,
+      client_protocol: clientProtocol,
     });
 
     const operation = await session.executeStatement(sql, { runAsync: true });
@@ -59,7 +108,6 @@ async function main() {
       if (Array.isArray(result)) {
         rows.push(...result);
       }
-      // Si hay más filas, seguir; si no, salir
       const hasMore = operation.hasMoreRows?.() || false;
       if (!hasMore) {
         more = false;

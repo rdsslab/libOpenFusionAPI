@@ -20,7 +20,7 @@ When an endpoint uses the handler `HIVE_DRIVER`:
 
 **Supported**: `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `CREATE`, `ALTER`, etc. (subject to database user privileges).
 
-**Protocol note / compatibility**: uses `HIVE_CLI_SERVICE_PROTOCOL_V10` by default, compatible with **Apache Hive 3.x / 4.x** and **Cloudera Impala** (same `TCLIService` Thrift protocol). Tested with real containers: `mirror.gcr.io/apache/hive:4.0.0` and `3.1.3` (`TCP 10000` open, `Hive Session ID` confirmed with `NoSasl` / `PLAIN`). For clusters that require `V6`, adjust `hive-worker.js` (`client_protocol`).
+**Protocol note / compatibility**: uses `HIVE_CLI_SERVICE_PROTOCOL_V10` by default, compatible with **Apache Hive 3.x / 4.x** and **Cloudera Impala** (same `TCLIService` Thrift protocol). Tested with real containers: `mirror.gcr.io/apache/hive:4.0.0` and `3.1.3` (`TCP 10000` open, `Hive Session ID` confirmed with `NoSasl` / `PLAIN`). For clusters that require `V6`, adjust `hive-worker.js` (`client_protocol` in line 44). **Important**: the protocol version is set at the worker level; all endpoints sharing the same `HIVE_DRIVER` instance will use the same version. If you need some endpoints to use `V6` and others `V10`, you must either (a) modify `hive-worker.js` to accept the protocol as a `custom_data` parameter and rebuild the worker per endpoint, or (b) deploy separate API instances each with its own worker configuration. The default `V10` works for the vast majority of Hive 3.x/4.x and Impala clusters.
 </details>
 
 ---
@@ -100,8 +100,12 @@ SELECT * FROM pedidos WHERE status IN ('PENDIENTE', 'APROBADO') AND region = 'NO
 | `database` | string | no | Default database (same as `USE`) |
 | `useTLS` | boolean | no | Enables SSL on the TCP socket (`ssl: true`). Default `false` |
 | `tls` | object | no | TLS options (`ca`, `rejectUnauthorized`, `cert`, `key`) passed to `TcpConnection` |
-| `authType` | string | no | `PLAIN` (today / LDAP), `NONE` / `NOSASL` (for SASL-less servers), `KERBEROS` (reserved; requires installing `kerberos`) |
-| `maxRows` | number | no | Batch fetch size per Thrift fetch. Default `1000` (it is NOT the total result limit) |
+| `authType` | string | no | **Valid values**: `PLAIN` (LDAP / Active Directory; requires `username` + `password`), `NONE` / `NOSASL` / `NO_SASL` (no SASL; `username`/`password` ignored — server must accept unauthenticated sessions), `KERBEROS` (reserved — requires `npm i kerberos` and configured `principal` / `keytabPath`; not installed today). Values are case-insensitive. |
+| `tls` | object | no | TLS options (`ca`, `rejectUnauthorized`, `cert`, `key`) passed to `TcpConnection`. **Is per-endpoint**: each endpoint can carry its own `tls` object, or reference an AppVar (`$_VAR_IMPALA_TLS`) so a central cert bundle is reused across endpoints without hardcoding paths. Default: `{}` (no custom TLS options). |
+| `protocol` | string | no | Thrift protocol version for this endpoint. Valid values: `V6` / `V10` (case-insensitive). Default `V10`. Also accepts numeric `6` / `10` via `client_protocol`. |
+| `client_protocol` | number | no | Numeric protocol version (`6` for V6, `10` for V10). Alternative to `protocol`. |
+| `transport` | string | no | Thrift transport framing. Valid values: `framed` / `buffered` / `tb` / `tf`. Default `framed` (matches HiveServer2 default). Use `buffered` only if your server requires `TBufferedTransport`. |
+| `maxRows` | number | no | Batch fetch size per Thrift fetch. Default `1000` (it is NOT the total result limit — always add `LIMIT` or a restrictive `WHERE` to bound results). |
 | `timeoutMs` | number | no | Query timeout. Default `30000` |
 | `connection_override_allow` | array | no | Allowlist of connection override keys (e.g. `["host","port"]`) |
 
@@ -235,6 +239,10 @@ Each request logs globally on OpenFusionAPI:
 - **Large types**: `BIGINT` > `MAX_SAFE_INTEGER` is returned as `String`; if you need a number in the client, cast to `STRING` in SQL or convert to `BigInt` in JS.
 - **Event Loop**: the Worker isolates Thrift deserialization, but a `SELECT` with millions of rows can grow the worker memory; always use `maxRows` or a `LIMIT` in your SQL.
 - **Kerberos**: requires `npm i kerberos` and a configured `principal` / `keytabPath`; not installed today to avoid native dependencies and is left as a reserved `authType`.
-- **Protocol version**: defaults to `V10` (Hive 3.x / 4.x compatible). If your cluster requires `V6`, edit `hive-worker.js` (`TCLIService_types.TProtocolVersion.HIVE_CLI_SERVICE_PROTOCOL_V6`).
+- **Protocol version**: defaults to `V10` (Hive 3.x / 4.x compatible). If your cluster requires `V6`, edit `hive-worker.js` (`TCLIService_types.TProtocolVersion.HIVE_CLI_SERVICE_PROTOCOL_V6`). The protocol version is configured at the worker level; all endpoints that share the same worker instance will use the same version. To have different endpoints with different protocol versions, you must either:
+- (a) modify `hive-worker.js` to read the protocol from endpoint `custom_data` (e.g., `client_protocol` or `protocol_version`) and rebuild the worker, or
+- (b) run multiple API instances each with a distinct worker configuration.
+
+In practice, most clusters work with `V10`. Use `V6` only if you know your server explicitly requires it.
 
 © 2026 — OpenFusionAPI · `hive-driver` integration

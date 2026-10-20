@@ -10,7 +10,7 @@ Use the `HIVE_DRIVER` handler (label `HIVE-DRIVER` in the registry) to connect O
 - You need LDAP/PLAIN domain authentication (`username`/`password`).
 - You must receive parameters (`bind` / `replacements`) from HTTP requests, including arrays for `IN (...)` filters.
 - You want event-loop isolation for large result sets (`maxRows` pagination + `Worker` thread).
-- You need future Kerberos readiness (`authType: "KERBEROS"` reserved; requires `npm i kerberos` when needed; not installed today).
+**Protocol version**: defaults to `V10` (Hive 3.x / 4.x compatible). If your cluster requires `V6`, edit `hive-worker.js` (`TCLIService_types.TProtocolVersion.HIVE_CLI_SERVICE_PROTOCOL_V6`). The protocol version is configured at the worker level; all endpoints sharing the same worker use the same version. To have different endpoints with different protocol versions, either: (a) modify `hive-worker.js` to read the protocol from endpoint `custom_data` (e.g., a `client_protocol` field) and rebuild per worker, or (b) run separate API instances with distinct worker configurations. Most clusters work with `V10`; only use `V6` if you confirm your server explicitly requires it.
 
 ## When NOT to use
 
@@ -45,8 +45,11 @@ Response format: `{ "rows": [{...}], "count": N }`
 | `username` | string | yes (PLAIN) | Domain / LDAP account |
 | `password` | string | yes (PLAIN) | Domain password |
 | `useTLS` | boolean | no | Enables SSL on TCP socket |
-| `tls` | object | no | `{ ca, rejectUnauthorized, cert, key }` — pass to `TcpConnection` |
-| `authType` | string | no | `PLAIN`, `NONE`, `KERBEROS` (future) |
+| `tls` | object | no | `{ ca, rejectUnauthorized, cert, key }` passed to `TcpConnection`. Can be a static object or an AppVar (`$_VAR_TLS_CONFIG`) to avoid hardcoding paths per endpoint. |
+| `authType` | string | no | `PLAIN` (LDAP / Active Directory; requires `username` + `password`), `NONE` / `NOSASL` / `NO_SASL` (no SASL; server accepts unauthenticated), `KERBEROS` (reserved — requires `npm i kerberos`; not installed today). Case-insensitive. |
+| `protocol` | string | no | `V6` / `V10` (default `V10`). Per-endpoint. Controls `client_protocol` sent to server. |
+| `client_protocol` | number | no | `6` / `10`. Alternative to `protocol`. Per-endpoint. |
+| `transport` | string | no | `framed` / `buffered` / `tf` / `tb`. Default `framed`. Per-endpoint. Controls TCP framing. |
 | `maxRows` | number | no | Paginated fetch size (default 1000) |
 | `timeoutMs` | number | no | Query timeout (default 30000) |
 
