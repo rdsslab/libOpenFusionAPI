@@ -1,6 +1,6 @@
 {
   "name": "@rdsslab/libopenfusionapi",
-  "version": "13.13.5",
+  "version": "13.13.6",
   "description": "Library based on Fastify to create APIs quickly and easily from a web interface.",
   "scripts": {
     "test": "node ./dev/test/index.js",
@@ -98,6 +98,7 @@
     "sequelize": "^6.37.8",
     "soap": "^1.8.0",
     "sqlite3": "^6.0.1",
+    "ssh2-sftp-client": "^12.1.1",
     "systeminformation": "^5.27.11",
     "tedious": "^16.6.0",
     "uuid": "^14.0.1",
