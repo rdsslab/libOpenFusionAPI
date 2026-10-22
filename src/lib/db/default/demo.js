@@ -450,6 +450,34 @@ export const demo_app = {
       "createdAt": "2026-10-19T10:00:00.000Z",
       "updatedAt": "2026-10-19T10:00:00.000Z"
     }
+
+    {
+      "ctrl": { "admin": true, "users": [], "log": {} },
+      "mcp": { "enabled": false },
+      "json_schema": { "in": { "enabled": false }, "out": { "enabled": false } },
+      "custom_data": {},
+      "headers_test": {},
+      "data_test": {},
+      "idendpoint": "mssql-demo-constant-01", "rowkey": 996, "enabled": true, "idapp": "c4ca4238-a0b9-2382-0dcc-509a6f75849b", "environment": "dev", "timeout": 30, "resource": "/api/demo/mssql/constant", "method": "GET", "handler": "JS", "access": 0, "title": "MSSQL demo constant", "description": "SELECT 1 con tedious@20.3.8 (security update).", "keywords": "mssql,tedious,security,update", "code": "const { Sequelize } = await import(\"sequelize\"); const s = new Sequelize({ database: \"master\", username: \"sa\", password: \"Of@piMs!2026#Db\", host: \"localhost\", port: 1433, dialect: \"mssql\", logging: false, pool: { max: 1, min: 0 }, requestTimeout: 25000, connectTimeout: 15000 }); try { await s.authenticate(); const [res] = await s.query(\"SELECT 1 AS t\"); $_RETURN_DATA_ = { endpoint: \"mssql_constant\", result: res[0] || res }; } finally { await s.close(); }", "cache_time": 0, "createdAt": "2026-10-22T00:00:00.000Z", "updatedAt": "2026-10-22T00:00:00.000Z"
+    },
+    {
+      "ctrl": { "admin": true, "users": [], "log": {} },
+      "mcp": { "enabled": false },
+      "json_schema": { "in": { "enabled": false }, "out": { "enabled": false } },
+      "custom_data": {},
+      "headers_test": {},
+      "data_test": {},
+      "idendpoint": "mssql-demo-trans-01", "rowkey": 995, "enabled": true, "idapp": "c4ca4238-a0b9-2382-0dcc-509a6f75849b", "environment": "dev", "timeout": 30, "resource": "/api/demo/mssql/trans", "method": "POST", "handler": "JS", "access": 0, "title": "MSSQL demo transaction", "description": "Transaccion MSSQL con tedious@20.3.8 (security update): CREATE #tmp + INSERT + COUNT.", "keywords": "mssql,trans,security,tedious", "code": "const { Sequelize } = await import(\"sequelize\"); const s = new Sequelize({ database: \"master\", username: \"sa\", password: \"Of@piMs!2026#Db\", host: \"localhost\", port: 1433, dialect: \"mssql\", logging: false, pool: { max: 2, min: 0 }, requestTimeout: 25000, connectTimeout: 15000 }); try { await s.query(\"CREATE TABLE #tmp_test (id INT)\"); await s.query(\"INSERT INTO #tmp_test VALUES (1)\"); const [res] = await s.query(\"SELECT COUNT(*) AS c FROM #tmp_test\"); $_RETURN_DATA_ = { endpoint: \"mssql_trans\", count: res[0] ? Number(res[0].c || res[0].C) : 0 }; } finally { await s.close(); }", "cache_time": 0, "createdAt": "2026-10-22T00:00:00.000Z", "updatedAt": "2026-10-22T00:00:00.000Z"
+    },
+    {
+      "ctrl": { "admin": true, "users": [], "log": {} },
+      "mcp": { "enabled": false },
+      "json_schema": { "in": { "enabled": false }, "out": { "enabled": false } },
+      "custom_data": {},
+      "headers_test": {},
+      "data_test": {},
+      "idendpoint": "mssql-demo-bind-01", "rowkey": 994, "enabled": true, "idapp": "c4ca4238-a0b9-2382-0dcc-509a6f75849b", "environment": "dev", "timeout": 30, "resource": "/api/demo/mssql/bind", "method": "GET", "handler": "JS", "access": 0, "title": "MSSQL demo bind", "description": "SELECT con parametro bind (:val) con tedious@20.3.8 (security update).", "keywords": "mssql,bind,security,tedious", "code": "const { Sequelize } = await import(\"sequelize\"); const s = new Sequelize({ database: \"master\", username: \"sa\", password: \"Of@piMs!2026#Db\", host: \"localhost\", port: 1433, dialect: \"mssql\", logging: false, pool: { max: 1, min: 0 }, requestTimeout: 25000, connectTimeout: 15000 }); try { const [res] = await s.query(\"SELECT :v AS val\", { replacements: { v: request.query?.v || 99 }, type: s.QueryTypes.SELECT }); $_RETURN_DATA_ = { endpoint: \"mssql_bind\", value: res[0] ? res[0].val || res[0].VAL : res }; } finally { await s.close(); }", "cache_time": 0, "createdAt": "2026-10-22T00:00:00.000Z", "updatedAt": "2026-10-22T00:00:00.000Z"
+    }
   ],
   "bots": [
     {
