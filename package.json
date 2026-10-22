@@ -100,7 +100,7 @@
     "sqlite3": "^6.0.1",
     "ssh2-sftp-client": "^12.1.1",
     "systeminformation": "^5.27.11",
-    "tedious": "^16.6.0",
+    "tedious": "^20.3.8",
     "uuid": "^14.0.1",
     "vm": "^0.1.0",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
