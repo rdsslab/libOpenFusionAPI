@@ -449,7 +449,7 @@ export const demo_app = {
       "environment": "prd",
       "createdAt": "2026-10-19T10:00:00.000Z",
       "updatedAt": "2026-10-19T10:00:00.000Z"
-    }
+    },
 
     {
       "ctrl": { "admin": true, "users": [], "log": {} },

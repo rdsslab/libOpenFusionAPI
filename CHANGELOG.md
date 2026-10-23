@@ -18,6 +18,20 @@ see [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [13.13.8] - 2026-10-23
+
+### Fixed
+
+- **Seed de la app `demo`: coma faltante entre dos endpoints.** En
+  `src/lib/db/default/demo.js` faltaba la coma que separa dos objetos del array de
+  endpoints, por lo que el archivo no era JavaScript válido y el servidor fallaba al
+  cargar el seed en una instalación nueva (`BUILD_DB=true`). Se añade la coma; no cambia
+  ningún dato ni endpoint, solo permite que el seed se evalúe.
+- Actualizado `package.json` a `13.13.8` con `npm run set_version` y documentada la
+  entrada en este CHANGELOG (lo verifica `dev/test/version_sync_test.js`).
+
+---
+
 ## [13.13.5] - 2026-10-20
 
 ### Fixed
