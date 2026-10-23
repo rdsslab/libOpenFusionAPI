@@ -77,6 +77,8 @@ Names must match `^\$_VAR_[A-Z0-9_]+$` and are validated on save — see the "Sh
 
 ---
 
+If a SOAP call fails because the remote service returns HTML/text (port wrong, gateway error, missing endpoint), the handler responds with `502 Bad Gateway` and an English message that reveals the called URL, its source (`endpoint` or `soap:address`), the HTTP status/content-type, and a short preview of the response body. Network errors (`ECONNREFUSED`, timeouts) are captured with the same code. No message modifications are required by the agent; only verify the endpoint/port or WSDL address when this symptom appears.
+
 # Shared Application Variables Skill
 
 <!-- include: skills/APPVARS.md -->

@@ -311,6 +311,57 @@ export const soapFunction = async (context) => {
   ////
 };
 
+const resolveSoapTarget = (client, SOAPParameters) => {
+  if (SOAPParameters.endpoint) {
+    return { url: SOAPParameters.endpoint, source: "endpoint" };
+  }
+  const fnName = (SOAPParameters.functionName || "") + "Async";
+  const definitions = client?.wsdl?.definitions;
+  if (definitions?.services) {
+    for (const service of Object.values(definitions.services)) {
+      if (service?.ports) {
+        for (const port of Object.values(service.ports)) {
+          if (port?.binding?.methods && port.binding.methods[fnName]) {
+            return { url: port.location, source: "soap:address" };
+          }
+        }
+      }
+    }
+    // Fallback: last matching method across any port
+    for (const service of Object.values(definitions.services)) {
+      if (service?.ports) {
+        for (const port of Object.values(service.ports)) {
+          if (port?.location) return { url: port.location, source: "soap:address" };
+        }
+      }
+    }
+  }
+  return { url: undefined, source: undefined };
+};
+
+const isNonSoapResponse = (err) => {
+  // node-soap 1.x uses axios; errors can be native Error or plain objects
+  // (e.g., XML parse failure throws a plain object with Fault/response/body).
+  const hasResponse = err && (err.response !== undefined || err.response !== null);
+  const body = err && (err.body !== undefined ? err.body : undefined);
+  if (!hasResponse) return false;
+  // SOAP Fault brings Envelope in body; do not treat as non-SOAP
+  if (body && typeof body === "string" && /<\w+:Envelope[\s>]/.test(body)) return false;
+  // If body is an object with Envelope, also valid SOAP (Fault or normal)
+  if (body && typeof body === "object" && body.Envelope !== undefined) return false;
+  return true;
+};
+
+const sanitizePreview = (text, max = 200) => {
+  if (text === undefined || text === null) return "";
+  let s = String(text);
+  // Strip common tags to avoid leaking HTML structure; keep readable text
+  s = s.replace(/<[^>]+>/g, " ");
+  s = s.replace(/\s+/g, " ").trim();
+  if (s.length > max) s = s.slice(0, max) + "...";
+  return s;
+};
+
 export const SOAPGenericClient = async (
   /** @type {{ wsdl: string; functionName: string | any[]; BasicAuthSecurity: { User: any; Password: any; }; RequestArgs: any; }} */ SOAPParameters
 ) => {
@@ -379,8 +430,57 @@ export const SOAPGenericClient = async (
       }
 
       if (client[fnName]) {
-        const [r1] = await client[fnName](SOAPParameters.RequestArgs);
-        r = r1;
+        try {
+          const [r1] = await client[fnName](SOAPParameters.RequestArgs);
+          r = r1;
+        } catch (err) {
+          // Network-level errors (connection refused, timeout, DNS failure)
+          const networkCodes = ["ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "ENOTFOUND", "EAI_AGAIN"];
+          const isNetwork = (err && err.code && networkCodes.includes(err.code)) ||
+            (err && err.message && /ECONNREFUSED|ETIMEDOUT|ENOTFOUND|network|timeout/i.test(err.message));
+
+          if (isNetwork) {
+            const target = resolveSoapTarget(client, SOAPParameters);
+            const msg = `SOAP service unreachable (network error) at ${target.url || "unknown"} (source: ${target.source || "unknown"}). Check endpoint/port and WSDL soap:address.`;
+            const error = new Error(msg);
+            error.statusCode = 502;
+            error.soapDiagnostics = {
+              url: target.url,
+              source: target.source,
+              httpStatus: undefined,
+              contentType: undefined,
+              responsePreview: undefined,
+              networkCode: err.code || undefined,
+              detail: "Network error connecting to SOAP endpoint.",
+            };
+            throw error;
+          }
+
+          // Non-SOAP response (HTML/text instead of SOAP envelope)
+          if (isNonSoapResponse(err)) {
+            const target = resolveSoapTarget(client, SOAPParameters);
+            const response = err.response || {};
+            const body = err.body || "";
+            const status = typeof response.status === "number" ? response.status : (response.statusCode || 502);
+            const ct = (response.headers && (response.headers["content-type"] || response.headers["Content-Type"])) || "unknown";
+            const preview = sanitizePreview(body, 200);
+            const msg = `SOAP service responded with non-SOAP content (HTTP ${status}, ${ct}). URL called: ${target.url || "unknown"} (source: ${target.source || "unknown"}). Response start: ${preview}. Check endpoint configuration or WSDL soap:address.`;
+            const error = new Error(msg);
+            error.statusCode = 502;
+            error.soapDiagnostics = {
+              url: target.url,
+              source: target.source,
+              httpStatus: status,
+              contentType: ct,
+              responsePreview: preview,
+              detail: "Response was HTML/text instead of a SOAP Envelope.",
+            };
+            throw error;
+          }
+
+          // Otherwise relaunch original (WSDL invalid, Fault, etc.)
+          throw err;
+        }
       } else {
         throw new Error(fnName + " not exists.");
       }

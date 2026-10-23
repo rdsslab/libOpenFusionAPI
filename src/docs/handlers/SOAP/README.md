@@ -389,4 +389,25 @@ curl -X POST https://your-server.com/api/myapp/groups/update_billing_cycle_day/q
 
 ---
 
+<details>
+<summary>Troubleshooting: Non-SOAP response (502)</summary>
+
+When the upstream SOAP service responds with HTML or text instead of a SOAP Envelope, the handler returns `502 Bad Gateway` with an English error message. The message includes:
+
+- The URL called (`endpoint` or `soap:address` from the WSDL)
+- The source of that URL (`endpoint` or `soap:address`)
+- The HTTP status and `Content-Type` of the remote response
+- A sanitized preview (~200 characters) of the response body
+- A hint to review the endpoint configuration or the WSDL `soap:address`
+
+This replaces the previous opaque `TypeError` (`"Cannot use 'in' operator..."`) and makes it possible to diagnose port mismatches or gateway errors without downloading the WSDL manually.
+
+Network-level errors (`ECONNREFUSED`, `ETIMEDOUT`, `ENOTFOUND`) are also captured with `502` and the effective target URL, so port or connectivity issues are visible in the response.
+
+No changes are made to the call destination; the message only improves visibility when a call already fails.
+
+</details>
+
+---
+
 © 2025 – OpenFusionAPI · Created and maintained by **edwinspire**
