@@ -15,7 +15,7 @@
 
 import { getHandlerExecutionContext } from "./utils.js";
 import { replyException, sendHandlerError } from "./utils.js";
-import { asyncTaskService } from "../async/AsyncTaskService.js";
+import asyncTaskService from "../async/AsyncTaskService.js";
 import { AsyncJob } from "../db/async_job.js";
 import { Endpoint } from "../db/models.js";
 import { buildFingerprint } from "../async/fingerprint.js";
@@ -153,7 +153,7 @@ export const asyncWrapperFunction = async (context) => {
     // ------------------------------------------------------------------
     // 5. Lanzar ejecución en segundo plano (no bloquea el reply)
     // ------------------------------------------------------------------
-    AsyncTaskService.execute({
+    asyncTaskService.execute({
       requestId,
       endpointBase,
       endpointAsync: method,
