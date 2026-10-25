@@ -27,6 +27,7 @@ import {
   getApplicationTreeByFilters,
   getApplicationEndpointByRoute,
 } from "./db/app.js";
+import { prefixTableName, modelHooks } from "./db/models.js";
 import { createLog } from "./db/log.js";
 import { createFunctionVM } from "./server/createFunctionVM.js";
 import { CreateMCPHandler } from "./server/endpoint/handlerBuild/mcp.js";
@@ -36,23 +37,7 @@ import { buildExposureNotice } from "./server/envExposure.js";
 import { defaultUser, login } from "./db/user.js";
 import { defaultMethods } from "./db/method.js";
 //import { defaultHandlers } from "./db/handler.js";
-import {
-  prefixTableName,
-  User,
-  Method,
-  Application,
-  AppVars,
-  Endpoint as EndpointBBDD,
-  Bot,
-  BotBackup,
-  BotLog,
-  LogEntry,
-  IntervalTask,
-  IntervalTaskRun,
-  PasswordRecovery,
-  tblDemo,
-  modelHooks
-} from "./db/models.js";
+import { AsyncJob } from "./db/async_job.js";
 import { runHandler } from "./handler/handler.js";
 import { fnPublic, fnSystem } from "./server/functions/index.js";
 import { OpenFusionWebsocketClient } from "./server/websocket_client.js";
@@ -620,6 +605,12 @@ export default class ServerAPI extends EventEmitter {
     // rompe un upsert), las tools bot_change_history / bot_restore_version quedarían
     // muertas sin que nadie se entere. `sync()` sobre un solo modelo es un
     // CREATE TABLE IF NOT EXISTS: idempotente y sin tocar nada más.
+    try {
+      await AsyncJob.sync();
+    } catch (error) {
+      log("Error ensuring async_jobs table:", error);
+    }
+
     try {
       await BotBackup.sync();
     } catch (error) {
