@@ -39,21 +39,30 @@ export const asyncWrapperFunction = async (context) => {
 
   try {
     // ------------------------------------------------------------------
-    // 1. Obtener `idendpoint` y parámetros del endpoint base
+    // 1. Obtener `idendpoint` del endpoint base desde el código del wrapper async
     // ------------------------------------------------------------------
     const requestBody = request.body && typeof request.body === "object" ? request.body : {};
     const requestQuery = request.query && typeof request.query === "object" ? request.query : {};
     const data_request = { ...requestQuery, ...requestBody };
 
-    const { idendpoint } = data_request;
+    const idendpoint = (method.code || endpoint?.code || data_request.idendpoint || "").toString().trim();
     if (!idendpoint) {
-      return sendHandlerError(reply, 400, "Se requiere `idendpoint` para invocar al wrapper async");
+      return sendHandlerError(reply, 400, "El endpoint async no tiene configurado el idendpoint base en 'code'");
+    }
+
+    // Validar formato UUID básico
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(idendpoint)) {
+      return sendHandlerError(reply, 400, "El idendpoint base en 'code' debe ser un UUID válido");
     }
 
     // 1a. Traer el endpoint base (referencia, no copia)
     const endpointBase = await Endpoint.findByPk(idendpoint);
     if (!endpointBase || !endpointBase.enabled) {
       return sendHandlerError(reply, 404, `Endpoint base no encontrado o deshabilitado: ${idendpoint}`);
+    }
+    if (endpointBase.handler === "ASYNC_WRAPPER" || endpointBase.handler === "MCP" || endpointBase.handler === "TELEGRAM_BOT") {
+      return sendHandlerError(reply, 400, "El endpoint base seleccionado no es válido para ser envuelto de forma asíncrona");
     }
 
     const environment = data_request.environment || endpointBase.environment;

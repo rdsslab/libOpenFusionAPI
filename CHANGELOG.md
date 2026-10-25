@@ -18,6 +18,14 @@ see [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [13.13.9] - 2026-10-23
+
+### Changed
+
+- **Handler SOAP**: non-SOAP responses (HTML/text from upstream) now return `502 Bad Gateway` with a clear English message that includes the called URL, its source (`endpoint` or `soap:address`), HTTP status, `Content-Type`, a sanitized preview (~200 chars) of the response body, and a hint to review configuration. Network errors (`ECONNREFUSED`, `ETIMEDOUT`, `ENOTFOUND`) are also covered with the same status and effective target URL. The change does not alter the destination of the call; it only improves error visibility. Documentation (`README.md`, `AI_SKILL.md`) updated accordingly.
+
+---
+
 ## [13.13.8] - 2026-10-23
 
 ### Fixed
