@@ -68,7 +68,11 @@ export async function asyncResultRoute(fastify, opts) {
         const ct = job.content_type || "";
         if (ct.includes("json")) {
           try {
-            return reply.send(JSON.parse(job.result));
+            const parsed = JSON.parse(job.result);
+            if (typeof parsed === "string") {
+              return reply.send(parsed);
+            }
+            return reply.send(parsed);
           } catch {
             return reply.send(job.result);
           }

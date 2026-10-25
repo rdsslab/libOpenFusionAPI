@@ -34,6 +34,33 @@ export const AsyncJob = dbsequelize.define(
     params: {
       type: JSON_TYPE,
       allowNull: true,
+      get() {
+        const raw = this.getDataValue("params");
+        if (raw == null) return null;
+        if (typeof raw === "string") {
+          try {
+            return JSON.parse(raw);
+          } catch {
+            return raw;
+          }
+        }
+        return raw;
+      },
+      set(val) {
+        if (val == null) {
+          this.setDataValue("params", null);
+          return;
+        }
+        if (typeof val === "string") {
+          this.setDataValue("params", val);
+          return;
+        }
+        try {
+          this.setDataValue("params", JSON.stringify(val));
+        } catch {
+          this.setDataValue("params", val);
+        }
+      },
     },
     fingerprint: {
       type: DataTypes.STRING(64),
@@ -51,6 +78,33 @@ export const AsyncJob = dbsequelize.define(
     response_headers: {
       type: JSON_TYPE,
       allowNull: true,
+      get() {
+        const raw = this.getDataValue("response_headers");
+        if (raw == null) return null;
+        if (typeof raw === "string") {
+          try {
+            return JSON.parse(raw);
+          } catch {
+            return raw;
+          }
+        }
+        return raw;
+      },
+      set(val) {
+        if (val == null) {
+          this.setDataValue("response_headers", null);
+          return;
+        }
+        if (typeof val === "string") {
+          this.setDataValue("response_headers", val);
+          return;
+        }
+        try {
+          this.setDataValue("response_headers", JSON.stringify(val));
+        } catch {
+          this.setDataValue("response_headers", val);
+        }
+      },
     },
     result: {
       type: DataTypes.TEXT("long"),
