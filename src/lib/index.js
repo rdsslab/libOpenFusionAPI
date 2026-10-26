@@ -80,6 +80,7 @@ import { DbHookCacheInvalidationService } from "./server/runtime/DbHookCacheInva
 import { ServerReadyOrchestrator } from "./server/runtime/ServerReadyOrchestrator.js";
 import { defaultAuthPolicy, defaultCorsPolicy } from "./server/runtime/policies.js";
 import { BackgroundTaskManager } from "./server/background_tasks.js";
+import { asyncStatusRoute, asyncResultRoute } from "./server/routes/async.js";
 
 const DEFAULT_MAX_FILE_SIZE_UPLOAD = 100 * 1024 * 1024; // Default 100 MB
 const {
@@ -315,6 +316,17 @@ export default class ServerAPI extends EventEmitter {
       structApiPath: struct_api_path,
       endpointRuntimeService,
     });
+
+    // Async job status/result routes (infrastructure, not application endpoints)
+    try {
+      this.fastify.get("/api/async/status/:id", (request, reply) => asyncStatusRoute(this.fastify, {}).then?.call ? null : null);
+      this.fastify.get("/api/async/status/:id", async (request, reply) => {
+        const { asyncStatusRoute } = await import("./server/routes/async.js");
+        return asyncStatusRoute(this.fastify, request, reply);
+      });
+    } catch (e) {
+      console.error("Failed to register async routes:", e);
+    }
 
     this.webSocketManager.registerRoutes();
 

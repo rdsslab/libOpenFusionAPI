@@ -1,0 +1,8 @@
+{
+  "handler": "ASYNC_WRAPPER",
+  "name": "ASYNC_WRAPPER",
+  "label": "Async Wrapper",
+  "description": "Execute any existing endpoint asynchronously via background jobs.",
+  "category": "wrapper",
+  "icon": "fa-solid fa-clock-rotate-left"
+}

@@ -109,6 +109,7 @@ export const asyncWrapperFunction = async (context) => {
     const existingJob = await AsyncJob.findOne({
       where: {
         fingerprint,
+        idendpoint_async: method.idendpoint,
         status: ["PENDING", "RUNNING"],
       },
     });
@@ -121,7 +122,7 @@ export const asyncWrapperFunction = async (context) => {
         message: "Ya existe un job activo para estos parámetros",
         pollUrl: `/api/async/status/${existingJob.id}`,
         wsUrl: `/api/async/notify?requestId=${existingJob.id}`,
-        ttl_remaining_ms: existingJob.expires_at ? Date.now() - new Date(existingJob.expires_at) : ttl_ms,
+        ttl_remaining_ms: existingJob.expires_at ? new Date(existingJob.expires_at).getTime() - Date.now() : ttl_ms,
       });
     }
 

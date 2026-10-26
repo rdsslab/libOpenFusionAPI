@@ -406,6 +406,36 @@ export const upsertEndpoint = async (
     const skipMcpNameUniqueness = data?.skipMcpNameUniqueness === true;
     delete data.skipMcpNameUniqueness;
 
+    // Recalcular resource para ASYNC_WRAPPER: debe ser siempre base_resource + '/async'
+    // (insertado antes del entorno, si aplica). Esto evita que el usuario guarde
+    // una URL incorrecta.
+    if (data?.handler === 'ASYNC_WRAPPER' || (previous?.handler === 'ASYNC_WRAPPER')) {
+      const baseEndpointId = String((data?.code || previous?.code || '')).trim();
+      if (baseEndpointId) {
+        const baseEndpoint = await Endpoint.findByPk(baseEndpointId);
+        if (baseEndpoint) {
+          const baseResource = String(baseEndpoint.resource || '').trim();
+          const env = String(data?.environment || previous?.environment || baseEndpoint.environment || '').toLowerCase();
+          const method = String(data?.method || previous?.method || baseEndpoint.method || '').toUpperCase();
+
+          if (method) data.method = method;
+          if (env) data.environment = env;
+          data.idapp = data.idapp || previous?.idapp || baseEndpoint.idapp;
+
+          if (baseResource) {
+            if (baseResource.endsWith('/async')) {
+              data.resource = baseResource;
+            } else if (env && baseResource.endsWith('/' + env)) {
+              data.resource = baseResource.replace('/' + env, '/async/' + env);
+            } else {
+              data.resource = baseResource + '/async';
+            }
+          }
+          data.code = baseEndpointId;
+        }
+      }
+    }
+
     const warnings = [];
 
     if (data?.ctrl !== undefined) {

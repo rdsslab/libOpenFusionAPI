@@ -1,6 +1,7 @@
 import { AsyncJob } from "../db/async_job.js";
 import { runHandler } from "../handler/handler.js";
 import { EventEmitter } from "node:events";
+import { createFunctionVM } from "../server/createFunctionVM.js";
 
 export class AsyncTaskService extends EventEmitter {
   constructor() {
@@ -58,6 +59,36 @@ export class AsyncTaskService extends EventEmitter {
       }
 
       const ttl_ms = endpointAsync?.custom_data?.async?.ttl_ms ?? 3600000;
+      const statusCode = captured.statusCode || 200;
+      if (statusCode >= 400) {
+        let errorMsg = "Execution failed";
+        try {
+          if (typeof result === "string") {
+            const parsed = JSON.parse(result);
+            errorMsg = parsed?.error || parsed?.message || errorMsg;
+          } else if (typeof captured.body === "object" && captured.body?.error) {
+            errorMsg = captured.body.error;
+          }
+        } catch {}
+        await job.update({
+          status: "FAILED",
+          error_message: errorMsg,
+          content_type: contentType,
+          response_headers: captured.headers || {},
+          result,
+          result_is_binary: resultIsBinary,
+          completed_at: new Date(),
+        });
+        if (notifyWs && this.websocketManager) {
+          try {
+            this.websocketManager.emit("async_error", { requestId, status: "FAILED", error: errorMsg });
+          } catch (e) {
+            console.error("[AsyncTaskService] WS emit error:", e);
+          }
+        }
+        return;
+      }
+
       await job.update({
         status: "COMPLETED",
         content_type: contentType,
@@ -151,7 +182,23 @@ export class AsyncTaskService extends EventEmitter {
     };
 
     const request = originalRequest || {};
-    await runHandler(request, reply, endpointBase, {});
+    let endpointToRun = { ...endpointBase?.dataValues, ...(endpointBase?.params || {}) };
+    if (endpointBase && !endpointToRun.idendpoint && endpointBase.idendpoint) endpointToRun.idendpoint = endpointBase.idendpoint;
+    try {
+      if ((!endpointToRun.jsFn) && endpointToRun.handler === "JS" && endpointToRun.code) {
+        try {
+          const timeout = (endpointToRun.timeout || 30) * 1000;
+          const vm = await createFunctionVM(endpointToRun.code, endpointToRun.app_vars || {}, timeout);
+          endpointToRun.jsFn = vm;
+        } catch (e) {
+          console.error("[AsyncTaskService] compile error:", e.message);
+          throw e;
+        }
+      }
+    } catch (e) {
+      throw e;
+    }
+    await runHandler(request, reply, endpointToRun, {});
     return captured;
   }
 }

@@ -15,6 +15,7 @@ Each active handler must keep its material inside its own folder:
 
 | Handler | Label | Status | Extra Files |
 |---|---|---|---|
+| [ASYNC_WRAPPER](./ASYNC_WRAPPER/README.md) | Async Wrapper | active | - |
 | [FETCH](./FETCH/README.md) | Fetch | active | - |
 | [FUNCTION](./FUNCTION/README.md) | Function | active | - |
 | [HANA](./HANA/README.md) | HANA | active | - |
