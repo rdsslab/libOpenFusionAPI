@@ -80,11 +80,11 @@ async function callEndpoint(token, resource, { method = "POST", body = null, que
   return { status: resp.status, data, headers: resp.headers };
 }
 
-async function pollUntil(token, requestId, targetStatuses, timeoutMs = 20000) {
+async function pollUntil(token, requestId, tokenValue, targetStatuses, timeoutMs = 20000) {
   const start = Date.now();
   let last = null;
   while (Date.now() - start < timeoutMs) {
-    const r = await callEndpoint(token, `/api/async/status/${requestId}`, { method: "GET" });
+    const r = await callEndpoint(token, `/api/system/async/status/${requestId}?token=${tokenValue}`, { method: "GET" });
     if (r.status === 200) {
       last = r.data;
       if (targetStatuses.includes(r.data.status)) return last;
@@ -107,21 +107,22 @@ async function testJsonFlow(token) {
   check("202 Accepted returned", start.status === 202, `got ${start.status}: ${JSON.stringify(start.data).slice(0, 200)}`);
   check("requestId present", !!start.data?.requestId);
   check("status PENDING", start.data?.status === "PENDING", `got ${start.data?.status}`);
-  check("pollUrl present", typeof start.data?.pollUrl === "string" && start.data.pollUrl.includes("/api/async/status/"));
+  check("pollUrl present", typeof start.data?.pollUrl === "string" && start.data.pollUrl.includes("/api/system/async/status/"));
 
   const requestId = start.data?.requestId;
   if (!requestId) return;
 
-  const done = await pollUntil(token, requestId, ["COMPLETED", "FAILED"]);
+  const jobToken = start.data?.token;
+  const done = await pollUntil(token, requestId, jobToken, ["COMPLETED", "FAILED"]);
   check("job COMPLETED", done?.status === "COMPLETED", `got ${done?.status}`);
 
-  const result = await callEndpoint(token, `/api/async/result/${requestId}`, { method: "GET" });
+  const result = await callEndpoint(token, `/api/system/async/result/${requestId}?token=${jobToken}`, { method: "GET" });
   check("result 200", result.status === 200, `got ${result.status}`);
   check("body echoed intact", result.data?.echo?.name === "async-e2e" && result.data?.echo?.marker === marker, JSON.stringify(result.data).slice(0, 200));
   check("query echoed intact", result.data?.query?.src === "query" && result.data?.query?.marker === marker, JSON.stringify(result.data?.query));
 
   // Status shape
-  const st = await callEndpoint(token, `/api/async/status/${requestId}`, { method: "GET" });
+  const st = await callEndpoint(token, `/api/system/async/status/${requestId}?token=${jobToken}`, { method: "GET" });
   check("status has consume_count", typeof st.data?.consume_count === "number");
   check("status has max_consumes", st.data?.max_consumes === 5);
   check("status has ttl_remaining_ms", typeof st.data?.ttl_remaining_ms === "number");
@@ -151,8 +152,9 @@ async function testDuplicate(token) {
   const third = await callEndpoint(token, "/api/test/async/wrap/slow", { body: { marker: marker + "-other" }, query: "?dup=" + marker });
   check("different params -> different requestId", third.data?.requestId && third.data.requestId !== id1);
 
-  await pollUntil(token, id1, ["COMPLETED", "FAILED"]);
-  if (third.data?.requestId) await pollUntil(token, third.data.requestId, ["COMPLETED", "FAILED"]);
+  const dupToken = first.data?.token || id1;
+  await pollUntil(token, id1, dupToken, ["COMPLETED", "FAILED"]);
+  if (third.data?.requestId) await pollUntil(token, third.data.requestId, third.data?.token || third.data?.requestId, ["COMPLETED", "FAILED"]);
 }
 
 // ---------------------------------------------------------------------------
@@ -171,7 +173,7 @@ async function testRunningState(token) {
   let sawRunning = false;
   const startMs = Date.now();
   while (Date.now() - startMs < 10000) {
-    const st = await callEndpoint(token, `/api/async/status/${id}`, { method: "GET" });
+    const st = await callEndpoint(token, `/api/system/async/status/${id}?token=${start.data?.token || id}`, { method: "GET" });
     if (st.data?.status === "RUNNING") {
       sawRunning = true;
       break;
@@ -180,7 +182,8 @@ async function testRunningState(token) {
     await sleep(150);
   }
   check("RUNNING state observed (or completed too fast)", sawRunning || true); // informational
-  const done = await pollUntil(token, id, ["COMPLETED", "FAILED"]);
+  const jt = start.data?.token || id;
+  const done = await pollUntil(token, id, jt, ["COMPLETED", "FAILED"]);
   check("slow job COMPLETED", done?.status === "COMPLETED", `got ${done?.status}`);
 }
 
@@ -194,7 +197,7 @@ async function testFailure(token) {
   const id = start.data?.requestId;
   if (!id) return;
 
-  const done = await pollUntil(token, id, ["FAILED", "COMPLETED"]);
+  const done = await pollUntil(token, id, start.data?.token || id, ["FAILED", "COMPLETED"]);
   check("job FAILED", done?.status === "FAILED", `got ${done?.status}`);
 }
 
@@ -208,14 +211,14 @@ async function testBinary(token) {
   const id = start.data?.requestId;
   if (!id) return;
 
-  const done = await pollUntil(token, id, ["COMPLETED", "FAILED"]);
+  const done = await pollUntil(token, id, start.data?.token || id, ["COMPLETED", "FAILED"]);
   check("binary job COMPLETED", done?.status === "COMPLETED", `got ${done?.status}`);
 
-  const status = await callEndpoint(token, `/api/async/status/${id}`, { method: "GET" });
+  const status = await callEndpoint(token, `/api/system/async/status/${id}`, { method: "GET" });
   check("status 200", status.status === 200);
 
   // Result route returns binary with content type
-  const resp = await fetch(`${OFAPI_URL}/api/async/result/${id}`, { headers: auth(token) });
+  const resp = await fetch(`${OFAPI_URL}/api/system/async/result/${id}`, { headers: auth(token) });
   const buf = Buffer.from(await resp.arrayBuffer());
   check("binary result 200", resp.status === 200, `got ${resp.status}`);
   check("PNG magic bytes", buf.length > 8 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47, `first bytes: ${buf.subarray(0, 4).toString("hex")}`);
@@ -315,10 +318,18 @@ async function testValidation(token) {
 async function testUnknownJob(token) {
   console.log("\n[7] Unknown job id");
   const fake = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
-  const st = await callEndpoint(token, `/api/async/status/${fake}`, { method: "GET" });
-  check("status unknown -> 404", st.status === 404, `got ${st.status}`);
-  const res = await callEndpoint(token, `/api/async/result/${fake}`, { method: "GET" });
-  check("result unknown -> 404", res.status === 404, `got ${res.status}`);
+  const st = await callEndpoint(token, `/api/system/async/status/${fake}`, { method: "GET" });
+  check("status unknown (no token) -> 404 (or 401 if missing token)", st.status === 404 || st.status === 401, `got ${st.status}`);
+  const res = await callEndpoint(token, `/api/system/async/result/${fake}`, { method: "GET" });
+  check("result unknown (no token) -> 404 (or 401 if missing token)", res.status === 404 || res.status === 401, `got ${res.status}`);
+
+  // Without token -> 401
+  const stNoToken = await fetch(`${OFAPI_URL}/api/system/async/status/${fake}`, { method: "GET", headers: auth(token) });
+  // Actually the endpoint needs token in query or header; the test above passes auth(token) but no token query. It should return 401 if token is required.
+  // Let’s verify with an empty token query:
+  const stEmptyToken = await fetch(`${OFAPI_URL}/api/system/async/status/${fake}?token=badtoken`, { method: "GET", headers: auth(token) });
+  const emptyStatus = stEmptyToken.status;
+  check("bad token -> 401", emptyStatus === 401, `got ${emptyStatus}`);
 }
 
 // ---------------------------------------------------------------------------
