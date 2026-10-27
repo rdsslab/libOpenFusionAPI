@@ -317,16 +317,8 @@ export default class ServerAPI extends EventEmitter {
       endpointRuntimeService,
     });
 
-    // Async job status/result routes (infrastructure, not application endpoints)
-    try {
-      this.fastify.get("/api/async/status/:id", (request, reply) => asyncStatusRoute(this.fastify, {}).then?.call ? null : null);
-      this.fastify.get("/api/async/status/:id", async (request, reply) => {
-        const { asyncStatusRoute } = await import("./server/routes/async.js");
-        return asyncStatusRoute(this.fastify, request, reply);
-      });
-    } catch (e) {
-      console.error("Failed to register async routes:", e);
-    }
+    // Async job status/result routes are now endpoints in the system app
+    // (/api/system/async/status, /api/system/async/result). No direct Fastify routes.
 
     this.webSocketManager.registerRoutes();
 

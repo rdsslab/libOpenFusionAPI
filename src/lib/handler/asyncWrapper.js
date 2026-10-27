@@ -120,7 +120,9 @@ export const asyncWrapperFunction = async (context) => {
         requestId: existingJob.id,
         status: existingJob.status,
         message: "Ya existe un job activo para estos parámetros",
-        pollUrl: `/api/async/status/${existingJob.id}`,
+        token: existingJob.job_token,
+        pollUrl: `/api/system/async/status/${existingJob.id}?token=${existingJob.job_token}`,
+        resultUrl: `/api/system/async/result/${existingJob.id}?token=${existingJob.job_token}`,
         wsUrl: `/api/async/notify?requestId=${existingJob.id}`,
         ttl_remaining_ms: existingJob.expires_at ? new Date(existingJob.expires_at).getTime() - Date.now() : ttl_ms,
       });
@@ -131,8 +133,10 @@ export const asyncWrapperFunction = async (context) => {
     // ------------------------------------------------------------------
     const requestId = uuidv4();
 
+    const jobToken = uuidv4();
     const job = await AsyncJob.create({
       id: requestId,
+      job_token: jobToken,
       idendpoint_base: idendpoint,
       idendpoint_async: method.idendpoint,
       idapp,
@@ -171,8 +175,10 @@ export const asyncWrapperFunction = async (context) => {
     return reply.code(202).send({
       requestId,
       status: "PENDING",
-      message: "Tarea iniciada en segundo plano. Consulte estado por GET /api/async/status/:id",
-      pollUrl: `/api/async/status/${requestId}`,
+      message: "Tarea iniciada en segundo plano. Consulte estado por GET /api/system/async/status/:id con el token del job",
+      token: jobToken,
+      pollUrl: `/api/system/async/status/${requestId}?token=${jobToken}`,
+      resultUrl: `/api/system/async/result/${requestId}?token=${jobToken}`,
       wsUrl: `/api/async/notify?requestId=${requestId}`,
       ttl_ms,
       max_consumes,

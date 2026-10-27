@@ -133,13 +133,7 @@ export class EndpointPreValidationService {
 
       this.ensureTraceId(request, reply);
 
-      // Rutas internas del ASYNC_WRAPPER (/api/async/...): son rutas de
-      // infraestructura registradas directamente en fastify (server/routes/async.js),
-      // no endpoints de aplicación. Deben saltarse la resolución de endpoints para
-      // que el router de fastify (segmento estático gana a /api/:app/*) las atienda.
-      if (String(request.url || "").startsWith("/api/async/")) {
-        return;
-      }
+      // Rutas /api/async/* eliminadas como directas; ahora endpoints DB en system
 
       let request_path_params = this.getURLParams(request.url, request.method);
       

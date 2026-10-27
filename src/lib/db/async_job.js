@@ -126,6 +126,11 @@ export const AsyncJob = dbsequelize.define(
       type: DataTypes.INTEGER,
       defaultValue: 5,
     },
+    job_token: {
+      type: DataTypes.UUID,
+      allowNull: false,
+      defaultValue: DataTypes.UUIDV4,
+    },
     ttl_ms: {
       type: DataTypes.BIGINT,
       defaultValue: 3600000,
@@ -158,6 +163,7 @@ export const AsyncJob = dbsequelize.define(
       { fields: ["expires_at"] },
       { fields: ["status", "created_at"] },
       { fields: ["fingerprint"] },
+      { fields: ["job_token"] },
     ],
   }
 );
