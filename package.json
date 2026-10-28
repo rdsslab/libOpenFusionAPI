@@ -1,6 +1,6 @@
 {
   "name": "@rdsslab/libopenfusionapi",
-  "version": "13.13.11",
+  "version": "13.13.12",
   "description": "Library based on Fastify to create APIs quickly and easily from a web interface.",
   "scripts": {
     "test": "node ./dev/test/index.js",
@@ -115,6 +115,7 @@
   },
   "overrides": {
     "@azure/identity": ">=4.2.1",
+    "@azure/msal-node": "7.1.2",
     "minimatch": ">=10.2.1",
     "tar": ">=7.5.8",
     "sequelize": {
