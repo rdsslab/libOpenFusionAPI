@@ -336,6 +336,34 @@ export default class ServerAPI extends EventEmitter {
       }
     });
 
+    // Todo lo que usa fastify.addHook debe registrarse ANTES de listen().
+    // endpointRuntimeService referencia this.endpoints por referencia, asiq
+    // se llena cuando buildDB() termine de restaurar apps y endpoints.
+    const endpointRuntimeService = new EndpointRuntimeService({
+      serverApi: this,
+      endpoints: this.endpoints,
+      getUUID,
+      getURLParams: get_url_params,
+      authService: AuthService,
+      runHandler,
+      getIPFromRequest,
+      emitEndpointEvent: (event_name, data) => {
+        this._emitEndpointEvent(event_name, data);
+      },
+      authPolicy: defaultAuthPolicy,
+    });
+
+    registerRequestLifecycle({
+      fastify: this.fastify,
+      structApiPath: struct_api_path,
+      endpointRuntimeService,
+    });
+
+    // Async job status/result routes son endpoints en la app system;
+    // no son rutas Fastify directas.
+
+    this.webSocketManager.registerRoutes();
+
     // Abrir el puerto antes de buildDB: el servidor responde temprano
     // y buildDB corre mientras tanto. Las peticiones a /api/* reciben
     // 503 controlado hasta que this.dbReady se ponga en true.
@@ -359,31 +387,6 @@ export default class ServerAPI extends EventEmitter {
     this.dbReady = true;
     this.loadFunctionFiles();
     this._addFunctions();
-
-    const endpointRuntimeService = new EndpointRuntimeService({
-      serverApi: this,
-      endpoints: this.endpoints,
-      getUUID,
-      getURLParams: get_url_params,
-      authService: AuthService,
-      runHandler,
-      getIPFromRequest,
-      emitEndpointEvent: (event_name, data) => {
-        this._emitEndpointEvent(event_name, data);
-      },
-      authPolicy: defaultAuthPolicy,
-    });
-
-    registerRequestLifecycle({
-      fastify: this.fastify,
-      structApiPath: struct_api_path,
-      endpointRuntimeService,
-    });
-
-    // Async job status/result routes are now endpoints in the system app
-    // (/api/system/async/status, /api/system/async/result). No direct Fastify routes.
-
-    this.webSocketManager.registerRoutes();
 
     this.SERVER_DATE_START = Date.now();
 
