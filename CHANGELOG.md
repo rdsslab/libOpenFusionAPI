@@ -18,6 +18,14 @@ see [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [13.13.14] - 2026-10-29
+
+### Fixed
+
+- **Async system endpoints (`/system/async/status`, `/system/async/result`, `/system/async/jobs`)**: their seeds used `handler: "JS"` with `require('../../../db/async_job.js')`, which the JS handler VM sandbox does not expose — every call failed with `require is not defined`. The three endpoints are now `handler: "FUNCTION"` backed by real server functions (`fnGetAsyncJobStatus`, `fnGetAsyncJobResult`, `fnListAsyncJobs` in `src/lib/server/functions/system/prd/async/`), following the same pattern as the interval-task system endpoints. Behavior preserved: `job_token` validation (query `token` or header `x-job-token`), 404/401/410 semantics, TTL expiry check (`EXPIRED` is derived from `expires_at`, never stored), `max_consumes` destruction, and raw binary results via `Buffer` + `content-type` header. `/system/async/jobs` keeps `access: 2` (system/admin), limits to 100 rows and excludes `result`, `response_headers` and `error_message`.
+
+---
+
 ## [13.13.9] - 2026-10-23
 
 ### Changed
