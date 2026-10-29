@@ -227,6 +227,7 @@ export default class ServerAPI extends EventEmitter {
     // debe existir. Sin ella el servidor arranca degradado: se loguea el error,
     // la raíz / muestra qué falta y la API responde 503.
     this.configHealth = logConfigHealth();
+    this.dbReady = false;
 
     if (!this.configHealth.ok) {
       const missing = this.configHealth.missing;
@@ -293,7 +294,69 @@ export default class ServerAPI extends EventEmitter {
 
     this.webSocketManager = new WebSocketManager(this.fastify);
 
+    // ---- Modo arranque: bloquear API hasta que la BD esté lista ----
+    // Permite que el puerto se abra temprano y que healthchecks /
+    // load balancers consulten /health sin recibir 500 de tablas
+    // que aún no existen.
+    this.fastify.addHook("onRequest", async (request, reply) => {
+      const url = String(request?.url || "");
+      // Siempre permitido: health, raíz, estáticos, favicon
+      if (
+        url === "/health" ||
+        url === "/" ||
+        url === "/favicon.ico" ||
+        url.startsWith("/_")
+      ) {
+        return;
+      }
+      if (!this.dbReady && (url.startsWith("/api/") || url.startsWith("/ws/"))) {
+        reply.code(503).send({
+          statusCode: 503,
+          error: "Service Unavailable",
+          message: "Database is still initializing. Try again shortly.",
+        });
+      }
+    });
+
+    this.fastify.get("/health", async (_request, reply) => {
+      try {
+        await dbAPIs.authenticate();
+        reply.code(200).send({
+          status: "ready",
+          db: true,
+          timestamp: new Date().toISOString(),
+        });
+      } catch (error) {
+        reply.code(503).send({
+          status: "starting",
+          db: false,
+          error: error.message,
+          timestamp: new Date().toISOString(),
+        });
+      }
+    });
+
+    // Abrir el puerto antes de buildDB: el servidor responde temprano
+    // y buildDB corre mientras tanto. Las peticiones a /api/* reciben
+    // 503 controlado hasta que this.dbReady se ponga en true.
+    const host = HOST || "localhost";
+    await this.fastify.listen({ port: PORT, host: host });
+    setServerListening(true);
+
+    console.log(
+      `Listen on PORT ${PORT} and HOST ${host}`,
+      __dirname,
+      PORT,
+      PATH_APP_FUNCTIONS,
+      JWT_KEY,
+      HOST,
+    );
+
+    const exposureNotice = buildExposureNotice();
+    console.log(`[envExposure]\n${exposureNotice}`);
+
     await this.buildDB();
+    this.dbReady = true;
     this.loadFunctionFiles();
     this._addFunctions();
 
@@ -323,26 +386,6 @@ export default class ServerAPI extends EventEmitter {
     this.webSocketManager.registerRoutes();
 
     this.SERVER_DATE_START = Date.now();
-
-    const host = HOST || "localhost";
-
-    console.log(
-      `Listen on PORT ${PORT} and HOST ${host}`,
-      __dirname,
-      PORT,
-      PATH_APP_FUNCTIONS,
-      JWT_KEY,
-      HOST,
-    );
-
-    // Aviso de exposición de entornos (EXPOSE_*_API): visible al arrancar para que el
-    // operador confirme qué environments ejecuta esta instancia (vital en despliegues
-    // de varias instancias compartiendo la misma BD).
-    const exposureNotice = buildExposureNotice();
-    console.log(`[envExposure]\n${exposureNotice}`);
-
-    await this.fastify.listen({ port: PORT, host: host });
-    setServerListening(true);
 
     this._runOnReady();
 
