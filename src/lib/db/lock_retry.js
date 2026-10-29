@@ -60,6 +60,11 @@
 /** 1205 victima de un deadlock; 1204 se agoto el tiempo maximo de espera de un lock. */
 const NUMEROS_MSSQL = new Set([1205, 1204]);
 
+/** SQLite: errno 5 / code SQLITE_BUSY = "database is locked". Es transitorio: la
+ * escritura que mantiene el lock termina su transaccion y libera el fichero. */
+const NUMEROS_SQLITE = new Set([5]);
+const CODIGOS_SQLITE = new Set(["SQLITE_BUSY"]);
+
 /**
  * SQLSTATE de PostgreSQL. Los tres son "esta sentencia no se pudo hacer ahora, sin
  * cambios en lo que hace", que es justo la condicion para reintentarla: 40001
@@ -121,7 +126,9 @@ const identificadoresDeError = (error) => {
  */
 export const esErrorDeBloqueo = (error) => {
   for (const id of identificadoresDeError(error)) {
-    if (typeof id === "number" ? NUMEROS_MSSQL.has(id) : SQLSTATES_PG.has(id)) {
+    if (typeof id === "number"
+      ? NUMEROS_MSSQL.has(id) || NUMEROS_SQLITE.has(id)
+      : SQLSTATES_PG.has(id) || CODIGOS_SQLITE.has(id)) {
       return true;
     }
   }
@@ -232,7 +239,7 @@ const crearRegistrador = (politica, ventanaMs = 5000) => {
       acumulado++;
       const id = [...identificadoresDeError(error)]
         .map((c) => String(c))
-        .find((c) => NUMEROS_MSSQL.has(Number(c)) || SQLSTATES_PG.has(c)) ?? "?";
+        .find((c) => NUMEROS_MSSQL.has(Number(c)) || NUMEROS_SQLITE.has(Number(c)) || SQLSTATES_PG.has(c) || CODIGOS_SQLITE.has(c)) ?? "?";
       codigos.set(id, (codigos.get(id) ?? 0) + 1);
 
       const ahora = Date.now();

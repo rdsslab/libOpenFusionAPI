@@ -13,16 +13,28 @@ const db_conn =
   process.env.DATABASE_URI_API ||
   `sqlite:${tmpPath}`;
 
+const esSqlite = db_conn.includes("sqlite");
+
 let dialectOptions;
 if (process.env.USE_HEROKU_POSTGRESQL) {
   dialectOptions = { ssl: { rejectUnauthorized: false } };
+}
+
+if (esSqlite) {
+  dialectOptions = {
+    ...dialectOptions,
+    // busyTimeout (ms): SQLite espera en lugar de lanzar SQLITE_BUSY inmediatamente
+    // cuando otra escritura mantiene el lock. Con pool.max: 1 ya serializamos, pero
+    // esto da margen para picos de arranque y ciclos de tareas interval.
+    busyTimeout: 30000,
+  };
 }
 
 const options = {
   logging: false, // Imprime el SQL en consola
   dialectOptions: dialectOptions,
   pool: {
-    max: db_conn.includes("sqlite") ? 1 : 20,
+    max: esSqlite ? 1 : 20,
     min: 1,
     acquire: 30000,
     idle: 10000,
@@ -103,6 +115,14 @@ const connectionSummary = () => {
 export const connectionReady = (async () => {
   try {
     await dbsequelize.authenticate();
+
+    // SQLite: WAL permite lectores concurrentes mientras hay un escritor, y es
+    // el modo recomendado cuando hay tareas interval escribiendo a la vez que
+    // otras operaciones. busyTimeout ya va en dialectOptions por conexion.
+    if (esSqlite) {
+      await dbsequelize.query("PRAGMA journal_mode = WAL");
+    }
+
     console.log(
       ">>>>>>>>> Connection has been established successfully",
       connectionSummary()
