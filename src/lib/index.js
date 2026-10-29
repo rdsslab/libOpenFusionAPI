@@ -27,7 +27,7 @@ import {
   getApplicationTreeByFilters,
   getApplicationEndpointByRoute,
 } from "./db/app.js";
-import { prefixTableName, modelHooks } from "./db/models.js";
+import { prefixTableName, modelHooks, BotBackup, BotLog, PasswordRecovery, IntervalTaskRun } from "./db/models.js";
 import { createLog } from "./db/log.js";
 import { createFunctionVM } from "./server/createFunctionVM.js";
 import { CreateMCPHandler } from "./server/endpoint/handlerBuild/mcp.js";
