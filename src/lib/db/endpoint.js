@@ -406,6 +406,8 @@ export const upsertEndpoint = async (
     const skipMcpNameUniqueness = data?.skipMcpNameUniqueness === true;
     delete data.skipMcpNameUniqueness;
 
+    let previous = null;
+
     // Recalcular resource para ASYNC_WRAPPER: debe ser siempre base_resource + '/async'
     // (insertado antes del entorno, si aplica). Esto evita que el usuario guarde
     // una URL incorrecta.
@@ -450,7 +452,6 @@ export const upsertEndpoint = async (
 
     // Resolve the target endpoint first so updates/migrations can replace the
     // destination row and keep MCP-name uniqueness checks scoped to that row.
-    let previous = null;
     if (data.idapp && data.environment && data.resource && data.method) {
       const existing = await Endpoint.findOne({
         where: {
