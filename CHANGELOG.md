@@ -18,6 +18,19 @@ see [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [13.14.1] - 2026-11-02
+
+### Added
+- **AppVars `note` field**: new optional free-text `note` column (`TEXT`) on `AppVars` for operator notes/comments. It is metadata only: never resolved as an AppVar value, never read by the runtime, and not part of any unique key. Propagated end-to-end through `ensureAppVarOnce`, `getAppVarsCatalogByIdApp`, `appvar_upsert` (MCP schema + HTTP), `appvar_migrate`, `app_vars`, `app_vars_catalog`, docs (`APPVARS.md`), and end-to-end tests.
+
+### Fixed
+- **Seed `demo.js`**: three MSSX demo endpoints (`mssql-demo-constant-01`, `mssql-demo-trans-01`, `mssql-demo-bind-01`) were incorrectly placed inside `vrs` (the AppVars array) instead of `endpoints`, causing `appvar_types_test.js` to report `type=undefined`. Moved to `endpoints`.
+
+### Changed
+- **Startup**: new idempotent `ensureAppVarNoteColumn` runs on every boot to add the `note` column to existing `ofapi_appvars` tables where `sync({ alter: true })` may fall back to plain `sync()` and not add columns.
+
+---
+
 ## [13.13.14] - 2026-10-29
 
 ### Fixed

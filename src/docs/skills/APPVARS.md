@@ -18,6 +18,15 @@ That is: the literal prefix `$_VAR_` followed by uppercase letters, digits and u
 - Saving a name that breaks the rule returns HTTP `400` with `code: "INVALID_APPVAR_NAME"`; the response `details.suggestion` carries the corrected name. This applies to every write path, including application backup restores and `appvar_migrate`.
 - Lowercase letters, dashes, dots and spaces are rejected because AppVars are also injected as globals into the JavaScript sandbox: a name that is not a valid JavaScript identifier can only be read through `$_APP_VARS_['...']` and silently fails when referenced directly.
 
+## Operator notes (`note`)
+
+Every AppVar has an optional `note` column: free text for comments, provenance, rotation reminders, or anything an operator needs to remember about the value.
+
+- It is **metadata only**. It is never resolved as an AppVar value, never read by the runtime, and is not part of the unique key `(idapp, name, environment)` — two variables may share the same note or have none.
+- Write it through the same paths that write the value: `appvar_upsert` (HTTP `/app/var` or MCP) with `{ "note": "..." }`, or `appvar_migrate`, which copies the note to the target environment.
+- Read it back from `app_vars`, `app_vars_catalog` (notes are included even when `include_values` is false), and the application tree / raw AppVar rows.
+- Limits come from the column type `TEXT`; there is no format or length rule beyond that. Send `null` or omit it to leave the variable without a note.
+
 ## Which endpoint field carries the reference
 
 **This depends on the handler.** Putting the reference in the wrong field means it is never resolved.

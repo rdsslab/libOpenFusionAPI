@@ -158,6 +158,7 @@ export const ensureAppVarOnce = async (
     environment: environment ?? null,
     type: data?.type ?? "json",
     value: data?.value,
+    note: data?.note,
   });
 };
 
@@ -212,6 +213,7 @@ export const getAppVarsCatalogByIdApp = async (filters = {}) => {
       "name",
       "type",
       "environment",
+      "note",
       "createdAt",
       "updatedAt",
     ];

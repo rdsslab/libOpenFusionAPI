@@ -659,6 +659,7 @@ export async function fnAppVarMigrate(params) {
           name: data.name,
           value: data.value,
           type: data.type,
+          note: data.note,
         };
 
         // Verificar si ya existe una AppVar con el mismo name, idapp y target_env

@@ -22,6 +22,7 @@ import dbAPIs from "./db/sequelize.js";
 import { ensureBotRuntimeColumns } from "./db/ensureBotRuntimeColumns.js";
 import { ensureIntervalTaskColumns } from "./db/ensureIntervalTaskColumns.js";
 import { ensureApiClientExpTimeColumn } from "./db/ensureApiClientExpTimeColumn.js";
+import { ensureAppVarNoteColumn } from "./db/ensureAppVarNoteColumn.js";
 import {
   defaultApps,
   getApplicationTreeByFilters,
@@ -697,6 +698,16 @@ export default class ServerAPI extends EventEmitter {
       await ensureApiClientExpTimeColumn(log);
     } catch (error) {
       log("Error ensuring ApiClient exp_time column:", error);
+    }
+
+    // La columna note en ofapi_appvars permite guardar notas/comentarios del operador
+    // sin afectar la resolución de valores. Sin ella, cualquier lectura de AppVars
+    // falla en una base ya desplegada ("no such column"). Idempotente y acotada a una
+    // tabla, se ejecuta en cada arranque.
+    try {
+      await ensureAppVarNoteColumn(log);
+    } catch (error) {
+      log("Error ensuring AppVars note column:", error);
     }
 
     try {

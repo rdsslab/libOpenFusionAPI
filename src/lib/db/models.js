@@ -598,6 +598,13 @@ export const AppVars = dbsequelize.define(
       allowNull: false,
     },
     value: jsonField("value", { allowNull: true }),
+    note: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      comment:
+        "Free-text notes/comments for the operator. It is metadata only: it is never " +
+        "resolved as an AppVar value and it is not part of any unique key.",
+    },
   },
   {
     freezeTableName: true,

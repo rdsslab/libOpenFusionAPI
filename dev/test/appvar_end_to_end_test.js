@@ -20,7 +20,7 @@ import assert from "node:assert/strict";
 
 import { closeDb } from "./close_db.js";
 import { AppVars } from "../../src/lib/db/models.js";
-import { upsertAppVar, getAppVarsByIdApp } from "../../src/lib/db/appvars.js";
+import { upsertAppVar, getAppVarsByIdApp, getAppVarsCatalogByIdApp } from "../../src/lib/db/appvars.js";
 import { parseAppVar } from "../../src/lib/db/app.js";
 
 const APP = "c4ca4238-a0b9-2382-0dcc-509a6f75849b"; // app `demo`
@@ -262,6 +262,68 @@ await test("el valor en el runtime respeta el tipo declarado", async () => {
       `${name} (type=${type}) llego como ${JSON.stringify(runtime)} (${typeof runtime})`,
     );
   }
+});
+
+console.log("\n=== AppVars end to end: la nota es metadato del operador ===");
+
+await test("la nota se guarda, se lee y no altera el valor resuelto", async () => {
+  const name = "$_VAR_T_NOTA";
+  created.push({ name, environment: ENV });
+  const note = "Nota de prueba: ñ á — origen y rotación";
+
+  await upsertAppVar({
+    idapp: APP,
+    name,
+    environment: ENV,
+    type: "string",
+    value: "caracol",
+    note,
+  });
+
+  const rows = await getAppVarsByIdApp(APP);
+  const row = rows.find((r) => r.name === name);
+  assert.equal(row.note, note, `la nota no volvio igual: ${JSON.stringify(row.note)}`);
+  // La nota es solo metadato: el valor de runtime no cambia.
+  assert.equal(parseAppVar(row), "caracol");
+
+  // El catalogo la incluye aunque no se pidan los valores.
+  const catalog = await getAppVarsCatalogByIdApp({ idapp: APP, environment: ENV });
+  const catalogRow = catalog.find((r) => r.name === name);
+  assert.equal(catalogRow.note, note, "la nota falta en el catalogo");
+  assert.notEqual(catalogRow.value, "caracol", "el catalogo devolvio el valor sin pedirlo");
+
+  // Y actualizarla no toca el valor.
+  await upsertAppVar({
+    idvar: row.idvar,
+    idapp: APP,
+    name,
+    environment: ENV,
+    type: "string",
+    value: "caracol",
+    note: "nota actualizada",
+  });
+  const updated = (await getAppVarsByIdApp(APP)).find((r) => r.name === name);
+  assert.equal(updated.note, "nota actualizada");
+  assert.equal(updated.value, "caracol");
+
+  // Un update que no envia `note` no la borra: la nota es independiente del valor.
+  await upsertAppVar({
+    idvar: row.idvar,
+    idapp: APP,
+    name,
+    environment: ENV,
+    type: "string",
+    value: "caracol-2",
+  });
+  const afterValueUpdate = (await getAppVarsByIdApp(APP)).find((r) => r.name === name);
+  assert.equal(afterValueUpdate.note, "nota actualizada", "un update del valor borro la nota");
+  assert.equal(afterValueUpdate.value, "caracol-2");
+});
+
+await test("una variable sin nota devuelve null, no una cadena vacia", async () => {
+  const name = await create("$_VAR_T_SIN_NOTA", "string", "x");
+  const rows = await getAppVarsByIdApp(APP);
+  assert.equal(rows.find((r) => r.name === name).note, null);
 });
 
 console.log("\n=== AppVars end to end: limpieza ===");

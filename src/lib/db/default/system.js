@@ -6364,7 +6364,7 @@ export const system_app = {
         "enabled": true,
         "name": "app_vars_catalog",
         "title": "List Application Variable Catalog (Lightweight)",
-        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns a lightweight list of AppVar names, types and environments for one app — variable values are excluded unless 'include_values: true' is set. Use this to discover which variables exist before reading or updating them. For the full variable data including values use 'app_vars'. To resolve the effective runtime value of a specific variable use 'appvars_effective_resolve'.",
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns a lightweight list of AppVar names, types, environments and notes for one app — variable values are excluded unless 'include_values: true' is set. Use this to discover which variables exist before reading or updating them. For the full variable data including values use 'app_vars'. To resolve the effective runtime value of a specific variable use 'appvars_effective_resolve'.",
         "operation_mode": "read",
         "requires_explicit_confirmation": false,
         "side_effects": "No persistent write side effects expected.",
@@ -9120,7 +9120,7 @@ export const system_app = {
         "enabled": true,
         "name": "appvar_upsert",
         "title": "Create or Update Application Variable",
-        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nCreates or updates a reusable application variable (AppVar) for a target `idapp` and `environment`. Use it after creating the application and before creating endpoints, when configuration must be shared across several endpoints or kept out of the endpoint source.\nNAME FORMAT IS MANDATORY: `name` must match `^\\$_VAR_[A-Z0-9_]+$` — the literal `$_VAR_` prefix followed by uppercase letters, digits and underscores, for example `$_VAR_TELEGRAM_TOKEN`. A name that does not match is rejected with HTTP 400 and `code: \"INVALID_APPVAR_NAME\"`; the response carries a corrected name in `details.suggestion`. The same string is what you embed to reference the variable, so a name without the prefix never resolves.\nOperation mode: omit `idvar` for INSERT; send an existing `idvar` to update. `environment` is one of `dev`, `qa` or `prd`, and a variable belongs to exactly one of them. `type` is optional and defaults to `json`. `value` is always stored as a string: serialize JSON before sending it.\nTo reference the variable afterwards, embed the exact name as a string in the endpoint payload or in a bot `token`, for example `\"$_VAR_NAME\"`. Confirm what the runtime will actually see with 'appvars_effective_resolve'.",
+        "description": "WRITE OPERATION: This tool modifies persistent data or runtime system state. Use only with explicit user authorization.\nPrecondition: Confirm user intent before execution and provide exact target identifiers.\nCreates or updates a reusable application variable (AppVar) for a target `idapp` and `environment`. Use it after creating the application and before creating endpoints, when configuration must be shared across several endpoints or kept out of the endpoint source.\nNAME FORMAT IS MANDATORY: `name` must match `^\\$_VAR_[A-Z0-9_]+$` — the literal `$_VAR_` prefix followed by uppercase letters, digits and underscores, for example `$_VAR_TELEGRAM_TOKEN`. A name that does not match is rejected with HTTP 400 and `code: \"INVALID_APPVAR_NAME\"`; the response carries a corrected name in `details.suggestion`. The same string is what you embed to reference the variable, so a name without the prefix never resolves.\nOperation mode: omit `idvar` for INSERT; send an existing `idvar` to update. `environment` is one of `dev`, `qa` or `prd`, and a variable belongs to exactly one of them. `type` is optional and defaults to `json`. `value` is always stored as a string: serialize JSON before sending it. `note` is optional free-text metadata for operators (comments, provenance, rotation reminders); it is never resolved as a value.\nTo reference the variable afterwards, embed the exact name as a string in the endpoint payload or in a bot `token`, for example `\"$_VAR_NAME\"`. Confirm what the runtime will actually see with 'appvars_effective_resolve'.",
         "operation_mode": "write",
         "requires_explicit_confirmation": true,
         "side_effects": "Creates or overwrites a shared configuration value. Every endpoint and bot that references this variable in the same environment picks up the new value, so an update can change the behavior of resources you are not editing.",
@@ -9130,10 +9130,12 @@ export const system_app = {
           "name": "$_VAR_MY_CONFIG_VALUE",
           "type": "string",
           "environment": "prd",
-          "value": "example-value"
+          "value": "example-value",
+          "note": "Optional free-text note for operators"
         },
         "notes": [
           "`value` is sent as string in this contract; serialize JSON when storing structured data.",
+          "`note` is optional free-text metadata for operators. It is never resolved as an AppVar value and is not part of any unique key; use it for comments such as where the value comes from or when it should be rotated.",
           "Recommended workflow: create the application first, store shared configuration with appvar_upsert, and then create endpoints that reuse those variables.",
           "When an endpoint JSON payload needs to reference an AppVar placeholder, embed it as a string such as `\"$_VAR_NAME\"`."
         ]
@@ -9177,6 +9179,10 @@ export const system_app = {
               "value": {
                 "description": "Serialized value to store. Send JSON as a string when persisting structured data.",
                 "type": "string"
+              },
+              "note": {
+                "type": "string",
+                "description": "Optional free-text notes/comments for the operator. Metadata only: it is never resolved as an AppVar value and is not part of any unique key."
               }
             },
             "additionalProperties": false,
@@ -9216,7 +9222,8 @@ export const system_app = {
               "name": "$_VAR_MY_CONFIG_VALUE",
               "type": "string",
               "environment": "prd",
-              "value": "example-value"
+              "value": "example-value",
+              "note": "Optional free-text note for operators"
             }
           },
           "xml": {
@@ -13169,7 +13176,7 @@ export const system_app = {
         "enabled": true,
         "name": "app_vars",
         "title": "Get Application Variables",
-        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns all application variables (AppVars) for the given `idapp`, including their values across all environments. Use this when you need the full variable data to read or inspect values. For a lightweight list without values use 'app_vars_catalog'. To resolve the effective runtime value of a single variable use 'appvars_effective_resolve'.",
+        "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns all application variables (AppVars) for the given `idapp`, including their values and operator notes across all environments. Use this when you need the full variable data to read or inspect values. For a lightweight list without values use 'app_vars_catalog'. To resolve the effective runtime value of a single variable use 'appvars_effective_resolve'.",
         "operation_mode": "read",
         "requires_explicit_confirmation": false,
         "side_effects": "No persistent write side effects expected.",
