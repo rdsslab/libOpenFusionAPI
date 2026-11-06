@@ -66,7 +66,16 @@ export async function fnCreateApiClient(params) {
       return r;
     }
 
-    let data = await createApiClient(body);
+    // Limpiar campos UUID auto-generados que vengan como string vacío
+    const cleanedBody = { ...body };
+    const uuidAutoFields = ["idclient", "idapp", "idendpoint", "idkey", "iduser", "idbot", "idtask"];
+    uuidAutoFields.forEach(field => {
+      if (cleanedBody[field] === "") {
+        delete cleanedBody[field];
+      }
+    });
+
+    let data = await createApiClient(cleanedBody);
 
     if (data && data.client) {
       let token = GenToken({ api: data.client }, 10 * 60); // Valido por 10 minutos
