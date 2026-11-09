@@ -18,6 +18,70 @@ see [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [14.0.0] - 2026-11-09
+
+### Breaking
+
+- **System seed access levels**: endpoints that used to be public (`access: 0`) now
+  require a Bearer token (`access: 2`). The only endpoints that remain public are
+  `POST /system/login`, `POST /user/forgotpassword`, `POST /user/resetpassword/confirm`,
+  `GET /user/recovery/options`, `GET /apiclient/login`, `POST /database/hooks`,
+  `WS /websocket/hooks`, `WS /websocket/server`, `GET /server/version` (the GUI reads
+  the version before login) and the ASYNC_WRAPPER polling endpoints
+  `GET /system/async/status` / `GET /system/async/result` (they are protected by the
+  per-job `job_token`, not by a session). Clients that called `/restore`, `/mcp/server`,
+  `/bot/all`, `/apikey`, `/api/agent_onboarding`, `/api/handler/*` or
+  `/libopenfusionapi/version/last` anonymously now receive `401`.
+- **Former `access: 3` system endpoints are now `access: 2`** (12 endpoints:
+  `/api/endpoint/{js,soap,fetch,sql,sql_bulk_i,hana,mongodb,text}`,
+  `/endpoints/migrate`, `/appvars/migrate`, `GET /apikey`, `/app/tree/by/filters`).
+  The `system` runtime already ignored the Basic fallback, so this only aligns the seed
+  with the real behaviour and closes the Basic-auth brute-force surface.
+- **`access: 4` ("Local only") is now enforced**: a request from a non-loopback address
+  is rejected with `403` before credentials are checked.
+- **`endpoint.ctrl.users` is now enforced**: when the array is non-empty, only the
+  listed internal users may call the endpoint. It is an allowlist of `iduser` values
+  (usernames are accepted for legacy data); `as_admin` bypasses it. All seeded arrays are
+  empty today, so no endpoint changes behaviour until an operator fills one.
+
+### Added
+
+- **`endpoint.ctrl.authenticated: true`**: any valid session may call the endpoint
+  without a granular `ctrl.env[env][resource][action]` permission. Applied to
+  documentation, discovery, GUI-bootstrap and async-polling endpoints so moving them
+  from public to authenticated does not require granting permissions to every user.
+- **Resources `apikeys` and `appgroups`**: `fullAccessCtrl()` now grants them, and
+  `resourceMapper` maps `/apikey*` and `/appgroup*` to them.
+- **`OFAPI_DISABLE_DEFAULT_USERS`** (default `false`): when `true`, the seed does not
+  create or repair the built-in users (`superopenfusionapi`, `admin`, `client_api`,
+  `demo`) or the `apiuser` API client. Existing rows are never deleted.
+
+### Changed
+
+- **`resourceMapper`**: fixed the dead `"/user/"` prefix (the matcher appended its own
+  slash, so it never matched) and added mappings for `/restore`, `/email`, `/cache`,
+  `/security`, `/audit/log`, `/system/audit`, `/system/admin`, `/system/async`,
+  `/mcp`, `/appgroup`, `/apikey`, `/app/documentation`, `/app/backup`, `/bot/all`,
+  `/api/validation/endpoint-code` and `/api/apps`. No seeded endpoint resolves to an
+  unmapped resource anymore.
+- **Wildcard action `"*"`** in `ctrl.env[env][resource]` is now honoured by
+  `hasPermission`. Previously `validateCtrlSchema` accepted it but the engine ignored
+  it, so a valid ctrl silently granted nothing.
+- **Privilege guards**: `fnCreateUser` now rejects `ctrl` in the body unless the actor
+  is `as_admin`, and `fnResetUserPassword` rejects resetting an `as_admin` account from
+  a non-`as_admin` actor. Without these, fixing the `/user/*` resource mapping would
+  have opened a direct privilege-escalation path.
+- **`ctrl` documentation** in the endpoint JSON schema now describes `users`,
+  `authenticated`, `admin` (marker only) and `log`.
+
+### Security
+
+- The default system seed no longer exposes `/restore` (which restores the whole
+  `system` app, including users and API keys) to anonymous callers.
+- API keys, bots, MCP and async-job status are no longer enumerable without a token.
+
+---
+
 ## [13.14.1] - 2026-11-02
 
 ### Added

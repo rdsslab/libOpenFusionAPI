@@ -293,6 +293,16 @@ const DEFAULT_USERS = [
 ];
 
 export const defaultUser = async () => {
+  // En producción las cuentas por defecto (con contraseñas conocidas) no deben
+  // recrearse en cada arranque. El flag no borra usuarios existentes: solo
+  // impide que el seed los cree o repare.
+  if (String(process.env.OFAPI_DISABLE_DEFAULT_USERS ?? "").toLowerCase() === "true") {
+    console.warn(
+      `[${new Date().toISOString()}] Seed: creacion de usuarios por defecto deshabilitada (OFAPI_DISABLE_DEFAULT_USERS=true).`
+    );
+    return true;
+  }
+
   try {
     for (const def of DEFAULT_USERS) {
       const existingUser = await User.findOne({

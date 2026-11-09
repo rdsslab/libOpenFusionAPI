@@ -55,11 +55,20 @@ export function hasPermission(userCtrl, environment, resource, action) {
 
   // Check specific resource
   const resourcePerms = envPerms[resource];
-  if (resourcePerms && resourcePerms[action] === true) return true;
+  if (resourcePerms) {
+    if (resourcePerms[action] === true) return true;
+    // Wildcard action "*" grants every action on that resource. It is
+    // accepted by validateCtrlSchema, so it must also be honoured here;
+    // otherwise a ctrl that validates would silently grant nothing.
+    if (resourcePerms["*"] === true) return true;
+  }
 
   // Wildcard resource "*" grants all actions in that environment
   const wildcardPerms = envPerms["*"];
-  if (wildcardPerms && wildcardPerms[action] === true) return true;
+  if (wildcardPerms) {
+    if (wildcardPerms[action] === true) return true;
+    if (wildcardPerms["*"] === true) return true;
+  }
 
   return false;
 }
@@ -138,9 +147,11 @@ export function fullAccessCtrl() {
   const envResources = {
     users: { ...resourceActions },
     apiclients: { ...resourceActions },
+    apikeys: { ...resourceActions },
     endpoints: { ...resourceActions },
     apps: { ...resourceActions },
     appvars: { ...resourceActions },
+    appgroups: { ...resourceActions },
     bots: { ...resourceActions },
     interval_tasks: { ...resourceActions },
     logs: { read: true },

@@ -391,6 +391,16 @@ export async function deleteApiClient(idclient) {
 }
 
 export const defaultApiClient = async () => {
+  // El cliente por defecto usa credenciales conocidas (apiuser/apiuser). En
+  // producción no debe recrearse en cada arranque. El flag no borra clientes
+  // existentes: solo impide que el seed los cree o repare.
+  if (String(process.env.OFAPI_DISABLE_DEFAULT_USERS ?? "").toLowerCase() === "true") {
+    console.warn(
+      `[${new Date().toISOString()}] Seed: creacion del api client por defecto deshabilitada (OFAPI_DISABLE_DEFAULT_USERS=true).`
+    );
+    return true;
+  }
+
   const defaultClient = {
     username: "apiuser",
     password: "apiuser",

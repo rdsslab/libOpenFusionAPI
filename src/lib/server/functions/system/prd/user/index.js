@@ -27,11 +27,97 @@ import {
   AUDIT_ENTITY_TYPES,
 } from "../../../../audit/auditService.js";
 
+/**
+ * `true` si el `ctrl` de un usuario otorga privilegios reales: bypass global
+ * (`as_admin`), acceso autenticado sin permiso granular (`authenticated`), o
+ * cualquier acción habilitada en `ctrl.env`.
+ *
+ * Un `ctrl` vacío o con todas las acciones en `false` (el valor por defecto que
+ * envía la GUI al crear/editar) NO otorga nada y debe aceptarse aunque el actor
+ * no sea as_admin.
+ *
+ * @param {unknown} ctrl
+ * @returns {boolean}
+ */
+function ctrlGrantsPrivilege(ctrl) {
+  if (!ctrl || typeof ctrl !== "object") return false;
+  const c = /** @type {Record<string, unknown>} */ (ctrl);
+  if (c.as_admin === true || c.admin === true || c.authenticated === true) {
+    return true;
+  }
+  const env = c.env;
+  if (!env || typeof env !== "object") return false;
+  for (const resources of Object.values(env)) {
+    if (!resources || typeof resources !== "object") continue;
+    for (const actions of Object.values(resources)) {
+      if (actions === true) return true;
+      if (actions && typeof actions === "object") {
+        for (const value of Object.values(actions)) {
+          if (value === true) return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * Comparación profunda mínima para decidir si un `ctrl` cambió. El orden de
+ * claves no importa.
+ *
+ * @param {unknown} a
+ * @param {unknown} b
+ * @returns {boolean}
+ */
+function sameCtrl(a, b) {
+  if (a === b) return true;
+  if (typeof a !== typeof b) return false;
+  if (!a || !b || typeof a !== "object" || typeof b !== "object") return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  const recA = /** @type {Record<string, unknown>} */ (a);
+  const recB = /** @type {Record<string, unknown>} */ (b);
+  const keysA = Object.keys(recA);
+  const keysB = Object.keys(recB);
+  if (keysA.length !== keysB.length) return false;
+  for (const key of keysA) {
+    if (!Object.prototype.hasOwnProperty.call(recB, key)) return false;
+    if (!sameCtrl(recA[key], recB[key])) return false;
+  }
+  return true;
+}
+
 export async function fnCreateUser(params) {
   let r = { data: undefined, code: 204 };
 
   try {
-    let data = await createUser(params?.request?.body);
+    const body = params?.request?.body || {};
+
+    // Escalada de privilegios: crear una cuenta con `ctrl` (incluido
+    // `as_admin: true`) es exclusivo de una cuenta as_admin. Sin este control,
+    // cualquier usuario con permiso `users:create` podía crearse un superadmin.
+    const actor =
+      params?.request?.openfusionapi?.user?.admin ||
+      params?.request?.openfusionapi?.user;
+    const actorCtrl =
+      actor?.ctrl && typeof actor.ctrl === "object" ? actor.ctrl : {};
+    const actorIsAdmin = actorCtrl.as_admin === true;
+
+    if (!actorIsAdmin && ctrlGrantsPrivilege(body.ctrl)) {
+      r.data = { error: "Permission denied: only an as_admin account may grant user ctrl privileges." };
+      r.code = 403;
+      await recordAudit(params, {
+        action: AUDIT_ACTIONS.CREATE,
+        entity_type: AUDIT_ENTITY_TYPES.USER,
+        entity_id: body.iduser ?? null,
+        target_username: body.username || null,
+        status: false,
+        result_code: r.code,
+        message: r.data.error,
+      });
+      return r;
+    }
+
+    let data = await createUser(body);
 
     r.data = data;
     r.code = 200;
@@ -198,6 +284,33 @@ export async function fnResetUserPassword(params) {
       return r;
     }
 
+    // Una cuenta sin as_admin no puede resetear la contraseña de una cuenta
+    // as_admin: sería una toma de control directa del superadmin.
+    const actor =
+      params?.request?.openfusionapi?.user?.admin ||
+      params?.request?.openfusionapi?.user;
+    const actorCtrl =
+      actor?.ctrl && typeof actor.ctrl === "object" ? actor.ctrl : {};
+    const actorIsAdmin = actorCtrl.as_admin === true;
+
+    if (!actorIsAdmin) {
+      const targetRow = await getUserById(iduser);
+      const targetCtrl = targetRow?.toJSON?.().ctrl || targetRow?.ctrl || {};
+      if (targetCtrl.as_admin === true) {
+        r.data = { error: "Permission denied: cannot reset the password of an as_admin account." };
+        r.code = 403;
+        await recordAudit(params, {
+          action: AUDIT_ACTIONS.UPDATE,
+          entity_type: AUDIT_ENTITY_TYPES.USER,
+          entity_id: iduser,
+          status: false,
+          result_code: r.code,
+          message: r.data.error,
+        });
+        return r;
+      }
+    }
+
     let data = await resetUserPassword(iduser, newPassword);
     if (data.success) {
       r.data = data;
@@ -264,13 +377,21 @@ export async function fnUpdateUser(params) {
     const actorIsAdmin = actorCtrl.as_admin === true;
     const targetId = Number(iduser);
 
-    // Escalada de privilegios: modificar el ctrl (incluido otorgar as_admin a
-    // otros o editar los propios permisos) es exclusivo de cuentas as_admin.
+    // Escalada de privilegios: un no-admin puede reenviar el `ctrl` existente
+    // (la GUI lo hace siempre) o quitarlo/reducirlo, pero no otorgar
+    // privilegios nuevos ni editar los propios.
     if (!actorIsAdmin && params?.request?.body?.ctrl !== undefined) {
-      r.data = { error: "Permission denied: only an as_admin account may modify user ctrl." };
-      r.code = 403;
-      await auditNow();
-      return r;
+      const bodyCtrl = params?.request?.body?.ctrl;
+      const currentCtrl =
+        beforeSnapshot?.ctrl && typeof beforeSnapshot.ctrl === "object"
+          ? beforeSnapshot.ctrl
+          : {};
+      if (ctrlGrantsPrivilege(bodyCtrl) && !sameCtrl(currentCtrl, bodyCtrl)) {
+        r.data = { error: "Permission denied: only an as_admin account may grant user ctrl privileges." };
+        r.code = 403;
+        await auditNow();
+        return r;
+      }
     }
     if (!actorIsAdmin && Number(actor?.iduser) === targetId) {
       r.data = { error: "Permission denied: you cannot modify your own access." };

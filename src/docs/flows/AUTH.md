@@ -48,7 +48,9 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A["AuthService.check_auth(handler, request, reply)"] --> PUB{"access == 0?"}
+    A["AuthService.check_auth(handler, request, reply)"] --> LOC{"access == 4 and<br/>request is not loopback?"}
+    LOC -- "yes" --> R403["403 localhost only"]
+    LOC -- "no" --> PUB{"access == 0?"}
     PUB -- "yes" --> PUBOK["Public — skip auth entirely"]
     PUB -- "no" --> EXTR["getUserPasswordTokenFromRequest"]
 
@@ -90,12 +92,38 @@ flowchart TD
         BK6 -- "yes" --> BT
         BK6 -- "no" --> BK7{"userCtrl.as_admin == true?"}
         BK7 -- "yes" --> BT
-        BK7 -- "no" --> BK8["hasPermission(ctrl, env, resource, action)"]
-        BK8 -- "granted" --> BT
-        BK8 -- "denied / unmapped" --> BF
+        BK7 -- "no" --> BK8{"endpoint.ctrl.users<br/>non-empty and user not listed?"}
+        BK8 -- "yes" --> BF
+        BK8 -- "no" --> BK9{"endpoint.ctrl.authenticated<br/>== true?"}
+        BK9 -- "yes" --> BT
+        BK9 -- "no" --> BK10["hasPermission(ctrl, env, resource, action)"]
+        BK10 -- "granted" --> BT
+        BK10 -- "denied / unmapped" --> BF
         BK3 -- "no (normal app)" --> BK5
     end
 ```
+
+### Access levels
+
+| `access` | Meaning | Runtime behaviour |
+|---|---|---|
+| `0` | Public | No authentication. Used only by login, password recovery, webhooks/WebSocket and `/server/version` (the GUI reads it before login). |
+| `1` | Basic | Username/password on every request. |
+| `2` | Bearer | Valid JWT required. |
+| `3` | Bearer + Basic fallback | Business apps only; the `system` seed no longer uses it (all former `access: 3` endpoints are now `2` because the runtime already ignored the Basic fallback for `system`). |
+| `4` | Local only | Loopback source (`127.0.0.0/8`, `::1`) **and** a valid token. A remote request is rejected with `403` before credentials are checked. |
+
+### Per-endpoint controls (`endpoint.ctrl`)
+
+- `ctrl.users`: array of `iduser` (usernames accepted for legacy data). Non-empty means
+  only those internal users may call the endpoint; `as_admin` bypasses it. Empty or
+  omitted means no per-user restriction.
+- `ctrl.authenticated: true`: any valid session is enough; no granular
+  `ctrl.env[env][resource][action]` is required. Used by documentation, discovery,
+  GUI-bootstrap and self-service endpoints.
+- `ctrl.admin: true`: documentation/UI marker only. It is **not** enforced at runtime.
+- An unmapped resource (`resolveResource` returns `null`) is a **deny** for the `system`
+  app (fail-closed), never "no restriction".
 
 ---
 

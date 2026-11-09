@@ -5910,7 +5910,7 @@ export const system_app = {
               },
               "ctrl": {
                 "$ref": "#/$defs/jsonValue",
-                "description": "Additional endpoint controls.\nSupported `ctrl` keys:\n- `users`: user restrictions (optional user allowlist for this endpoint).\n- `log`: per-status logging levels, stored as `endpoint.ctrl.log.status_*`. This is where the per-status log verbosity of the endpoint is configured and persisted.\n  - `log` shape: `{\"status_info\": 1, \"status_success\": 1, \"status_redirect\": 1, \"status_client_error\": 2, \"status_server_error\": 3}`.\n  - Level values (each key): 0=Disabled, 1=Basic, 2=Normal, 3=Full. Semantics match the `log_level` values used by `execute_endpoint_test` and by `logs_list` / `get_log_level_for_status`.\n  - Defaults when the key (or the whole `log`) is omitted: info/success/redirect=1, client_error=2, server_error=3. You only need to send the keys you want to change; the rest keep their stored value (or the runtime default on a fresh INSERT).\n  - At runtime the EndpointLogger reads `endpoint.ctrl.log` (via the persisted `ctrl` column) to decide how much data to capture for each response status class. See the logging skill documentation (docs/logging) for the full contract and how `status_info`/`status_success`/`status_redirect`/`status_client_error`/`status_server_error` map to response status codes."
+                "description": "Additional endpoint controls.\nSupported `ctrl` keys:\n- `users`: per-endpoint allowlist of internal users (array of `iduser`; usernames are also accepted for legacy data). An empty array or an omitted key means no per-user restriction. When the array is non-empty, a request from an internal user whose `iduser`/`username` is not listed is denied even if their `ctrl.env` grants the resource; `as_admin` bypasses the allowlist.\n- `authenticated`: when true, any valid authenticated session may call the endpoint without a granular `ctrl.env` resource permission. Used by documentation, discovery, GUI bootstrap and self-service endpoints.\n- `admin`: documentation/UI marker only (shows the \"Admin only\" badge). It does NOT enforce access at runtime.\n- `log`: per-status logging levels, stored as `endpoint.ctrl.log.status_*`. This is where the per-status log verbosity of the endpoint is configured and persisted.\n  - `log` shape: `{\"status_info\": 1, \"status_success\": 1, \"status_redirect\": 1, \"status_client_error\": 2, \"status_server_error\": 3}`.\n  - Level values (each key): 0=Disabled, 1=Basic, 2=Normal, 3=Full. Semantics match the `log_level` values used by `execute_endpoint_test` and by `logs_list` / `get_log_level_for_status`.\n  - Defaults when the key (or the whole `log`) is omitted: info/success/redirect=1, client_error=2, server_error=3. You only need to send the keys you want to change; the rest keep their stored value (or the runtime default on a fresh INSERT).\n  - At runtime the EndpointLogger reads `endpoint.ctrl.log` (via the persisted `ctrl` column) to decide how much data to capture for each response status class. See the logging skill documentation (docs/logging) for the full contract and how `status_info`/`status_success`/`status_redirect`/`status_client_error`/`status_server_error` map to response status codes."
               },
               "code": {
                 "type": "string",
@@ -16194,3 +16194,107 @@ export const system_app = {
     }
   ]
 }
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Política de seguridad del seed de la app `system`
+ * ────────────────────────────────────────────────────────────────────────────
+ *
+ * El seed se re-aplica en cada arranque (`defaultApps()` → `restoreAppFromBackup`),
+ * así que esta normalización es la forma de que los cambios de `access` y `ctrl`
+ * lleguen también a bases ya desplegadas sin editar 137 bloques JSON a mano.
+ *
+ * Reglas:
+ *   1. `PUBLIC_ENDPOINTS` se quedan en `access: 0` porque sin ellas nadie puede
+ *      autenticarse (login, recuperación de contraseña, webhooks/WebSocket).
+ *      `/server/version` también es pública: la GUI la consulta antes del login.
+ *   2. Cualquier otro endpoint que hoy sea público pasa a `access: 2` (Bearer).
+ *   3. Los antiguos `access: 3` (Bearer + Basic) pasan a `access: 2`. En la app
+ *      `system` el runtime ya ignoraba el fallback Basic; el cambio alinea el
+ *      seed con el comportamiento real y elimina la superficie de fuerza bruta.
+ *   4. `AUTHENTICATED_ENDPOINTS` solo exigen sesión válida (documentación,
+ *      discovery, polling, self-service). No exigen un permiso granular para no
+ *      romper la GUI de usuarios sin `as_admin`.
+ *   5. El resto se resuelve por `resourceMapper.js` (recurso + acción) y, si no
+ *      hay recurso, se deniega (fail-closed).
+ */
+const PUBLIC_ENDPOINTS = new Set([
+  "POST /system/login",
+  "POST /user/forgotpassword",
+  "POST /user/resetpassword/confirm",
+  "GET /user/recovery/options",
+  "GET /apiclient/login",
+  "POST /database/hooks",
+  "WS /websocket/hooks",
+  "WS /websocket/server",
+  "GET /server/version",
+  // El handler ASYNC_WRAPPER devuelve un job_token al caller y estos dos
+  // endpoints se consultan con ese token, sin sesión. No son enumerables: sin
+  // el token responden 401. Deben seguir siendo públicos.
+  "GET /system/async/status",
+  "GET /system/async/result",
+]);
+
+const AUTHENTICATED_ENDPOINTS = new Set([
+  // Documentación / discovery / skills
+  "GET /api/agent_onboarding",
+  "GET /api/handler/documentation",
+  "GET /api/handler/skill",
+  "GET /api/handler/js/libraries",
+  "GET /libopenfusionapi/version/last",
+  "GET /interval_tasks/skill",
+  "GET /bots/skill",
+  "GET /bots/skill/provider",
+  // Bootstrap de la GUI (ambiente, handlers, logout)
+  "GET /system/environment",
+  "GET /system/environment/0.01",
+  "GET /system/method/0.01",
+  "GET /system/handler/0.01",
+  "GET /system/handler/js/functions",
+  "POST /system/logout/0.01",
+  // Información / métricas de solo lectura
+  "GET /information/static",
+  "GET /information/dynamic",
+  "GET /app/internal/metrics",
+  "GET /responses/status_code/count",
+  "GET /log/app/summary",
+  "GET /cache/response/size",
+]);
+
+function applySystemSecurityPolicy(app) {
+  if (!app || !Array.isArray(app.endpoints)) return;
+
+  for (const ep of app.endpoints) {
+    if (!ep || typeof ep !== "object") continue;
+
+    const key = `${String(ep.method || "").toUpperCase()} ${ep.resource}`;
+    ep.ctrl = ep.ctrl && typeof ep.ctrl === "object" && !Array.isArray(ep.ctrl)
+      ? { ...ep.ctrl }
+      : {};
+
+    if (PUBLIC_ENDPOINTS.has(key)) {
+      ep.access = 0;
+      delete ep.ctrl.authenticated;
+      continue;
+    }
+
+    // Todo lo demás exige token. Los `access: 3` de system no tenían un
+    // fallback Basic real, pero se normalizan igualmente a Bearer.
+    if (ep.access === 0 || ep.access === 3) {
+      ep.access = 2;
+    }
+
+    if (AUTHENTICATED_ENDPOINTS.has(key)) {
+      ep.ctrl.authenticated = true;
+    } else {
+      delete ep.ctrl.authenticated;
+    }
+
+    // `ctrl.users` sigue siendo la allowlist por endpoint (array de iduser).
+    // El seed la deja vacía (= sin restricción por usuario).
+    if (ep.ctrl.users !== undefined && !Array.isArray(ep.ctrl.users)) {
+      delete ep.ctrl.users;
+    }
+  }
+}
+
+applySystemSecurityPolicy(system_app);

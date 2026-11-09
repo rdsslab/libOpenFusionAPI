@@ -7,9 +7,15 @@ export class AuthService {
   /**
    * Evaluates Bearer-based authorization.
    *
-   * Priority:
-   *   1. ApiKey token → access granted if token's idapp matches the endpoint's idapp
-   *   2. Internal user → as_admin bypass, then ctrl.env evaluation (no hardcoded super users)
+   * Priority for an internal user:
+   *   1. as_admin bypass
+   *   2. self-service endpoints (changepassword, linktelegram)
+   *   3. endpoint.ctrl.users allowlist (when non-empty)
+   *   4. endpoint.ctrl.authenticated ("any valid session")
+   *   5. ctrl.env[environment][resource][action]
+   *   6. deny (fail-closed)
+   *
+   * An ApiKey token is granted when its idapp matches the endpoint's idapp.
    */
   static async check_auth_Bearer(handler, data_aut) {
     let check = false;
@@ -34,6 +40,13 @@ export class AuthService {
 
       const userCtrl = user.ctrl || {};
 
+      // as_admin — global bypass (backward-compatible). Checked before the
+      // per-endpoint allowlist so a superadmin is never locked out of an
+      // endpoint that restricts itself to a list of users.
+      if (userCtrl.as_admin === true) {
+        return true;
+      }
+
       // Self-service password change (`/user/changepassword`): any user with a
       // valid session may change their own password. Access control here is the
       // current-password validation performed by `updateUserPassword` (old
@@ -54,12 +67,36 @@ export class AuthService {
         return true;
       }
 
-      // as_admin — global bypass (backward-compatible)
-      if (userCtrl.as_admin === true) {
-        check = true;
+      // Per-endpoint user allowlist (`endpoint.ctrl.users`). The canonical
+      // value is an array of iduser (BIGINT, as number or string). Usernames
+      // are also accepted for compatibility with older documentation/backups.
+      // An empty array means "no per-user restriction"; the resource
+      // permission below still applies.
+      const endpointUsers = Array.isArray(handler.params.ctrl?.users)
+        ? handler.params.ctrl.users
+        : [];
+      if (endpointUsers.length > 0) {
+        const iduser = user?.iduser;
+        const username = user?.username;
+        const allowed = endpointUsers.some((entry) => {
+          if (entry === null || entry === undefined) return false;
+          if (iduser !== null && iduser !== undefined && String(entry) === String(iduser)) {
+            return true;
+          }
+          return username !== null && username !== undefined && String(entry) === String(username);
+        });
+        if (!allowed) return false;
       }
+
+      // Any authenticated user (no resource permission required). Used by
+      // documentation/discovery/self-service endpoints that used to be public
+      // and only need a valid session, never a granular permission.
+      if (handler.params.ctrl?.authenticated === true) {
+        return true;
+      }
+
       // Granular ctrl.env evaluation
-      else if (handler.params.app === "system") {
+      if (handler.params.app === "system") {
         const endpointResource = handler.params.ctrl?.resource || null;
         const resolvedResource =
           endpointResource ||
@@ -117,7 +154,42 @@ export class AuthService {
     }
   }
 
+  /**
+   * True when the request originates from the loopback interface.
+   * Used by `access: 4` ("Local only"): the endpoint still requires a valid
+   * token, but it is only reachable from the same host.
+   */
+  static isLocalRequest(request) {
+    const candidates = [
+      request?.ip,
+      request?.socket?.remoteAddress,
+      request?.raw?.socket?.remoteAddress,
+    ]
+      .filter(Boolean)
+      .map((value) => String(value).trim().toLowerCase());
+
+    return candidates.some((address) => {
+      // IPv4-mapped IPv6 (e.g. ::ffff:127.0.0.1) and plain loopback.
+      const normalized = address.startsWith("::ffff:") ? address.slice(7) : address;
+      return (
+        normalized === "::1" ||
+        normalized === "localhost" ||
+        /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(normalized)
+      );
+    });
+  }
+
   static async check_auth(handler, request, reply) {
+    // access: 4 = "Local only". Enforced before authentication so a remote
+    // client cannot even probe credentials against local-only endpoints.
+    if (handler.params.access === 4 && !AuthService.isLocalRequest(request)) {
+      reply.code(403).send({
+        error: "This endpoint is only available from localhost.",
+        url: request.url,
+      });
+      return;
+    }
+
     if (handler.params.access > 0) {
       const data_aut = getUserPasswordTokenFromRequest(request);
 
