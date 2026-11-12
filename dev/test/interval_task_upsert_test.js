@@ -244,7 +244,67 @@ async function runTests() {
       assert.ok(same, `task "${t.note}" disappeared after a second seed pass`);
     }
 
-    // 10. Un alta NO puede pasar por `upsert()`.
+    // 10. Hallazgo 1: una tarea creada con enabled: true y programación NO se ejecuta al crearse.
+    //     next_run debe calcularse en el INSERT y apuntar a la próxima ocurrencia futura.
+    console.log("[STEP 10/14] New task with enabled: true and schedule does NOT run on create...");
+    const cronEndpointId = uuidv4();
+    await Endpoint.create({
+      idendpoint: cronEndpointId,
+      idapp: TEST_APP_ID,
+      environment: "dev",
+      resource: `/cron-test-${Date.now()}`,
+      method: "GET",
+      handler: "TEXT",
+      enabled: true,
+      code: "ok",
+    });
+
+    const cronTask = await upsertIntervalTask({
+      idendpoint: cronEndpointId,
+      schedule_mode: "cron",
+      cron: "0 3 * * *", // 03:00 cada día
+      timezone: "America/Guayaquil",
+      enabled: true,
+      note: "Hallazgo 1 cron test",
+    });
+
+    const cronTaskRow = await getIntervalTaskById(cronTask.result.idtask);
+    assert.strictEqual(cronTaskRow.enabled, true, "task must be enabled");
+    assert.ok(cronTaskRow.next_run, "next_run must be calculated on INSERT");
+    assert.strictEqual(cronTaskRow.last_run, null, "last_run must be null (not run on create)");
+    const nextRunCron = new Date(cronTaskRow.next_run);
+    const now = new Date();
+    assert.ok(nextRunCron > now, "next_run must be in the future");
+    // Verificar que es aproximadamente la próxima ocurrencia (03:00 Guayaquil)
+    // No verificamos la hora exacta porque depende de la zona horaria del test runner,
+    // pero sí que no es "ahora" (no se ejecutó al crear).
+
+    // Lo mismo para modo interval
+    const intervalTask = await upsertIntervalTask({
+      idendpoint: cronEndpointId,
+      schedule_mode: "interval",
+      interval: 3600, // 1 hora
+      enabled: true,
+      note: "Hallazgo 1 interval test",
+    });
+
+    const intervalTaskRow = await getIntervalTaskById(intervalTask.result.idtask);
+    assert.strictEqual(intervalTaskRow.enabled, true);
+    assert.ok(intervalTaskRow.next_run, "next_run must be calculated on INSERT for interval too");
+    assert.strictEqual(intervalTaskRow.last_run, null, "last_run must be null for interval too");
+    const nextRunInterval = new Date(intervalTaskRow.next_run);
+    assert.ok(nextRunInterval > now, "next_run must be in the future for interval");
+    // Debe ser aproximadamente now + 1 hora
+    const expectedApprox = now.getTime() + 3600 * 1000;
+    const diff = Math.abs(nextRunInterval.getTime() - expectedApprox);
+    assert.ok(diff < 60000, `next_run for interval should be ~now+1h, got ${nextRunInterval}`);
+
+    // Limpiar tareas de prueba
+    await deleteIntervalTask(cronTask.result.idtask);
+    await deleteIntervalTask(intervalTask.result.idtask);
+    await Endpoint.destroy({ where: { idendpoint: cronEndpointId } });
+
+    // 11. Un alta NO puede pasar por `upsert()`.
     //
     // Sin `idtask` lo que se pide es una tarea nueva, y en MSSQL el `upsertQuery`
     // lanza "Primary Key or Unique key should be passed to upsert query" porque la

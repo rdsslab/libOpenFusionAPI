@@ -197,6 +197,14 @@ export const upsertIntervalTask = async (data, opciones = {}) => {
     // encuentra ninguna responde "Primary Key or Unique key should be passed to upsert
     // query". `create()` dice exactamente lo mismo en los tres motores.
     if (payload.idtask === undefined || payload.idtask === null) {
+      // Calcular next_run en el INSERT para tareas habilitadas con programación.
+      // Esto evita que una tarea nueva se ejecute inmediatamente al crearse
+      // (Hallazgo 1: next_run NULL hacía que getIntervalTaskProcess la tomara).
+      if (payload.enabled && (payload.schedule_mode === "cron" || payload.schedule_mode === "interval")) {
+        const now = new Date();
+        payload.next_run = computeNextRun(payload, { from: now });
+      }
+
       const creada = await IntervalTask.create(payload);
       return { result: creada, created: true, previous: null };
     }
@@ -481,10 +489,9 @@ export const getIntervalTaskProcess = async (opciones = {}) => {
           ],
         },
         {
-          [Op.or]: [
-            { next_run: { [Op.lte]: now } },
-            { next_run: { [Op.is]: null } },
-          ],
+          // next_run calculado en INSERT (Hallazgo 1): ya no hay tareas con next_run NULL
+          // elegibles. Solo se toman las que vencieron (next_run <= now).
+          next_run: { [Op.lte]: now },
         },
         // La suspensión por fallos ahora es explícita: el worker marca
         // `disabled_by = 'system'` al alcanzar `max_failed_attempts` y esta condición
