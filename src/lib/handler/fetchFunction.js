@@ -13,6 +13,19 @@ export const fetchFunction = async (context) => {
   const { request, reply, method, endpoint } = getHandlerExecutionContext(context);
   //console.log(uFetch);
   try {
+    // Crear AbortController para esta ejecución
+    const abortController = new AbortController();
+    const abortSignal = abortController.signal;
+
+    if (request.raw && typeof request.raw.on === 'function') {
+      request.raw.on('close', () => {
+        if (!abortSignal.aborted) {
+          console.log('[fetchFunction] Client disconnected, aborting');
+          abortController.abort(new Error('Client disconnected'));
+        }
+      });
+    }
+
     // Resolve AppVar placeholder if present in code (the destination URL)
     const { appVars, environment } = getAppVarContext(endpoint, method);
     let url = resolveAppVarPlaceholder(method.code, appVars, environment);
@@ -90,6 +103,7 @@ export const fetchFunction = async (context) => {
       body: request.body, // Usar los body de la peticion
       query: request.query, // Usar los query de la peticion,
       url: url,
+      signal: abortSignal,
     };
 
     if (hasEndpointTimeout) {

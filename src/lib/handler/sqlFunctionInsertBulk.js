@@ -20,6 +20,19 @@ import { Pool } from "./ConnectionPool.js";
 export const sqlFunctionInsertBulk = async (context) => {
   const { request, reply, method, endpoint } = getHandlerExecutionContext(context);
   try {
+    // Crear AbortController para esta ejecución
+    const abortController = new AbortController();
+    const abortSignal = abortController.signal;
+
+    if (request.raw && typeof request.raw.on === 'function') {
+      request.raw.on('close', () => {
+        if (!abortSignal.aborted) {
+          console.log('[sqlFunctionInsertBulk] Client disconnected, aborting');
+          abortController.abort(new Error('Client disconnected'));
+        }
+      });
+    }
+
     const { appVars, environment } = getAppVarContext(endpoint, method);
     const custom_data = resolveAppVarPlaceholder(
       method.custom_data,
@@ -154,7 +167,7 @@ export const sqlFunctionInsertBulk = async (context) => {
 
     const configHash = buildConnectionCacheKey(paramsSQL.config, environment);
 
-    const sequelize = await Pool.getConnection(configHash, paramsSQL);
+    const sequelize = await Pool.getConnection(configHash, paramsSQL, abortSignal);
 
     const runBulkInsert = () => bulkInsertWithTransaction(
       sequelize,

@@ -288,8 +288,20 @@ class ConnectionPool {  constructor(maxConnections = getMaxConnections()) {
   /**
    * Gestiona el ciclo de vida de las conexiones para evitar fugas de memoria.
    * Implementa una estrategia LRU (Least Recently Used).
+   * 
+   * @param {string} configHash
+   * @param {object} paramsSQL
+   * @param {AbortSignal} [abortSignal] - Señal para cancelar la adquisición de conexión
    */
-  async getConnection(configHash, paramsSQL) {
+  async getConnection(configHash, paramsSQL, abortSignal) {
+    const checkAbort = () => {
+      if (abortSignal?.aborted) {
+        const err = new Error('Connection acquisition aborted');
+        err.name = 'AbortError';
+        throw err;
+      }
+    };
+
     // 1. Si existe, actualizamos timestamp y retornamos
     if (this.connections.has(configHash)) {
       const connData = this.connections.get(configHash);
@@ -305,10 +317,12 @@ class ConnectionPool {  constructor(maxConnections = getMaxConnections()) {
         }
         this.connections.delete(configHash);
       } else {
+        checkAbort();
         // Validate only after configured idle threshold to avoid authenticate() on hot paths.
         const idleMs = Date.now() - (connData.lastUsed || 0);
         const needsValidation = this.forceValidateAlways || idleMs > this.validationIdleMs;
         const isValid = needsValidation ? await this.validateConnection(connData.sequelize) : true;
+        checkAbort();
         if (isValid) {
           connData.lastUsed = Date.now();
           return connData.sequelize;
@@ -326,6 +340,8 @@ class ConnectionPool {  constructor(maxConnections = getMaxConnections()) {
       }
     }
 
+    checkAbort();
+
     // 2. Si no existe, verificamos límite
     if (this.connections.size >= this.MAX_CONNECTIONS) {
       // Buscar la conexión más antigua (LRU)
@@ -340,6 +356,7 @@ class ConnectionPool {  constructor(maxConnections = getMaxConnections()) {
       }
 
       if (oldestHash) {
+        checkAbort();
         // `lastUsed` marca la última petición que la pidió, no el final de su
         // consulta: la conexión evictada puede estar sirviendo algo ahora mismo.
         // Cerrarla aborta esa consulta, así que el aviso dice cuál era y no se
@@ -359,6 +376,7 @@ class ConnectionPool {  constructor(maxConnections = getMaxConnections()) {
         } catch (err) {
           console.error("Error closing idle connection:", err);
         }
+        checkAbort();
         this.connections.delete(oldestHash);
       }
     }
@@ -439,9 +457,11 @@ class ConnectionPool {  constructor(maxConnections = getMaxConnections()) {
     let sequelize = buildSequelize(sequelizeOptions);
 
     // 4.5 Validar que la nueva conexión sea funcional
+    checkAbort();
     try {
       await sequelize.authenticate();
     } catch (err) {
+      checkAbort();
       const isMssql = sequelizeOptions?.dialect === "mssql";
       const canRetryWithDialectModule = isMssql && !sequelizeOptions?.dialectModule;
 
@@ -459,9 +479,11 @@ class ConnectionPool {  constructor(maxConnections = getMaxConnections()) {
         };
         sequelize = buildSequelize(retryOptions);
 
+        checkAbort();
         try {
           await sequelize.authenticate();
         } catch (retryErr) {
+          checkAbort();
           console.error(`[ConnectionPool] Failed to authenticate fallback MSSQL connection for ${configHash}:`, retryErr.message);
           try {
             await sequelize.close();
@@ -480,6 +502,7 @@ class ConnectionPool {  constructor(maxConnections = getMaxConnections()) {
         throw wrapConnectionError(err, configHash);
       }
     }
+    checkAbort();
 
     // 4. Guardar en mapa
     this.connections.set(configHash, {

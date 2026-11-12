@@ -75,6 +75,20 @@ const RESERVED_SQL_REQUEST_KEYS = new Set(["bind", "replacements", "connection"]
 export const sqlFunction = async (context) => {
   const { request, reply, method, endpoint } = getHandlerExecutionContext(context);
   try {
+    // Crear AbortController para esta ejecución (igual que jsFunction)
+    // Fuentes de aborto: endpoint timeout (dialectOptions), cliente cierra conexión
+    const abortController = new AbortController();
+    const abortSignal = abortController.signal;
+
+    if (request.raw && typeof request.raw.on === 'function') {
+      request.raw.on('close', () => {
+        if (!abortSignal.aborted) {
+          console.log('[sqlFunction] Client disconnected, aborting connection acquisition');
+          abortController.abort(new Error('Client disconnected'));
+        }
+      });
+    }
+
     // Resolve AppVar placeholder if present in custom_data
     let custom_data = method.custom_data;
     const { appVars: appVarsSnapshot, environment } = getAppVarContext(
@@ -346,7 +360,7 @@ export const sqlFunction = async (context) => {
         });
         */
 
-        let sequelize = await Pool.getConnection(configHash, paramsSQL);
+        let sequelize = await Pool.getConnection(configHash, paramsSQL, abortSignal);
         let result_query = undefined;
 
         const queryOptions = { type: query_type, logging: false };

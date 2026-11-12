@@ -1,10 +1,18 @@
 import vm from "node:vm";
 
 const TIMEOUT_VM_MS = 1 * 60 * 1000; // 1 minute
-//const TIMEOUT_SANDBOX_JAVASCRIPT = process.env.TIMEOUT_SANDBOX_JAVASCRIPT && Number(process.env.TIMEOUT_SANDBOX_JAVASCRIPT) > 0 ? Number(process.env.TIMEOUT_SANDBOX_JAVASCRIPT) : TIMEOUT_VM_MS;
 
 /**
  * Crea una función async ejecutable de forma segura usando vm
+ * 
+ * Unifica el AbortController: el mismo controller maneja:
+ * - VM timeout (config.timeout o default 120s)
+ * - IntervalTask exec_time_limit (desde worker via abortToken -> signal)
+ * - Cierre de conexión HTTP (request.raw.on('close'))
+ * 
+ * Expone al sandbox:
+ * - $_ABORT_SIGNAL_: AbortSignal nativo (para fetch, drivers DB, etc.)
+ * - $_ABORT_CHECK(): helper que lanza AbortError si abortado
  */
 export const createFunctionVM = async (
   /** @type {string} */ code,
@@ -14,14 +22,13 @@ export const createFunctionVM = async (
   try {
     /**
      * Código que será ejecutado dentro del sandbox
+     * 
+     * IMPORTANTE: El AbortController se crea DENTRO del sandbox para que el
+     * AbortSignal sea nativo del contexto VM y funcione con fetch/DB drivers.
+     * El timeout del VM llama a controller.abort() que propaga a signal.
      */
     const wrappedCode = `
       (async () => {
-        // The timeout now controls the AbortController, not the VM itself.
-        const AbortController = globalThis.AbortController;
-        const controller = new AbortController();
-        const signal = controller.signal;
-
         // Track async resources created inside the sandbox so they can be
         // cleaned up when the execution ends (success or timeout).
         const __nativeSetTimeout = globalThis.setTimeout;
@@ -64,24 +71,28 @@ export const createFunctionVM = async (
           __trackedIntervals.clear();
         };
 
-        // Función para verificar si la ejecución fue abortada (Fase 2)
-        // Se inyecta en runtime con el token real
-        const $_ABORT_CHECK = async () => {
-          if (typeof $_ABORT_TOKEN_ !== "undefined" && $_ABORT_TOKEN_) {
-            try {
-              const res = await fetch('/system/interval-tasks/abort-check/' + encodeURIComponent($_ABORT_TOKEN_), { method: 'GET' });
-              if (res.status === 410) {
-                const err = new Error('Execution aborted by operator');
-                err.name = 'AbortError';
-                throw err;
-              }
-            } catch (e) {
-              if (e.name === 'AbortError') throw e;
-              // Error de red u otro: no bloquear la ejecución
-            }
+        // AbortController único por ejecución de endpoint.
+        // Su signal se expone como $_ABORT_SIGNAL_ para que fetch, drivers DB,
+        // y código del usuario lo usen nativamente.
+        const AbortController = globalThis.AbortController;
+        const controller = new AbortController();
+        const signal = controller.signal;
+
+        // Helper síncrono para chequear aborto y lanzar AbortError.
+        // El código del endpoint debe llamar a $_ABORT_CHECK() entre pasos
+        // (p.ej. antes/después de cada llamada SAP, query DB, etc.)
+        // Verifica tanto la signal interna (VM timeout) como la externa (IntervalTask, operador, HTTP close).
+        const $_ABORT_CHECK = () => {
+          const externalSignal = typeof $_EXTERNAL_ABORT_SIGNAL_ !== "undefined" ? $_EXTERNAL_ABORT_SIGNAL_ : null;
+          if (signal.aborted || (externalSignal && externalSignal.aborted)) {
+            const err = new Error('Execution aborted');
+            err.name = 'AbortError';
+            throw err;
           }
-          return false; // no abortado
         };
+
+        // Exponer signal nativo para uso con fetch, uFetch, drivers que aceptan AbortSignal
+        const $_ABORT_SIGNAL_ = signal;
 
         const __vmTimeoutMs = ${timeoutVM};
         let to;
@@ -91,7 +102,7 @@ export const createFunctionVM = async (
             console.log(
               "[createFunctionVM] VM timeout reached after " + __vmTimeoutMs + "ms at " + diedAt + ". Aborting..."
             );
-            controller.abort();
+            controller.abort(new Error("JS handler execution timeout"));
             reject(new Error("JS handler execution timeout"));
           }, __vmTimeoutMs);
         });
@@ -104,7 +115,8 @@ export const createFunctionVM = async (
           await Promise.race([__executeUserCode(), timeoutPromise]);
         } finally {
           clearTimeout(to);
-          controller.abort();
+          // NO llamar controller.abort() aquí: el signal debe reflejar
+          // el estado real (timeout vs éxito). Si terminó bien, signal.aborted=false.
           __cleanupAsyncResources();
         }
 
@@ -140,9 +152,9 @@ export const createFunctionVM = async (
     /**
      * Se retorna una función ejecutable — compiledScript se reutiliza en cada request
      * @param {object} customVarsAndFunctions - variables personalizadas para el sandbox
-     * @param {string} [abortToken] - token de aborto para propagación a handlers (Fase 2)
+     * @param {AbortSignal} [abortSignal] - signal externo (p.ej. de IntervalTask worker) para abortar esta ejecución
      */
-    return async (customVarsAndFunctions = {}, abortToken) => {
+    return async (customVarsAndFunctions = {}, abortSignal) => {
       let safeAppVars;
       try {
         safeAppVars =
@@ -160,8 +172,6 @@ export const createFunctionVM = async (
         // 2. grouped under `$_APP_VARS_` for enumeration and collision-safe access
         ...safeAppVars,
         $_APP_VARS_: safeAppVars,
-        // Token de aborto para que $_ABORT_CHECK lo use (Fase 2)
-        $_ABORT_TOKEN_: abortToken || null,
         // Expose Node globals that the VM sandbox does not inherit automatically.
         // Required for timer-based VM timeout handling and AbortController support.
         setTimeout,
@@ -169,13 +179,24 @@ export const createFunctionVM = async (
         setInterval,
         clearInterval,
         AbortController,
-        fetch, // necesario para $_ABORT_CHECK
+        fetch, // necesario para código del usuario
       };
 
       const context = vm.createContext(sandbox, {
         name: "sandbox",
         codeGeneration: { strings: false, wasm: false },
       });
+
+      // Si viene un abortSignal externo (p.ej. de IntervalTask), vincularlo al controller interno
+      // NOTA: El controller se crea DENTRO del sandbox. Para abortar desde fuera,
+      // el código del usuario debe llamar a $_ABORT_CHECK() que lee signal.aborted.
+      // El abortSignal externo se pasa via fnVars a handlers (sqlFunction, fetchFunction, etc.)
+      // que ya tienen timeouts nativos. Para el VM timeout, usamos el controller interno.
+      // Si abortSignal externo se dispara, podemos propagarlo al sandbox via una variable.
+      // Aquí lo exponemos como $_EXTERNAL_ABORT_SIGNAL_ para que $_ABORT_CHECK pueda chequearlo también.
+      if (abortSignal) {
+        sandbox.$_EXTERNAL_ABORT_SIGNAL_ = abortSignal;
+      }
 
       return await compiledScript.runInContext(context, {
         timeout: timeoutVM + 5000,

@@ -162,6 +162,19 @@ export const mongodbFunction = async (context) => {
   const endpoint = context?.endpoint || context?.method;
   const server_data = context?.server_data;
   try {
+    // Crear AbortController para esta ejecución
+    const abortController = new AbortController();
+    const abortSignal = abortController.signal;
+
+    if (request && request.raw && typeof request.raw.on === 'function') {
+      request.raw.on('close', () => {
+        if (!abortSignal.aborted) {
+          console.log('[mongodbFunction] Client disconnected, aborting');
+          abortController.abort(new Error('Client disconnected'));
+        }
+      });
+    }
+
     if (!method.jsFn) {
       throw new Error("Function 'jsFn' is not defined in the method configuration.");
     }
@@ -223,10 +236,11 @@ export const mongodbFunction = async (context) => {
 
     let fnVars = functionsVars(request, reply, method.environment);
     fnVars.mongooseInstance = conn; // Conexión específica para esta config
-    // Pasar token de aborto para propagación (Fase 2)
+    // Pasar token de aborto y signal para propagación (Fase 2)
     fnVars.abortToken = request.headers?.['x-ofapi-abort-token'] || null;
+    fnVars.abortSignal = abortSignal;
 
-    let fnresult = await method.jsFn(fnVars);
+    let fnresult = await method.jsFn(fnVars, abortSignal);
 
     // MONGODB corre el mismo sandbox que el handler JS, así que `$_RETURN_STATUS_`
     // llega igual. Ignorarlo en silencio obligaría a los dos handlers a documentar

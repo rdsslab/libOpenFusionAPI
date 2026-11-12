@@ -28,8 +28,20 @@ const RESERVED_HANA_REQUEST_KEYS = new Set([
 /**
  * Obtiene un pool de conexiones HANA del caché o crea uno nuevo.
  * Implementa LRU (Least Recently Used) y TTL.
+ * 
+ * @param {string} configHash
+ * @param {object} paramsSQL
+ * @param {AbortSignal} [abortSignal] - Señal para cancelar la obtención de conexión
  */
-const getConnection = async (configHash, paramsSQL) => {
+const getConnection = async (configHash, paramsSQL, abortSignal) => {
+  const checkAbort = () => {
+    if (abortSignal?.aborted) {
+      const err = new Error('Connection acquisition aborted');
+      err.name = 'AbortError';
+      throw err;
+    }
+  };
+
   const now = Date.now();
 
   // 1. Verificar Caché
@@ -46,11 +58,14 @@ const getConnection = async (configHash, paramsSQL) => {
       }
       connections.delete(configHash);
     } else {
+      checkAbort();
       // Actualizar uso y retornar
       entry.lastUsed = now;
       return entry.pool;
     }
   }
+
+  checkAbort();
 
   // 2. Limpieza LRU si está lleno
   if (connections.size >= MAX_CONNECTIONS) {
@@ -65,6 +80,7 @@ const getConnection = async (configHash, paramsSQL) => {
     }
 
     if (oldestHash) {
+      checkAbort();
       console.log(`Closing idle HANA pool: ${oldestHash}`);
       const oldEntry = connections.get(oldestHash);
       try {
@@ -72,6 +88,7 @@ const getConnection = async (configHash, paramsSQL) => {
       } catch (err) {
         console.error("Error closing idle HANA pool:", err);
       }
+      checkAbort();
       connections.delete(oldestHash);
     }
   }
@@ -83,7 +100,7 @@ const getConnection = async (configHash, paramsSQL) => {
     min: 0,
     maxIdleTime: 20000, // 20 segundos idle
     checkInterval: 5000,
-    queryTimeout: endpointTimeoutMs || 30000,  // Propaga endpoint timeout (default 30s)
+    queryTimeout: paramsSQL.endpointTimeoutMs || 30000,  // Propaga endpoint timeout (default 30s)
   });
 
   // 4. Guardar en caché
@@ -119,6 +136,19 @@ const invalidatePool = (configHash) => {
 export const sqlHana = async (context) => {
   const { request, reply, method, endpoint } = getHandlerExecutionContext(context);
   try {
+    // Crear AbortController para esta ejecución
+    const abortController = new AbortController();
+    const abortSignal = abortController.signal;
+
+    if (request.raw && typeof request.raw.on === 'function') {
+      request.raw.on('close', () => {
+        if (!abortSignal.aborted) {
+          console.log('[sqlHana] Client disconnected, aborting');
+          abortController.abort(new Error('Client disconnected'));
+        }
+      });
+    }
+
     const { appVars, environment } = getAppVarContext(endpoint, method);
     const custom_data = resolveAppVarPlaceholder(
       method.custom_data,
@@ -246,7 +276,7 @@ export const sqlHana = async (context) => {
         paramsSQL.endpointTimeoutMs = endpointTimeoutMs;
 
         const configHash = buildConnectionCacheKey(paramsSQL.config, environment);
-        const pool = await getConnection(configHash, paramsSQL);
+        const pool = await getConnection(configHash, paramsSQL, abortSignal);
 
         // Obtener parámetros de bind o replacements (ambos válidos)
         let bind_json = undefined;

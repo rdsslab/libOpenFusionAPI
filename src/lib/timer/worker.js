@@ -423,6 +423,25 @@ async function runFetchTask(task, runningState = {}) {
       }
     }
 
+    // Timer de exec_time_limit: aborta el fetch y marca el token en cache compartida.
+    // Esto asegura que:
+    //   1. La conexión HTTP se cierra (uFetch respeta `timeout`), lo que dispara
+    //      `request.raw.on('close')` en el servidor y aborta el VM.
+    //   2. El token queda marcado en `__ofapi_abort_token_cache`, así que
+    //      `$_ABORT_CHECK()` (que consulta /abort-check/:token) devuelve 410.
+    const execLimitTimer = setTimeout(() => {
+      if (!controller.signal.aborted) {
+        console.log(
+          `[worker] exec_time_limit (${task.exec_time_limit}s) reached for task ${task.idtask}, aborting...`
+        );
+        controller.abort(new Error(`exec_time_limit ${task.exec_time_limit}s`));
+        const tokenData = abortTokenCache.get(abortToken);
+        if (tokenData) {
+          tokenData.aborted = true;
+        }
+      }
+    }, timeout);
+
     let resp_task;
     try {
       resp_task = await uF[verb]({
@@ -435,6 +454,7 @@ async function runFetchTask(task, runningState = {}) {
         options: { signal: controller.signal },
       });
     } finally {
+      clearTimeout(execLimitTimer);
       runAbort.delete(key);
       // No borramos del cache aquí: el endpoint puede necesitar consultarlo
       // Se limpiará por TTL o al confirmar aborto
