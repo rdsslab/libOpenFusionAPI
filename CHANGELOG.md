@@ -18,6 +18,19 @@ see [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [14.1.2] - 2026-11-12
+
+### Fixed
+
+- **Hallazgo 2**: Cancelación real de endpoint JS tras timeout. Unifica el `AbortController` para que cualquier fuente de timeout (VM `timeout`, IntervalTask `exec_time_limit`, cierre de conexión HTTP, stop del operador) propague el aborto al código del endpoint y a los drivers DB.
+  - `$_ABORT_SIGNAL_` (AbortSignal nativo) y `$_ABORT_CHECK()` (lanza `AbortError`) expuestos en el sandbox VM.
+  - `request.raw.on('close')` aborta la ejecución cuando el cliente se desconecta.
+  - `exec_time_limit` timer en el worker marca el token en `globalThis.__ofapi_abort_token_cache` y llama a `controller.abort()`.
+  - `ConnectionPool.getConnection()` acepta `abortSignal` y cancela la adquisición de conexión.
+  - SQL handlers (`sqlFunction`, `sqlFunctionInsertBulk`, `sqlHana`), `mongoDB`, `fetchFunction` propagan `abortSignal` y escuchan el cierre de conexión HTTP.
+
+---
+
 ## [14.1.1] - 2026-11-12
 
 ### Fixed
