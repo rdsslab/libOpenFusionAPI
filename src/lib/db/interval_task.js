@@ -496,6 +496,13 @@ export const getIntervalTaskProcess = async (opciones = {}) => {
         // usuario y `max_failed_attempts = 0` no necesita ninguna rama: el worker
         // simplemente nunca pone `disabled_by`.
         { disabled_by: { [Op.is]: null } },
+        // Lock distribuido: excluir tareas con locked_until en el futuro (otro worker/runNow las tiene)
+        {
+          [Op.or]: [
+            { locked_until: { [Op.is]: null } },
+            { locked_until: { [Op.lt]: now } },
+          ],
+        },
       ],
     },
   };
@@ -538,6 +545,13 @@ export const getNextIntervalTaskRun = async () => {
         // worker ni contar como próximo vencimiento. Con `max_failed_attempts = 0` el
         // worker nunca la marca, así que el caso especial ya no existe.
         { disabled_by: { [Op.is]: null } },
+        // Lock distribuido: no despertar por tareas con locked_until en el futuro
+        {
+          [Op.or]: [
+            { locked_until: { [Op.is]: null } },
+            { locked_until: { [Op.lt]: now } },
+          ],
+        },
       ],
     },
     include: [
@@ -664,10 +678,15 @@ const camposDeTransicion = (task, new_status, result, exec_ms, now) => {
     case TASK_STATUS.RUNNING:
       // En ejecución. `next_run` se ancla al horario previsto (ver schedule.js), de
       // modo que la duración de esta corrida no desplace toda la serie.
+      // `locked_until` establece un lock distribuido: ahora + exec_time_limit + gracia.
+      // Otros workers / runNow verán este lock y no lanzarán la tarea.
+      const lockGraceSeconds = 30;
+      const lockUntil = new Date(now.getTime() + (Number(task.exec_time_limit || 30) + lockGraceSeconds) * 1000);
       data_update = {
         last_run: now,
         next_run: computeNextRun(task, { from: now }),
         status: new_status,
+        locked_until: lockUntil,
       };
 
       break;
@@ -803,11 +822,53 @@ export const updateIntervalTaskStatus = async (
       runtime,
     });
 
+    // === TRANSICIÓN A RUNNING: lock atómico distribuido ===
+    // Solo se aplica el lock al pasar a RUNNING (status=1). El UPDATE atómico
+    // comprueba que no hay otro lock vigente (locked_until IS NULL OR < NOW)
+    // y que la tarea no está ya RUNNING ni suspendida por sistema.
+    // Si affectedRows === 0, otro worker/runNow ya tomó el lock.
+    if (new_status === TASK_STATUS.RUNNING) {
+      const lockGraceSeconds = 30;
+      const lockUntil = new Date(now.getTime() + (Number((tareaConocida?.exec_time_limit) || 30) + lockGraceSeconds) * 1000);
+
+      const lockUpdate = {
+        last_run: now,
+        next_run: computeNextRun(tareaConocida, { from: now }),
+        status: TASK_STATUS.RUNNING,
+        locked_until: lockUntil,
+      };
+
+      const [affected] = await IntervalTask.update(lockUpdate, {
+        where: {
+          idtask,
+          status: { [Op.ne]: TASK_STATUS.RUNNING },
+          disabled_by: { [Op.is]: null },
+          [Op.or]: [
+            { locked_until: { [Op.is]: null } },
+            { locked_until: { [Op.lt]: now } },
+          ],
+        },
+      });
+
+      if (affected === 0) {
+        // No se pudo tomar el lock: ya hay otra ejecución en curso o lock vigente
+        return { success: false, message: "La tarea ya está en ejecución o tiene un lock vigente (otro worker/runNow).", code: "TASK_LOCKED" };
+      }
+
+      return exito(lockUpdate);
+    }
+
+    // === RESTO DE TRANSICIONES: comportamiento original ===
     // Camino corto: quien llama ya tiene la fila. Un solo UPDATE y ninguna lectura.
     if (tareaConocida) {
       const data_update = camposDeTransicion(tareaConocida, new_status, result, exec_ms, now);
 
       if (!data_update) return exito({});
+
+      // Al salir de RUNNING (DONE, ERROR, TIMEOUT, ABORTED, WAITING) limpiamos locked_until
+      if (tareaConocida.status === TASK_STATUS.RUNNING && new_status !== TASK_STATUS.RUNNING) {
+        data_update.locked_until = null;
+      }
 
       await IntervalTask.update(data_update, { where: { idtask } });
       return exito(data_update);
@@ -830,6 +891,11 @@ export const updateIntervalTaskStatus = async (
       const data_update = camposDeTransicion(task, new_status, result, exec_ms, now);
 
       if (!data_update) return exito({});
+
+      // Al salir de RUNNING limpiamos locked_until
+      if (task.status === TASK_STATUS.RUNNING && new_status !== TASK_STATUS.RUNNING) {
+        data_update.locked_until = null;
+      }
 
       await IntervalTask.update(data_update, { where: { idtask }, transaction: t });
 
@@ -879,6 +945,7 @@ export const reapStaleRunningTasks = async (graceSeconds = 30) => {
           error: "Task abandoned: still running past exec_time_limit",
         },
         next_run: computeBackoffNextRun(task, failed_attempts, { from: now }),
+        locked_until: null, // Liberar el lock distribuido
       };
 
       if (shouldDisableForFailures(task, failed_attempts)) {
@@ -935,8 +1002,8 @@ export const rescheduleIntervalTask = async (task) => {
  * Se responde 409 con un `reason` legible por máquina y no solo un texto:
  * `TASK_DISABLED` cuando el usuario la apagó (`enabled: false`) y `TASK_SUSPENDED`
  * cuando el sistema la suspendió por agotar los reintentos (`disabled_by: 'system'`).
- * En ambos casos la vía para volver al servicio es `reset_interval_task_attempts`
- * (para la suspendida) o `upsert_interval_task` con `enabled: true`.
+ * `TASK_LOCKED` cuando otra ejecución (worker o runNow) ya tiene el lock distribuido.
+ * En todos los casos la vía para volver al servicio depende del motivo.
  *
  * @param {string} idtask
  * @returns {Promise<{success: boolean, message: string, code?: number, reason?: string}>}
@@ -948,6 +1015,19 @@ export const runNowIntervalTask = async (idtask) => {
       return { success: false, message: `No existe la tarea ${idtask}` };
     }
 
+    // Verificar lock distribuido: si hay locked_until en el futuro, otra ejecución
+    // (worker en otro proceso o runNow previo) ya tiene la tarea.
+    const now = new Date();
+    if (task.locked_until && new Date(task.locked_until) > now) {
+      return {
+        success: false,
+        message: "La tarea tiene un lock de ejecución activo (otro worker o runNow previo).",
+        code: 409,
+        reason: "TASK_LOCKED",
+      };
+    }
+
+    // También verificar status RUNNING en BD (compatibilidad con datos sin lock)
     if (task.status === TASK_STATUS.RUNNING && !task.allow_concurrent) {
       return {
         success: false,
@@ -983,6 +1063,8 @@ export const runNowIntervalTask = async (idtask) => {
       };
     }
 
+    // Forzar ejecución: poner next_run = now, limpiar failed_attempts, status = WAITING
+    // El lock se tomará atómicamente cuando el worker pase a RUNNING (updateIntervalTaskStatus)
     await IntervalTask.update(
       {
         next_run: new Date(),

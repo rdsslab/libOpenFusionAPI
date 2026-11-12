@@ -147,7 +147,17 @@ parentPort.on("message", (data) => {
         }
 
         abortedByOperator.add(idtask);
-        entry.abort();
+        entry.controller.abort();
+        
+        // Marcar token como abortado en cache compartido (Fase 2)
+        const abortTokenCache = globalThis.__ofapi_abort_token_cache;
+        if (abortTokenCache && entry.abortToken) {
+          const tokenData = abortTokenCache.get(entry.abortToken);
+          if (tokenData) {
+            tokenData.aborted = true;
+          }
+        }
+        
         parentPort.postMessage(
           JSON.stringify({ action: "abortRunResult", idtask, stopped: true }),
         );
@@ -394,24 +404,40 @@ async function runFetchTask(task, runningState = {}) {
     // resuelve o rechaza —un stop que llegue después ya no tiene nada que abortar, la
     // corrida está cerrando y no en vuelo—.
     const controller = new AbortController();
-    runAbort.set(key, controller);
+    
+    // Generar token de aborto para propagación al endpoint (Fase 2)
+    const abortToken = crypto.randomUUID();
+    runAbort.set(key, { controller, abortToken });
+    
+    // Cache compartido para verificación de aborto por el endpoint
+    // Expira automáticamente tras exec_time_limit + gracia
+    const abortTokenCache = globalThis.__ofapi_abort_token_cache || (globalThis.__ofapi_abort_token_cache = new Map());
+    const tokenTtlMs = (Number(task.exec_time_limit || 30) + 30) * 1000;
+    abortTokenCache.set(abortToken, { aborted: false, expires: Date.now() + tokenTtlMs });
+    
+    // Limpiar cache expirado periódicamente
+    if (abortTokenCache.size > 1000) {
+      const now = Date.now();
+      for (const [token, data] of abortTokenCache.entries()) {
+        if (data.expires < now) abortTokenCache.delete(token);
+      }
+    }
 
     let resp_task;
     try {
       resp_task = await uF[verb]({
         data,
-        headers,
+        headers: {
+          ...headers,
+          'X-OFAPI-Abort-Token': abortToken,
+        },
         timeout,
-        // uFetch solo reenvía `signal` como parte de `options` (la propiedad a nivel
-        // raíz de la llamada se descarta: `get/post/...` destructurean url/data/headers/
-        // options/body/timeout). Sin `options.signal`, un stop selectivo llamaba a
-        // `controller.abort()` pero el fetch pendiente nunca se enteraba: la corrida
-        // seguía hasta el `exec_time_limit` y se registraba TIMEOUT en vez de ABORTED —
-        // el ack del worker llegaba con `stopped: true` aun sin haber cortado nada.
         options: { signal: controller.signal },
       });
     } finally {
       runAbort.delete(key);
+      // No borramos del cache aquí: el endpoint puede necesitar consultarlo
+      // Se limpiará por TTL o al confirmar aborto
     }
 
     const duration_ms = performance.now() - start;
@@ -502,6 +528,11 @@ function canRun(task, now) {
   // libera `reapStaleRunningTasks` al superar `exec_time_limit`.
   if (task.status === TASK_STATUS.RUNNING && !allowConcurrent) {
     return { run: false, reason: "task marked as running" };
+  }
+
+  // Lock distribuido: si locked_until está en el futuro, otro worker/runNow ya tiene la tarea
+  if (task.locked_until && new Date(task.locked_until) > now && !allowConcurrent) {
+    return { run: false, reason: "task locked by another process (locked_until)" };
   }
 
   if (!isWithinWindow(task, now)) {

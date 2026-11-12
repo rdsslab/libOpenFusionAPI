@@ -83,6 +83,7 @@ const getConnection = async (configHash, paramsSQL) => {
     min: 0,
     maxIdleTime: 20000, // 20 segundos idle
     checkInterval: 5000,
+    queryTimeout: endpointTimeoutMs || 30000,  // Propaga endpoint timeout (default 30s)
   });
 
   // 4. Guardar en caché
@@ -232,6 +233,18 @@ export const sqlHana = async (context) => {
         // (`HANA Pool expired`, `Closing idle HANA pool`, `Error invalidating`), y
         // el orden de las claves decidiendo si dos configs idénticas compartían
         // entrada.
+        // Endpoint-configured timeout (seconds). Without it, a stalled HANA connection
+        // leaves the request hanging forever, ignoring the timeout set for this endpoint.
+        const hasEndpointTimeout = method?.timeout !== undefined && method?.timeout !== null;
+        const endpointTimeoutSeconds = hasEndpointTimeout ? Number(method.timeout) : undefined;
+        const endpointTimeoutMs =
+          hasEndpointTimeout && Number.isFinite(endpointTimeoutSeconds) && endpointTimeoutSeconds > 0
+            ? endpointTimeoutSeconds * 1000
+            : undefined;
+
+        // Propagar timeout al pool HANA (queryTimeout)
+        paramsSQL.endpointTimeoutMs = endpointTimeoutMs;
+
         const configHash = buildConnectionCacheKey(paramsSQL.config, environment);
         const pool = await getConnection(configHash, paramsSQL);
 
@@ -290,15 +303,6 @@ export const sqlHana = async (context) => {
             }
           }
         }
-
-        // Endpoint-configured timeout (seconds). Without it, a stalled HANA connection
-        // leaves the request hanging forever, ignoring the timeout set for this endpoint.
-        const hasEndpointTimeout = method?.timeout !== undefined && method?.timeout !== null;
-        const endpointTimeoutSeconds = hasEndpointTimeout ? Number(method.timeout) : undefined;
-        const endpointTimeoutMs =
-          hasEndpointTimeout && Number.isFinite(endpointTimeoutSeconds) && endpointTimeoutSeconds > 0
-            ? endpointTimeoutSeconds * 1000
-            : undefined;
 
         const runQuery = () => executeQuery(
           pool,

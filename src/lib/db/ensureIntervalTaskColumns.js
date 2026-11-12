@@ -58,6 +58,10 @@ const INTERVAL_TASK_COLUMNS = [
     "max_backoff_seconds",
     { type: DataTypes.SMALLINT, allowNull: true },
   ],
+  [
+    "locked_until",
+    { type: DataTypes.DATE, allowNull: true },
+  ],
   // La suspensión por fallos dejó de ser un `enabled = false` (que colapsaba "el
   // sistema la apagó" con "el usuario la apagó"). Ahora `enabled` es la intención del
   // usuario y estas dos columnas describen la suspensión del sistema. Nullables, así

@@ -18,6 +18,45 @@ see [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [14.1.0] - 2026-11-12
+
+### Added
+
+- **Distributed lock for interval tasks** (`allow_concurrent: false` now works across multiple API instances): new `locked_until` column in `ofapi_intervaltask` with atomic `UPDATE ... WHERE locked_until IS NULL OR locked_until < NOW()` acquisition. Fixes cross-instance overlap, race conditions, and `runNowIntervalTask` bypass.
+- **Operator-initiated abort propagation** through all handler layers: worker generates `X-OFAPI-Abort-Token` per run, shared cache `globalThis.__ofapi_abort_token_cache`, internal endpoint `GET /system/interval-tasks/abort-check/:token` (204/410).
+- **VM sandbox globals** for endpoint authors: `$_ABORT_TOKEN_` (string) and `$_ABORT_CHECK()` (throws `TimeoutError` if aborted).
+- **Native DB-level query timeouts** propagated from endpoint `timeout` setting:
+  - PostgreSQL: `statement_timeout` in `dialectOptions`
+  - SQLite: `busyTimeout` in `dialectOptions`
+  - Oracle: `queryTimeout` in `dialectOptions`
+  - MSSQL: `requestTimeout` in `dialectOptions` (overrides default 30s)
+  - HANA: `queryTimeout` in pool config
+  - MySQL/MariaDB: hint `/*+ MAX_EXECUTION_TIME(ms) */` prepended to query
+- **Monitoring endpoint**: `GET /system/interval-tasks/abort-cache` returns cache status (total/aborted/active tokens, TTL, token list).
+- **New error code** from `run_interval_task_now`: `409 TASK_LOCKED` when another instance holds the distributed lock.
+- **Documentation**: `src/docs/interval_tasks/AI_SKILL.md` §10 covers distributed lock, abort propagation, `$_ABORT_CHECK()` usage, handler matrix, and error codes.
+
+### Changed
+
+- **`runNowIntervalTask`** now returns `409 TASK_LOCKED` instead of silently overlapping when lock is held by another instance.
+- **`reapStaleRunningTasks`** clears `locked_until` when releasing stale runs (TTL = `exec_time_limit + 30s`).
+- **SQL handlers** (`sqlFunction`, `sqlFunctionInsertBulk`, `sqlHana`) receive `endpointTimeoutMs` and propagate to pool/dialectOptions.
+- **`fetchFunction`** propagates `X-OFAPI-Abort-Token` header to downstream calls.
+- **`customFunction`**, **`mongoDB`**, **`hiveDriver`/`hive-worker`** receive and act on `abortToken`.
+
+### Fixed
+
+- Interval task overlap across multiple API instances (T2 issue).
+- `exec_time_limit` abort now actually stops endpoint handler code, not just HTTP fetch.
+- `runNowIntervalTask` no longer bypasses concurrency protection.
+- MySQL/MariaDB queries now respect endpoint timeout via native optimizer hint.
+
+### Security
+
+- No breaking changes; all changes are additive. Existing deployments upgrade safely — migration runs automatically on startup.
+
+---
+
 ## [14.0.0] - 2026-11-09
 
 ### Breaking

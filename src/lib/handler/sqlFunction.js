@@ -321,8 +321,18 @@ export const sqlFunction = async (context) => {
 
       // Verificar las configuraciones minimas
       if (paramsSQL && paramsSQL.config.options && paramsSQL.query) {
+        // Endpoint-configured timeout (seconds). Propagar al pool para query timeout.
+        const hasEndpointTimeout = endpoint?.timeout !== undefined && endpoint?.timeout !== null;
+        const endpointTimeoutSeconds = hasEndpointTimeout ? Number(endpoint.timeout) : undefined;
+        const endpointTimeoutMs =
+          hasEndpointTimeout && Number.isFinite(endpointTimeoutSeconds) && endpointTimeoutSeconds > 0
+            ? endpointTimeoutSeconds * 1000
+            : undefined;
+
+        paramsSQL.endpointTimeoutMs = endpointTimeoutMs;
+
         const configHash = buildConnectionCacheKey(paramsSQL.config, environment);
-/*
+        /*
         console.log("[sqlFunction] Connection context", {
           environment,
           database: paramsSQL.config.database,
@@ -337,7 +347,6 @@ export const sqlFunction = async (context) => {
         */
 
         let sequelize = await Pool.getConnection(configHash, paramsSQL);
-
         let result_query = undefined;
 
         const queryOptions = { type: query_type, logging: false };
@@ -351,7 +360,22 @@ export const sqlFunction = async (context) => {
 
         const runQuery = async () => {
           try {
-            return await sequelize.query(paramsSQL.query, queryOptions);
+            // MySQL/MariaDB: hint nativo MAX_EXECUTION_TIME(ms) para timeout a nivel de query
+            let queryToExecute = paramsSQL.query;
+            const dialect = paramsSQL.config.options?.dialect;
+            if (endpointTimeoutMs && (dialect === "mysql" || dialect === "mariadb")) {
+              // El hint debe ir al principio de la query (después de WITH si existe)
+              const hint = `/*+ MAX_EXECUTION_TIME(${endpointTimeoutMs}) */`;
+              const trimmed = paramsSQL.query.trim();
+              if (trimmed.startsWith("WITH ")) {
+                // CTE: insertar hint después de WITH ... 
+                const withEnd = trimmed.indexOf(" ");
+                queryToExecute = trimmed.slice(0, withEnd + 1) + hint + " " + trimmed.slice(withEnd + 1);
+              } else {
+                queryToExecute = hint + " " + trimmed;
+              }
+            }
+            return await sequelize.query(queryToExecute, queryOptions);
           } catch (queryErr) {
             const mssqlNumber = extractMssqlErrorNumber(queryErr);
 
@@ -377,15 +401,6 @@ export const sqlFunction = async (context) => {
           }
         };
 
-        // Endpoint-configured timeout (seconds) is otherwise only honored by the JS/VM
-        // handler. Without this, a stalled connection leaves the request hanging forever,
-        // ignoring the timeout the user set for this endpoint.
-        const hasEndpointTimeout = endpoint?.timeout !== undefined && endpoint?.timeout !== null;
-        const endpointTimeoutSeconds = hasEndpointTimeout ? Number(endpoint.timeout) : undefined;
-        const endpointTimeoutMs =
-          hasEndpointTimeout && Number.isFinite(endpointTimeoutSeconds) && endpointTimeoutSeconds > 0
-            ? endpointTimeoutSeconds * 1000
-            : undefined;
 
         if (endpointTimeoutMs) {
           let timeoutHandle;

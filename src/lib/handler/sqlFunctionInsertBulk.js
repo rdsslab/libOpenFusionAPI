@@ -142,20 +142,19 @@ export const sqlFunctionInsertBulk = async (context) => {
       paramsSQL.config.options.logging = false;
     }
 
-    const configHash = buildConnectionCacheKey(paramsSQL.config, environment);
-
-    const sequelize = await Pool.getConnection(configHash, paramsSQL);
-
-    // Endpoint-configured timeout (seconds). Without it, a stalled connection leaves the
-    // request hanging forever, ignoring the timeout set for this endpoint. Note that if the
-    // timeout fires mid-transaction, the transaction may still be in flight on the DB side;
-    // evicting the cached connection at least prevents the next request from reusing it.
+    // Endpoint-configured timeout (seconds). Propagar al pool para query timeout.
     const hasEndpointTimeout = method?.timeout !== undefined && method?.timeout !== null;
     const endpointTimeoutSeconds = hasEndpointTimeout ? Number(method.timeout) : undefined;
     const endpointTimeoutMs =
       hasEndpointTimeout && Number.isFinite(endpointTimeoutSeconds) && endpointTimeoutSeconds > 0
         ? endpointTimeoutSeconds * 1000
         : undefined;
+
+    paramsSQL.endpointTimeoutMs = endpointTimeoutMs;
+
+    const configHash = buildConnectionCacheKey(paramsSQL.config, environment);
+
+    const sequelize = await Pool.getConnection(configHash, paramsSQL);
 
     const runBulkInsert = () => bulkInsertWithTransaction(
       sequelize,

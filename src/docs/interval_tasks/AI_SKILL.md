@@ -35,7 +35,7 @@ endpoint workflow rather than the scheduler.
 | `list_interval_tasks` | read | See every task of an application, with its configuration and its live telemetry. |
 | `get_interval_task_runs` | read | Execution history of one task: duration, HTTP status, and — only with `include_response: true` — the `error` and `response` fields. Without that flag you get telemetry only, so a failed run looks empty of any error; set it when debugging. |
 | `upsert_interval_task` | write | Create a task or change an existing one. |
-| `run_interval_task_now` | write | Set an **enabled, non-suspended** task due and wake the scheduler immediately. It answers 400 when the task does not exist or when it is already running with `allow_concurrent: false`, 409 `TASK_DISABLED` when the user turned the task off, and 409 `TASK_SUSPENDED` when the scheduler suspended it after repeated failures. |
+| `run_interval_task_now` | write | Set an **enabled, non-suspended** task due and wake the scheduler immediately. It answers 400 when the task does not exist or when it is already running with `allow_concurrent: false`, 409 `TASK_DISABLED` when the user turned the task off, 409 `TASK_SUSPENDED` when the scheduler suspended it after repeated failures, and **409 `TASK_LOCKED`** when another instance holds the distributed lock (another worker or API node is already executing this task). |
 | `reset_interval_task_attempts` | write | Clear the failure counter and lift the scheduler's suspension, so a task it suspended runs again. |
 | `stop_interval_task_run` | write | Abort the execution of a task that is currently in flight: the scheduler cuts the in-flight HTTP call and records the run as `5` (aborted). Answers `stopped: false` with `reason: "NOT_RUNNING"` when there is no run left to abort. Does **not** touch `failed_attempts`, backoff or future runs — use `upsert_interval_task` with `enabled: false` to stop those instead. |
 | `delete_interval_task` | write | Remove the schedule permanently. The endpoint is not touched. |
@@ -264,9 +264,61 @@ first, then disable.
 
 ---
 
-## 9. Backup and restore
+## 10. Distributed lock & operator abort (v13.13.5+)
 
-Interval tasks travel inside the application backup, at the root of the payload as `tasks`.
+Since v13.13.5 the scheduler uses a **database-level lock** (`locked_until` column) instead of an in-memory flag. This fixes three long-standing gaps:
+
+1. **Cross-instance protection** — two API nodes cannot execute the same task concurrently.
+2. **Race-free acquisition** — the lock is taken atomically with `UPDATE ... WHERE locked_until IS NULL OR locked_until < NOW()`. No window where two workers read "free" and both proceed.
+3. **`run_interval_task_now` respects the lock** — it returns `409 TASK_LOCKED` instead of silently overlapping.
+
+The lock TTL is `exec_time_limit + 30 s` grace period. A crashed worker leaves the lock; the reaper (`reapStaleRunningTasks`) clears it once the TTL expires.
+
+### Operator-initiated abort
+
+`stop_interval_task_run` now propagates an **abort token** through every handler layer:
+
+- Worker generates `X-OFAPI-Abort-Token` header per run.
+- Shared cache `globalThis.__ofapi_abort_token_cache` (auto-TTL cleanup).
+- Internal endpoint `GET /system/interval-tasks/abort-check/:token` → `204` (running) / `410` (aborted).
+- Endpoint handlers receive the token and can react:
+  - **JS/VM handlers**: `$_ABORT_TOKEN_` (string) and `$_ABORT_CHECK()` (throws if aborted).
+  - **SQL handlers** (PostgreSQL, SQLite, Oracle, MSSQL, HANA): native `statement_timeout` / `queryTimeout` / `requestTimeout` cancels the query in the database.
+  - **MySQL/MariaDB**: hint `/*+ MAX_EXECUTION_TIME(ms) */` prepended to the query.
+  - **MongoDB**: `fnVars.abortToken` available in sandbox.
+  - **Hive/Impala**: worker thread checks abort every 100 row fetches.
+  - **fetchFunction**: propagates the header to downstream calls.
+
+**Usage in your endpoint code (JS handler):**
+
+```javascript
+// Check once at the start
+if ($_ABORT_TOKEN_) {
+  console.log('Abort token present:', $_ABORT_TOKEN_);
+}
+
+// Or call periodically in long loops
+for (const item of largeArray) {
+  $_ABORT_CHECK(); // throws if operator called stop_interval_task_run
+  await process(item);
+}
+```
+
+`$_ABORT_CHECK()` throws a `TimeoutError` with message `Execution aborted by operator`; the run is recorded as status `5` (aborted) and does **not** increment `failed_attempts`.
+
+### Error codes summary
+
+| Code | Reason | Meaning |
+|------|--------|---------|
+| 409 | `TASK_DISABLED` | Task has `enabled: false`. |
+| 409 | `TASK_SUSPENDED` | Scheduler suspended after `max_failed_attempts`. |
+| 409 | `TASK_LOCKED` | Another instance holds the distributed lock (`locked_until` not expired). |
+| 504 | `TimeoutError` | Endpoint or query timeout. |
+| 504 | `Execution aborted by operator` | `stop_interval_task_run` was called; `$_ABORT_CHECK()` threw. |
+
+---
+
+## 11. Backup and restore
 Telemetry is not restored (the task comes back as waiting, with zero failures and no `disabled_by`)
 and `idkey` is remapped to the target instance. `idtask` is the identity: the UUID from the backup is matched
 against the destination as-is, and if the row does not exist it is inserted honoring that UUID —

@@ -1870,6 +1870,11 @@ export const IntervalTask = dbsequelize.define(
       defaultValue: 50,
       comment: "Ejecuciones a conservar por tarea. 0 = no guardar historial",
     },
+    locked_until: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      comment: "Hasta cuándo la tarea está bloqueada por otra ejecución (lock distribuido). Null = sin lock",
+    },
     last_exec_time: {
       type: DataTypes.BIGINT,
       allowNull: true,

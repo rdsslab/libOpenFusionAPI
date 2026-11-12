@@ -215,6 +215,28 @@ export default class ServerAPI extends EventEmitter {
 
     this.fastify.addHttpMethod("QUERY", { hasBody: true, overrideExisting: true });
 
+    // Registrar endpoint interno para verificación de aborto (Fase 2)
+    this.fastify.get("/system/interval-tasks/abort-check/:token", async (request, reply) => {
+      const { fnAbortCheck } = await import("./server/functions/system/prd/interval_tasks/index.js");
+      const params = { request, reply, server_data: this };
+      const result = await fnAbortCheck(params);
+      reply.code(result.code);
+      if (result.data !== undefined) {
+        return result.data;
+      }
+    });
+
+    // Registrar endpoint de monitoreo para cache de abort tokens
+    this.fastify.get("/system/interval-tasks/abort-cache", async (request, reply) => {
+      const { fnAbortCacheStatus } = await import("./server/functions/system/prd/interval_tasks/index.js");
+      const params = { request, reply, server_data: this };
+      const result = await fnAbortCacheStatus(params);
+      reply.code(result.code);
+      if (result.data !== undefined) {
+        return result.data;
+      }
+    });
+
     this._build();
   }
 

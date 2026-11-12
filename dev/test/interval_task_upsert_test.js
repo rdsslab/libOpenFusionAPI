@@ -18,6 +18,7 @@ import {
   INTERVAL_TASK_RUNTIME_ATTRIBUTES,
   updateIntervalTaskStatus,
 } from "../../src/lib/db/interval_task.js";
+import { ensureIntervalTaskColumns } from "../../src/lib/db/ensureIntervalTaskColumns.js";
 import { Endpoint, IntervalTask, IntervalTaskRun } from "../../src/lib/db/models.js";
 import { defaultApps } from "../../src/lib/db/app.js";
 import { getIntervalTaskRuns } from "../../src/lib/db/interval_task_run.js";
@@ -38,6 +39,8 @@ const taskIdentities = async () => {
 
 async function runTests() {
   console.log("--- Starting Interval Task Upsert Tests ---");
+  // Asegurar columnas nuevas (incluyendo locked_until) en la BD de test
+  await ensureIntervalTaskColumns(console.log);
 
   const endpointId = uuidv4();
   await Endpoint.create({

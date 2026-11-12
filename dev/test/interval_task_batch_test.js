@@ -6,6 +6,7 @@ import {
   getIntervalTaskProcess,
   LOTE_TAREAS_POR_DEFECTO,
 } from "../../src/lib/db/interval_task.js";
+import { ensureIntervalTaskColumns } from "../../src/lib/db/ensureIntervalTaskColumns.js";
 import { Endpoint, IntervalTask } from "../../src/lib/db/models.js";
 import { closeDb } from "./close_db.js";
 
@@ -43,6 +44,8 @@ const LOTE = 5;
 
 async function runTests() {
   console.log("--- Starting Interval Task Batch Tests ---");
+  // Asegurar columnas nuevas (incluyendo locked_until) en la BD de test
+  await ensureIntervalTaskColumns(console.log);
 
   const endpointId = uuidv4();
   const endpoint = await Endpoint.create({

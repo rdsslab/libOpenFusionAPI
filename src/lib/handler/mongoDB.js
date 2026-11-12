@@ -223,6 +223,8 @@ export const mongodbFunction = async (context) => {
 
     let fnVars = functionsVars(request, reply, method.environment);
     fnVars.mongooseInstance = conn; // Conexión específica para esta config
+    // Pasar token de aborto para propagación (Fase 2)
+    fnVars.abortToken = request.headers?.['x-ofapi-abort-token'] || null;
 
     let fnresult = await method.jsFn(fnVars);
 

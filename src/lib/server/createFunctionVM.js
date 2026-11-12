@@ -64,6 +64,25 @@ export const createFunctionVM = async (
           __trackedIntervals.clear();
         };
 
+        // Función para verificar si la ejecución fue abortada (Fase 2)
+        // Se inyecta en runtime con el token real
+        const $_ABORT_CHECK = async () => {
+          if (typeof $_ABORT_TOKEN_ !== "undefined" && $_ABORT_TOKEN_) {
+            try {
+              const res = await fetch('/system/interval-tasks/abort-check/' + encodeURIComponent($_ABORT_TOKEN_), { method: 'GET' });
+              if (res.status === 410) {
+                const err = new Error('Execution aborted by operator');
+                err.name = 'AbortError';
+                throw err;
+              }
+            } catch (e) {
+              if (e.name === 'AbortError') throw e;
+              // Error de red u otro: no bloquear la ejecución
+            }
+          }
+          return false; // no abortado
+        };
+
         const __vmTimeoutMs = ${timeoutVM};
         let to;
         const timeoutPromise = new Promise((_, reject) => {
@@ -120,8 +139,10 @@ export const createFunctionVM = async (
 
     /**
      * Se retorna una función ejecutable — compiledScript se reutiliza en cada request
+     * @param {object} customVarsAndFunctions - variables personalizadas para el sandbox
+     * @param {string} [abortToken] - token de aborto para propagación a handlers (Fase 2)
      */
-    return async (customVarsAndFunctions = {}) => {
+    return async (customVarsAndFunctions = {}, abortToken) => {
       let safeAppVars;
       try {
         safeAppVars =
@@ -139,6 +160,8 @@ export const createFunctionVM = async (
         // 2. grouped under `$_APP_VARS_` for enumeration and collision-safe access
         ...safeAppVars,
         $_APP_VARS_: safeAppVars,
+        // Token de aborto para que $_ABORT_CHECK lo use (Fase 2)
+        $_ABORT_TOKEN_: abortToken || null,
         // Expose Node globals that the VM sandbox does not inherit automatically.
         // Required for timer-based VM timeout handling and AbortController support.
         setTimeout,
@@ -146,6 +169,7 @@ export const createFunctionVM = async (
         setInterval,
         clearInterval,
         AbortController,
+        fetch, // necesario para $_ABORT_CHECK
       };
 
       const context = vm.createContext(sandbox, {

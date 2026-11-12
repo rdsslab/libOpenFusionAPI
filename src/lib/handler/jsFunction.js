@@ -17,16 +17,21 @@ export const jsFunction = async (context) => {
     let fnVars = functionsVars(request, reply, method.environment);
 
     // --------------------------------------------------
-    // 2) Validar VM compilada del endpoint
+    // 2) Extraer token de aborto (Fase 2)
+    // --------------------------------------------------
+    const abortToken = request.headers?.['x-ofapi-abort-token'] || null;
+
+    // --------------------------------------------------
+    // 3) Validar VM compilada del endpoint
     // --------------------------------------------------
     if (!method.jsFn) {
       throw new Error("Function 'jsFn' is not compiled in cache.");
     }
 
     // --------------------------------------------------
-    // 3) Ejecutar código dentro de la VM
+    // 4) Ejecutar código dentro de la VM con token de aborto
     // --------------------------------------------------
-    let fnresult = await method.jsFn(fnVars);
+    let fnresult = await method.jsFn(fnVars, abortToken);
 
     // El endpoint puede pedir otro código de éxito con `$_RETURN_STATUS_` (201 al
     // crear, 202 al encolar, 204 al borrar, 302 al redirigir). Antes era 200 fijo,

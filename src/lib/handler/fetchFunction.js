@@ -46,6 +46,12 @@ export const fetchFunction = async (context) => {
       forwardedHeaders["ofapi-trace-id"] = traceId;
     }
 
+    // Propagar token de aborto (Fase 2)
+    const abortToken = request.headers?.['x-ofapi-abort-token'];
+    if (abortToken) {
+      forwardedHeaders["x-ofapi-abort-token"] = abortToken;
+    }
+
     /** ------------------------------
      *  VALIDAR URL DESTINO
      * ------------------------------*/

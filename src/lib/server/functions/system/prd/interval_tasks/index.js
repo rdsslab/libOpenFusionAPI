@@ -415,3 +415,110 @@ export async function fndeleteIntervalTask(params) {
   }
   return r;
 }
+
+/**
+ * Endpoint interno para que los handlers consulten si un abortToken fue abortado.
+ * GET /system/interval-tasks/abort-check/:token
+ * Responde 204 si no abortado, 410 si abortado (Gone).
+ * No requiere autenticación especial: solo se usa internamente por handlers.
+ */
+export async function fnAbortCheck(params) {
+  let r = { code: 204, data: undefined };
+  try {
+    const token = params.request.params?.token;
+    if (!token) {
+      r.data = { error: "token required" };
+      r.code = 400;
+      return r;
+    }
+
+    const abortTokenCache = globalThis.__ofapi_abort_token_cache;
+    if (!abortTokenCache) {
+      // Cache no existe = no hay aborto pendiente
+      r.code = 204;
+      return r;
+    }
+
+    const tokenData = abortTokenCache.get(token);
+    if (!tokenData) {
+      // Token no encontrado = no hay aborto pendiente (puede que ya expiró)
+      r.code = 204;
+      return r;
+    }
+
+    if (tokenData.aborted) {
+      r.code = 410; // Gone = abortado
+      r.data = { aborted: true };
+    } else {
+      r.code = 204; // No Content = no abortado
+    }
+    return r;
+  } catch (error) {
+    r.data = error;
+    r.code = 500;
+    return r;
+  }
+}
+
+/**
+ * Endpoint de monitoreo para inspeccionar el estado del cache de abort tokens.
+ * GET /system/interval-tasks/abort-cache
+ * Requiere autenticación de sistema (internal token).
+ * Devuelve: total tokens, tokens abortados, tokens activos, TTL configurado.
+ */
+export async function fnAbortCacheStatus(params) {
+  let r = { code: 200, data: undefined };
+  try {
+    const abortTokenCache = globalThis.__ofapi_abort_token_cache;
+    if (!abortTokenCache) {
+      r.data = {
+        cache_exists: false,
+        total_tokens: 0,
+        aborted_tokens: 0,
+        active_tokens: 0,
+        ttl_ms: 300000, // 5 min default
+        tokens: [],
+      };
+      return r;
+    }
+
+    const now = Date.now();
+    const ttlMs = 300000; // 5 min (same as worker.js)
+    let total = 0;
+    let aborted = 0;
+    let active = 0;
+    const tokens = [];
+
+    for (const [token, data] of abortTokenCache.entries()) {
+      total++;
+      const isExpired = now > (data.expires || 0);
+      const isAborted = data.aborted === true;
+
+      if (isAborted) aborted++;
+      if (!isExpired && !isAborted) active++;
+
+      tokens.push({
+        token: token.slice(0, 8) + "...", // truncated for safety
+        aborted: isAborted,
+        expired: isExpired,
+        created: data.created ? new Date(data.created).toISOString() : null,
+        expires: data.expires ? new Date(data.expires).toISOString() : null,
+        ttl_remaining_ms: data.expires ? Math.max(0, data.expires - now) : 0,
+      });
+    }
+
+    r.data = {
+      cache_exists: true,
+      total_tokens: total,
+      aborted_tokens: aborted,
+      active_tokens: active,
+      ttl_ms: ttlMs,
+      tokens: tokens,
+    };
+    return r;
+  } catch (error) {
+    r.data = error;
+    r.code = 500;
+    return r;
+  }
+}

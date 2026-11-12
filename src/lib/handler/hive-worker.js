@@ -7,6 +7,7 @@ const {
   bind,
   maxRows,
   timeoutMs,
+  abortToken,
 } = workerData || {};
 
 async function main() {
@@ -102,8 +103,31 @@ async function main() {
     // Usamos FETCH_NEXT (1) para que la primera lectura funcione tanto con Hive como con Impala.
     const FETCH_NEXT = 1;
     let more = true;
+    let fetchCount = 0;
+
+    // Helper para verificar aborto (Fase 2)
+    async function checkAbort() {
+      if (!abortToken) return false;
+      try {
+        // Import fetch dynamically (available in Node 18+)
+        const res = await fetch('/system/interval-tasks/abort-check/' + encodeURIComponent(abortToken), { method: 'GET' });
+        return res.status === 410;
+      } catch (e) {
+        return false; // Error de red u otro: no bloquear
+      }
+    }
+
     while (more) {
       const status = await operation.fetch(FETCH_NEXT);
+      fetchCount++;
+
+      // Verificar aborto cada 100 fetches
+      if (abortToken && fetchCount % 100 === 0) {
+        const aborted = await checkAbort();
+        if (aborted) {
+          throw new Error('Execution aborted by operator');
+        }
+      }
       if (status?.operationState === TCLIService_types.TOperationState.FINISHED_STATE) {
         // Terminado
       }

@@ -368,16 +368,48 @@ class ConnectionPool {  constructor(maxConnections = getMaxConnections()) {
       ...paramsSQL.config.options,
     };
 
+    // Propagar endpoint timeout a dialectOptions (si el handler lo pasó)
+    const endpointTimeoutMs = paramsSQL.endpointTimeoutMs;
+
     if (sequelizeOptions.dialect === "mssql") {
       sequelizeOptions.dialectOptions = {
         connectTimeout: DEFAULT_MSSQL_CONNECT_TIMEOUT_MS,
-        requestTimeout: DEFAULT_MSSQL_REQUEST_TIMEOUT_MS,
+        requestTimeout: endpointTimeoutMs && endpointTimeoutMs > 0
+          ? endpointTimeoutMs
+          : DEFAULT_MSSQL_REQUEST_TIMEOUT_MS,
         ...sequelizeOptions.dialectOptions,
       };
       sequelizeOptions.pool = {
         acquire: DEFAULT_POOL_ACQUIRE_MS,
         ...sequelizeOptions.pool,
       };
+    } else if (endpointTimeoutMs && endpointTimeoutMs > 0) {
+      // Otros dialectos: propagar timeout a dialectOptions
+      const dialect = sequelizeOptions.dialect;
+      sequelizeOptions.dialectOptions = {
+        ...sequelizeOptions.dialectOptions,
+        queryTimeout: endpointTimeoutMs, // Genérico (algunos dialectos lo usan)
+      };
+
+      // Dialect-specific overrides
+      if (dialect === "postgres" || dialect === "postgresql") {
+        sequelizeOptions.dialectOptions = {
+          ...sequelizeOptions.dialectOptions,
+          statement_timeout: endpointTimeoutMs, // PostgreSQL nativo
+        };
+      } else if (dialect === "sqlite") {
+        sequelizeOptions.dialectOptions = {
+          ...sequelizeOptions.dialectOptions,
+          busyTimeout: endpointTimeoutMs, // SQLite nativo
+        };
+      } else if (dialect === "oracle" || dialect === "oracledb") {
+        sequelizeOptions.dialectOptions = {
+          ...sequelizeOptions.dialectOptions,
+          queryTimeout: endpointTimeoutMs, // Oracle nativo
+        };
+      }
+      // MySQL/MariaDB: no hay nativo en dialectOptions;
+      // se maneja via hint /*+ MAX_EXECUTION_TIME(...) */ en la query si se desea
     }
 
     // H10, retirado: aquí se metía el parser de `int8` en `dialectOptions.types`

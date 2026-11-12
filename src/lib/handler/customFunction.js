@@ -36,6 +36,9 @@ export const customFunction = async (context) => {
       return;
     }
 
+    // Token de aborto para propagación (Fase 2)
+    const abortToken = request.headers?.['x-ofapi-abort-token'] || null;
+
     // Obtener datos seguros del request
     const body =
       typeof request.body === "object" && request.body !== null
@@ -66,6 +69,7 @@ export const customFunction = async (context) => {
         reply: reply,
         server_data: server_data,
         signal: controller.signal,
+        abortToken, // Fase 2: pasar token a la función personalizada
       });
     } catch (err) {
       // Verificar abort PRIMERO para que el timeout no quede enmascarado

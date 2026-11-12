@@ -169,6 +169,9 @@ export const hiveFunction = async (context) => {
       const maxRows = Number(paramsSQL.config.maxRows || 1000);
       const timeoutMs = Number(paramsSQL.config.timeoutMs || (endpointTimeoutMs || 30000));
 
+      // Token de aborto para propagación (Fase 2)
+      const abortToken = request.headers?.['x-ofapi-abort-token'] || null;
+
       try {
         // EJECUCIÓN Aislada con worker_threads para evitar bloqueo del event loop
         const result = await runHiveWorker({
@@ -177,6 +180,7 @@ export const hiveFunction = async (context) => {
           bind: clean_bind,
           maxRows,
           timeoutMs,
+          abortToken,
         });
 
         sendHandlerResponse(reply, {
@@ -237,10 +241,10 @@ function safeLiteral(value) {
 /**
  * Ejecuta la consulta aislada en un Worker para no bloquear el event loop.
  */
-function runHiveWorker({ sql, config, bind, maxRows, timeoutMs }) {
+function runHiveWorker({ sql, config, bind, maxRows, timeoutMs, abortToken }) {
   return new Promise((resolve, reject) => {
     const worker = new Worker(join(__dirname, "hive-worker.js"), {
-      workerData: { sql, config, bind, maxRows, timeoutMs },
+      workerData: { sql, config, bind, maxRows, timeoutMs, abortToken },
     });
 
     const timer = setTimeout(() => {
