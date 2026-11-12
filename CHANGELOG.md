@@ -18,6 +18,18 @@ see [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [14.1.1] - 2026-11-12
+
+### Fixed
+
+- **Hallazgo 1**: Una tarea creada con `enabled: true` y programación (`cron` o `interval`) **ya no se ejecuta al crearse**. El `INSERT` ahora calcula `next_run = computeNextRun(...)` apuntando a la próxima ocurrencia natural, y `getIntervalTaskProcess` ya no filtra por `next_run IS NULL`. Corrige la contradicción con la guía del MCP (`upsert_interval_task` con `enabled: true` e intervalo largo "no se dispara sola").
+
+### Added
+
+- Test de regresión: `dev/test/interval_task_upsert_test.js` paso 10 verifica que tareas `cron` e `interval` creadas con `enabled: true` tienen `next_run` en el futuro y `last_run = null`.
+
+---
+
 ## [14.1.0] - 2026-11-12
 
 ### Added
