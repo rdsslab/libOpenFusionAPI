@@ -589,13 +589,13 @@ async function canRun(task, now) {
         });
         return {
           run: false,
-          reason: `exclusive_group_wait (grupo ${task.exclusive_group} ocupado por tarea ${conflicting.idtask})`,
+          reason: `exclusive_group_wait (group ${task.exclusive_group} busy with task ${conflicting.idtask})`,
         };
       }
       // skip (default): pasar al siguiente ciclo natural
       return {
         run: false,
-        reason: `exclusive_group_skip (grupo ${task.exclusive_group} ocupado por tarea ${conflicting.idtask})`,
+        reason: `exclusive_group_skip (group ${task.exclusive_group} busy with task ${conflicting.idtask})`,
       };
     }
   }

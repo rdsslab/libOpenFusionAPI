@@ -62,7 +62,7 @@ export const jsFunction = async (context) => {
           data: {
             success: false,
             reason: lockResult.reason || "ENDPOINT_LOCKED",
-            message: lockResult.message || `El endpoint ${method.idendpoint} tiene un lock exclusivo vigente.`,
+            message: lockResult.message || `Endpoint ${method.idendpoint} has an exclusive lock in use (another execution is running).`,
           },
         });
       }

@@ -865,7 +865,7 @@ export const updateIntervalTaskStatus = async (
           const conflictId = Array.isArray(conflicting) ? conflicting[0].idtask : conflicting.idtask;
           return {
             success: false,
-            message: `La tarea pertenece al grupo de exclusión "${tareaConocida.exclusive_group}" que está ocupado por otra tarea (${conflictId}).`,
+            message: `Task belongs to exclusive group "${tareaConocida.exclusive_group}" which is occupied by another task (${conflictId}).`,
             code: "TASK_GROUP_LOCKED",
           };
         }
@@ -892,7 +892,7 @@ export const updateIntervalTaskStatus = async (
 
       if (affected === 0) {
         // No se pudo tomar el lock: ya hay otra ejecución en curso o lock vigente
-        return { success: false, message: "La tarea ya está en ejecución o tiene un lock vigente (otro worker/runNow).", code: "TASK_LOCKED" };
+        return { success: false, message: "Task is already running or has an active lock (another worker/runNow).", code: "TASK_LOCKED" };
       }
 
       return exito(lockUpdate);
@@ -1061,7 +1061,7 @@ export const runNowIntervalTask = async (idtask) => {
     if (task.locked_until && new Date(task.locked_until) > now) {
       return {
         success: false,
-        message: "La tarea tiene un lock de ejecución activo (otro worker o runNow previo).",
+        message: "Task has an active execution lock (another worker or previous runNow).",
         code: 409,
         reason: "TASK_LOCKED",
       };
@@ -1096,7 +1096,7 @@ export const runNowIntervalTask = async (idtask) => {
         const conflictId = Array.isArray(conflicting) ? conflicting[0].idtask : conflicting.idtask;
         return {
           success: false,
-          message: `La tarea pertenece al grupo de exclusión "${task.exclusive_group}" que está ocupado por otra tarea (${conflictId}).`,
+          message: `Task belongs to exclusive group "${task.exclusive_group}" which is occupied by another task (${conflictId}).`,
           code: 409,
           reason: "TASK_GROUP_LOCKED",
         };
