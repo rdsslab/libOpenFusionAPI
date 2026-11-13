@@ -35,7 +35,7 @@ endpoint workflow rather than the scheduler.
 | `list_interval_tasks` | read | See every task of an application, with its configuration and its live telemetry. |
 | `get_interval_task_runs` | read | Execution history of one task: duration, HTTP status, and — only with `include_response: true` — the `error` and `response` fields. Without that flag you get telemetry only, so a failed run looks empty of any error; set it when debugging. |
 | `upsert_interval_task` | write | Create a task or change an existing one. |
-| `run_interval_task_now` | write | Set an **enabled, non-suspended** task due and wake the scheduler immediately. It answers 400 when the task does not exist or when it is already running with `allow_concurrent: false`, 409 `TASK_DISABLED` when the user turned the task off, 409 `TASK_SUSPENDED` when the scheduler suspended it after repeated failures, and **409 `TASK_LOCKED`** when another instance holds the distributed lock (another worker or API node is already executing this task). |
+| `run_interval_task_now` | write | Set an **enabled, non-suspended** task due and wake the scheduler immediately. It answers 400 when the task does not exist or when it is already running with `allow_concurrent: false`, 409 `TASK_DISABLED` when the user turned the task off, 409 `TASK_SUSPENDED` when the scheduler suspended it after repeated failures, **409 `TASK_LOCKED`** when another instance holds the distributed lock (another worker or API node is already executing this task), and **409 `TASK_GROUP_LOCKED`** when another task of the same `exclusive_group` is running. |
 | `reset_interval_task_attempts` | write | Clear the failure counter and lift the scheduler's suspension, so a task it suspended runs again. |
 | `stop_interval_task_run` | write | Abort the execution of a task that is currently in flight: the scheduler cuts the in-flight HTTP call and records the run as `5` (aborted). Answers `stopped: false` with `reason: "NOT_RUNNING"` when there is no run left to abort. Does **not** touch `failed_attempts`, backoff or future runs — use `upsert_interval_task` with `enabled: false` to stop those instead. |
 | `delete_interval_task` | write | Remove the schedule permanently. The endpoint is not touched. |
@@ -83,6 +83,8 @@ Configuration you own:
 | `idkey` | — | ApiKey used as Bearer. See §6. |
 | `exec_time_limit` | `30` | Seconds one execution may take before it is aborted. |
 | `allow_concurrent` | `false` | Whether a new execution may start while the previous one runs. |
+| `exclusive_group` | — | Optional mutual-exclusion group. Tasks sharing this value never run at the same time, even though they have different `idtask`. |
+| `exclusive_policy` | `skip` | When the group is busy: `skip` waits for the next natural occurrence, `wait` retries in 30 s. Only used with `exclusive_group` and `allow_concurrent: false`. |
 | `max_failed_attempts` | `0` | Consecutive failures before the scheduler suspends the task (`disabled_by = 'system'`). `0` never suspends. Only values > 0 suspend after that many failures; invalid values fall back to 0. |
 | `history_limit` | `50` | Executions kept per task. `0` disables history. |
 | `note` | — | Free-text label. Not part of any key: two tasks may share it and a task may have none. To identify a task use its `idtask`, which is stable across backups and instances. |
@@ -186,6 +188,17 @@ fine: the headers are applied and no payload is sent.
   never gets to be the thing that stopped it. `upsert_interval_task` returns a `warnings` entry when
   it saves such a combination; it is advisory, and the save still goes through.
 - With `allow_concurrent: false` (the default) a cycle is skipped while the previous run is alive.
+- Tasks that share an `exclusive_group` never run at the same time, even though their `idtask`
+  differs. The worker, `run_interval_task_now` and the RUNNING transition all enforce it. When the
+  group is busy, `exclusive_policy` decides: `skip` (default) leaves the task for its next natural
+  occurrence, `wait` reschedules it to now + 30 seconds. A forced run on a busy group answers
+  **409 `TASK_GROUP_LOCKED`**. `allow_concurrent: true` opts the task out of the group check; that is
+  rarely what you want, since the group exists precisely to prevent overlap.
+- An endpoint with `exclusive: true` accepts one execution at a time from any origin (scheduled
+  task, forced run, GUI Tester, `execute_endpoint_test`, direct HTTP). A second concurrent call gets
+  **409 `ENDPOINT_LOCKED`** while the first holds its lease (`timeout` + 30 s). This is independent
+  from the task lock: a task can hold its own lease and still be rejected by an exclusive endpoint.
+  See §9 for the full contract.
 - HTTP `200` is recorded as completed unless the JSON payload explicitly declares
   `success: false`; that payload is recorded as an error using its `error` or `message`. The field is
   optional: endpoints without `success` continue to use the HTTP status as the outcome.
@@ -221,6 +234,20 @@ not be far ahead. If a window is set, confirm the current time and weekday fall 
 `window_start`–`window_end` / `window_days` **in the task's `timezone`**. Invalid IANA timezones and
 invalid cron expressions are rejected at save time. A malformed `HH:MM` is currently ignored, so
 re-read the stored window values after writing.
+
+**"The task is skipped or delayed while another task runs."**
+Both tasks are in the same `exclusive_group` and `allow_concurrent` is false. `list_interval_tasks`
+shows the group and the policy. With `exclusive_policy: "skip"` the blocked task waits for its next
+natural occurrence; with `"wait"` the scheduler retries in 30 seconds. Check that the collision is
+real: if both schedules are safe to overlap, clear `exclusive_group` (or set `allow_concurrent: true`)
+on the task that does not need the group. Do not remove the group merely to make a run start — the
+group is what protects the shared downstream system.
+
+**"The endpoint answers 409 `ENDPOINT_LOCKED`."**
+The endpoint has `exclusive: true` and another execution of the same endpoint is still running:
+another task, a forced run, the GUI Tester, `execute_endpoint_test` or a direct client. Wait for it to
+finish. The task's own lock is not the cause — `TASK_LOCKED` and `TASK_GROUP_LOCKED` are different
+reasons. Remove `exclusive` only if concurrent executions of that endpoint are truly safe.
 
 **"It got suspended by itself."**
 It hit `max_failed_attempts`, so the scheduler set `disabled_by = 'system'` while leaving
@@ -261,6 +288,46 @@ loses the whole configuration. Note this only prevents **future** runs: the sche
 but an execution that is already in flight when you disable the task keeps going until it finishes
 or reaches `exec_time_limit`. If you need to also cut that one, call `stop_interval_task_run`
 first, then disable.
+
+---
+
+## 9. Mutual exclusion: task groups and exclusive endpoints
+
+Two independent layers keep work from overlapping, and both can reject a run.
+
+### Task groups (`exclusive_group`)
+
+`exclusive_group` groups tasks that must not overlap even though they have different `idtask` — for
+example a long synchronization and an immediate cleanup that touch the same downstream system. The
+worker and `run_interval_task_now` both check it. `exclusive_policy` chooses what happens when the
+group is busy:
+
+| Value | Behavior |
+|---|---|
+| `skip` (default) | Do not start this cycle; the task waits for its next natural occurrence. |
+| `wait` | Reschedule `next_run` to now + 30 seconds and try again. |
+
+The check only considers tasks of the group that are `running` with a lease (`locked_until`) still in
+the future; an expired lease from a crashed process does not block the group. `allow_concurrent: true`
+opts the task out of the group check, which defeats the purpose of the group. A forced run on a busy
+group answers **409 `TASK_GROUP_LOCKED`**.
+
+### Exclusive endpoints (`exclusive`)
+
+`exclusive` is a field of the endpoint, not of the task. When it is `true`, the endpoint accepts one
+execution at a time from **any** origin: a scheduled task, `run_interval_task_now`, the GUI Tester,
+`execute_endpoint_test` or a direct HTTP client. A second concurrent call answers
+**409 `ENDPOINT_LOCKED`** while the first holds the lease, which lasts the endpoint `timeout` plus
+30 seconds. A crashed process therefore frees the endpoint shortly after its own deadline.
+
+- It is independent from the task lock and from `exclusive_group`: a task can hold its own lease and
+  still be rejected by an exclusive endpoint.
+- `exclusive: false` (default) costs nothing: the lock module is never reached. On an exclusive
+  endpoint the steady state is two indexed `UPDATE`s per call (acquire and release), measured at
+  roughly 0.5 ms p50 / 2 ms p95 on local SQLite and expected to add 1–5 ms on a networked database.
+- Enable it only where concurrent execution would corrupt state (writes, counters, file generation).
+  Read-only endpoints rarely need it.
+- Set it with `endpoint_upsert` (`exclusive: true`) and read it back with `read_endpoint_data`.
 
 ---
 
@@ -313,6 +380,8 @@ for (const item of largeArray) {
 | 409 | `TASK_DISABLED` | Task has `enabled: false`. |
 | 409 | `TASK_SUSPENDED` | Scheduler suspended after `max_failed_attempts`. |
 | 409 | `TASK_LOCKED` | Another instance holds the distributed lock (`locked_until` not expired). |
+| 409 | `TASK_GROUP_LOCKED` | Another task of the same `exclusive_group` is running. |
+| 409 | `ENDPOINT_LOCKED` | The target endpoint has `exclusive: true` and another execution holds its lease. |
 | 504 | `TimeoutError` | Endpoint or query timeout. |
 | 504 | `Execution aborted by operator` | `stop_interval_task_run` was called; `$_ABORT_CHECK()` threw. |
 

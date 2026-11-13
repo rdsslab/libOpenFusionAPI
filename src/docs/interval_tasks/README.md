@@ -31,6 +31,8 @@ logic lives in the endpoint, which stays callable by hand exactly as before.
 |---|---|
 | Data access, upsert merge, status transitions, reaper | `src/lib/db/interval_task.js` |
 | Execution history (`ofapi_intervaltask_run`), truncation, pruning | `src/lib/db/interval_task_run.js` |
+| Exclusive endpoint lock (lease, local cache, ownership-checked release) | `src/lib/db/endpoint_lock.js` |
+| Idempotent lock table/index migration (`ofapi_endpoint_lock`) | `src/lib/db/ensureEndpointLockTable.js` |
 | Idempotent column migration run at boot | `src/lib/db/ensureIntervalTaskColumns.js` |
 | Scheduler worker thread (adaptive wake-up, auth, fetch, timeout) | `src/lib/timer/worker.js` |
 | Pure scheduling math: cron, windows, anchored next_run, backoff | `src/lib/timer/schedule.js` |
@@ -74,3 +76,17 @@ logic lives in the endpoint, which stays callable by hand exactly as before.
   and reaches the worker through `TasksInterval.abortRun`, which waits for the worker's ack so the
   API never promises an abort that was not confirmed. An aborted run is deliberately not a failure:
   no `failed_attempts`, no backoff, no suspension, schedule unchanged.
+- **Two independent exclusion layers.** `exclusive_group` keeps tasks of the same group from running
+  at the same time even when their `idtask` differs; the worker and `run_interval_task_now` check it,
+  and `exclusive_policy` chooses between skipping the cycle (`skip`, default) and retrying in 30 s
+  (`wait`). `exclusive` on the endpoint is broader: it serializes every caller (task, forced run,
+  GUI Tester, MCP test, direct HTTP) with a database lease, answering `409 ENDPOINT_LOCKED` to the
+  second one. Both are additive and opt-in: endpoints without `exclusive` never reach
+  `endpoint_lock.js`, and tasks without `exclusive_group` pay no group query.
+- **The endpoint lock is portable and cheap in steady state.** `endpoint_lock.js` uses a conditional
+  `UPDATE` over `locked_until` (then a one-time `INSERT`) instead of PostgreSQL-only
+  `ON CONFLICT ... RETURNING`; the row is never deleted, release moves the lease to the past with
+  `locked_by = 'released'`, and ownership is checked with `idlock` so an expired process cannot free
+  a lease acquired by another. A process-local cache rejects a second concurrent call without a
+  query and caps the "held by another process" window at 1 s, so a released lease is visible almost
+  immediately.

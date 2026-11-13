@@ -22,6 +22,8 @@ schedule, payload and credentials; the endpoint continues to own all business lo
 | Endpoint | Required | Existing endpoint called by the task. |
 | Enabled | Off for new tasks | Starts or pauses unattended execution. |
 | Allow concurrent | Off | Prevents overlapping executions of the same task. |
+| Exclusive group | Empty | Tasks that share this value never run at the same time, even if they are different tasks. |
+| When group is busy | Skip | `Skip` waits for the next scheduled time; `Wait` retries after 30 seconds. Only used with an Exclusive group. |
 | API Key | Empty for public/system endpoints | Bearer credential for a private endpoint in the same application. |
 | Schedule mode | Interval | Selects fixed seconds or a cron expression. |
 | Interval | 300 seconds | Frequency in interval mode. Minimum 1 second. |
@@ -103,6 +105,29 @@ a failure, so it does not feed the suspension, and it does not change the schedu
 run still happens. What the endpoint already did before the cutoff stays done. To stop **future** runs
 instead, turn off **Enabled**; do not rely on it to cut the one already executing.
 
+## Exclusivity: groups and endpoints
+
+Two independent protections stop work from overlapping. They answer different questions, and a task
+can be affected by both.
+
+**Exclusive group (between tasks).** Put the same **Exclusive group** name on two or more tasks and
+they will never run at the same time, even though each one has its own identity. This is the setting
+for a long synchronization and an immediate cleanup that touch the same external system. When the
+group is busy:
+
+- **Skip** (recommended) leaves the blocked task for its next scheduled time.
+- **Wait** retries it 30 seconds later.
+
+The group applies only while **Allow concurrent** is off. Turning concurrency on for one task takes
+it out of the group; do that only if overlapping is genuinely safe.
+
+**Exclusive endpoint (against any caller).** The endpoint itself has an **Exclusive** switch. When it
+is on, the endpoint accepts one execution at a time from anywhere: a scheduled task, **Run now**, the
+Tester, an MCP test call or a direct HTTP client. A second simultaneous call receives
+`409 ENDPOINT_LOCKED` until the first finishes. The endpoint releases itself after its timeout plus a
+30-second grace period even if the process crashes. Leave it off for read-only endpoints; it only
+costs anything when it is on.
+
 ## Cron examples
 
 | Requirement | Expression |
@@ -118,6 +143,10 @@ Use Interval rather than cron when the requirement is an elapsed cadence such as
 
 - If it never runs, check task, endpoint and application enabled states, dates, window and `next_run`,
   and whether it is **Suspended** (a red Suspended tag).
+- If a task is skipped or delayed while another task runs, both share an **Exclusive group**. Use
+  **Wait** if it should retry in 30 seconds, or clear the group only if overlapping is truly safe.
+- If a call returns `409 ENDPOINT_LOCKED`, the endpoint has **Exclusive** on and another execution is
+  still in progress. Wait for it to finish; remove the switch only if concurrent calls are safe.
 - For 401/403 responses, verify the API Key is enabled, valid and belongs to the endpoint application.
 - If history is empty, the task has not run or History limit is `0`.
 - If the task suspended itself, inspect History, fix the cause and then reset attempts.

@@ -62,6 +62,31 @@ When creating or modifying a JS endpoint using `endpoint_upsert` with `handler: 
 - `code`: The JS script contents.
 - `timeout`: Max execution time in seconds.
 - `environment`: `'dev'`, `'qa'`, or `'prd'` (defaults to `dev` if omitted).
+  - `exclusive`: Optional boolean (default `false`). When `true`, the endpoint accepts one execution at a time from any origin (scheduled task, forced run, GUI Tester, `execute_endpoint_test`, direct HTTP). A second concurrent call receives `409 ENDPOINT_LOCKED`. The lease lasts `timeout` + 30 s. Enable it only where concurrent execution would corrupt state.
+
+---
+
+## Operator Abort Signal
+
+An operator can cut a running execution with `stop_interval_task_run`. The request receives an
+`X-OFAPI-Abort-Token` header and the endpoint code has two helpers:
+
+- `$_ABORT_SIGNAL_` — native `AbortSignal` (useful with `fetch`, database drivers, etc.).
+- `$_ABORT_CHECK()` — throws `AbortError` if the operator called stop.
+
+```javascript
+if ($_ABORT_TOKEN_) {
+  console.log('Abort token present:', $_ABORT_TOKEN_);
+}
+
+for (const item of largeArray) {
+  $_ABORT_CHECK(); // throws if operator called stop_interval_task_run
+  await process(item);
+}
+```
+
+`$_ABORT_CHECK()` throws a `TimeoutError` with message `Execution aborted by operator`; the run is
+recorded as status `5` (aborted) and does **not** increment `failed_attempts`.
 
 ---
 

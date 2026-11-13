@@ -49,6 +49,26 @@
     "max_stored_response_chars": 4096
   },
   "schedule_modes": ["interval", "cron"],
+  "exclusivity": {
+    "task_group": {
+      "columns": ["exclusive_group", "exclusive_policy"],
+      "policy_values": ["skip", "wait"],
+      "default_policy": "skip",
+      "wait_retry_seconds": 30,
+      "ignored_when": "allow_concurrent = true",
+      "error_code": "TASK_GROUP_LOCKED",
+      "description": "Tasks sharing exclusive_group never run at the same time, even with different idtask. When the group is busy, skip leaves the task for its next natural occurrence and wait reschedules next_run to now + 30 s. The check only considers group members that are running with an unexpired locked_until."
+    },
+    "endpoint": {
+      "column": "ofapi_endpoint.exclusive",
+      "lock_table": "ofapi_endpoint_lock",
+      "db_layer": "src/lib/db/endpoint_lock.js",
+      "lease_seconds": "endpoint timeout + 30",
+      "error_code": "ENDPOINT_LOCKED",
+      "applies_to": ["interval_task", "run_now", "gui_tester", "execute_endpoint_test", "direct_http"],
+      "description": "When ofapi_endpoint.exclusive is true, every caller serializes through a database lease. A second concurrent call answers 409 ENDPOINT_LOCKED. Endpoints without exclusive never reach the lock module."
+    }
+  },
   "ui": {
     "conditional_fields": {
       "interval": { "schedule_mode": "interval" },

@@ -310,6 +310,8 @@ export const getIntervalTask = async (filter = {}, opciones = {}) => {
         "last_response",
         "note",
         "allow_concurrent",
+        "exclusive_group",
+        "exclusive_policy",
         "idkey",
         "schedule_mode",
         "cron",
@@ -390,6 +392,8 @@ export const getIntervalTask = async (filter = {}, opciones = {}) => {
         note: item.note,
 
         allow_concurrent: item.allow_concurrent,
+        exclusive_group: item.exclusive_group,
+        exclusive_policy: item.exclusive_policy,
         idkey: item.idkey,
         schedule_mode: item.schedule_mode,
         cron: item.cron,
