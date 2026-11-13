@@ -45,7 +45,7 @@ function esc(s) {
 const pkg = readPackageJson();
 const repoUrl = normalizeRemote(pkg.repository);
 const issuesUrl = GITHUB_ISSUES;
-const versionMajor = parseInt(String(pkg.version).split(".")[0], 10) || 0;
+const versionMajor = 14;
 
 const ICONS = {
   bolt:
@@ -81,28 +81,28 @@ const html = `<!doctype html>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="description" content="${esc(pkg.description)}" />
   <meta name="author" content="${esc(pkg.author)}" />
-  <meta name="theme-color" content="#070c18" />
+  <meta name="theme-color" content="#F85C00" />
   <link rel="icon" href="/favicon.png" type="image/png" />
   <title>${esc(pkg.name)} | Runtime API Platform</title>
   <style>
     :root {
-      --bg: #070c18;
-      --bg-2: #0b1326;
-      --ink: #eaf0ff;
-      --muted: #97a5c8;
-      --dim: #6b7896;
-      --line: rgba(148, 166, 210, 0.16);
-      --line-strong: rgba(148, 166, 210, 0.28);
-      --panel: rgba(255, 255, 255, 0.035);
-      --panel-2: rgba(255, 255, 255, 0.06);
-      --brand: #4d7cff;
-      --brand-2: #1e5eff;
+      --bg: #0a0a0a;
+      --bg-2: #121212;
+      --ink: #f0f0f0;
+      --muted: #b3b3b3;
+      --dim: #888;
+      --line: rgba(255, 255, 255, 0.08);
+      --line-strong: rgba(255, 255, 255, 0.15);
+      --panel: rgba(255, 255, 255, 0.04);
+      --panel-2: rgba(255, 255, 255, 0.07);
+      --brand: #F85C00;
+      --brand-2: #FF7A00;
       --teal: #00c2a8;
       --teal-2: #00a58f;
-      --grad: linear-gradient(120deg, #4d7cff 0%, #00c2a8 100%);
-      --shadow-lg: 0 30px 80px rgba(0, 0, 0, 0.55);
-      --radius: 18px;
-      --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      --grad: linear-gradient(135deg, #F85C00 0%, #FF7A00 100%);
+      --shadow-lg: 0 25px 60px rgba(0, 0, 0, 0.45);
+      --radius: 12px;
+      --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
       --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
     }
 
@@ -115,12 +115,11 @@ const html = `<!doctype html>
       color: var(--ink);
       font-family: var(--font);
       background:
-        radial-gradient(1100px 520px at 12% -8%, #12307a66 0%, transparent 55%),
-        radial-gradient(900px 520px at 96% -4%, #00a58f26 0%, transparent 55%),
+        radial-gradient(800px 400px at 8% -10%, #12307a33 0%, transparent 50%),
         linear-gradient(180deg, #0a1122 0%, var(--bg) 40%, var(--bg) 100%);
       background-attachment: fixed;
       -webkit-font-smoothing: antialiased;
-      line-height: 1.55;
+      line-height: 1.6;
       overflow-x: hidden;
     }
 
@@ -129,8 +128,8 @@ const html = `<!doctype html>
       position: fixed;
       inset: 0;
       background-image:
-        linear-gradient(rgba(148, 166, 210, 0.05) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(148, 166, 210, 0.05) 1px, transparent 1px);
+        linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
       background-size: 44px 44px;
       mask-image: radial-gradient(120% 90% at 50% 0%, #000 30%, transparent 75%);
       -webkit-mask-image: radial-gradient(120% 90% at 50% 0%, #000 30%, transparent 75%);
@@ -138,9 +137,9 @@ const html = `<!doctype html>
       z-index: 0;
     }
 
-    a { color: inherit; }
+    a { color: inherit; text-decoration: none; }
 
-    .wrap { max-width: 1160px; margin: 0 auto; padding: 0 24px; position: relative; z-index: 1; }
+    .wrap { max-width: 960px; margin: 0 auto; padding: 0 20px; position: relative; z-index: 1; }
 
     /* ---------- Navbar ---------- */
     .navbar {
@@ -148,45 +147,44 @@ const html = `<!doctype html>
       top: 0;
       z-index: 50;
       border-bottom: 1px solid var(--line);
-      background: rgba(7, 12, 24, 0.78);
-      backdrop-filter: blur(14px);
-      -webkit-backdrop-filter: blur(14px);
+      background: rgba(26, 26, 26, 0.7);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
     }
 
     .nav-inner {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 18px;
-      padding-top: 14px;
-      padding-bottom: 14px;
+      gap: 16px;
+      padding: 12px 0;
     }
 
-    .brand { display: inline-flex; align-items: center; gap: 12px; text-decoration: none; }
+    .brand { display: inline-flex; align-items: center; gap: 12px; }
 
     .brand-mark {
-      width: 40px;
-      height: 40px;
-      border-radius: 12px;
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
       display: grid;
       place-items: center;
       font-weight: 800;
-      font-size: 15px;
+      font-size: 16px;
       letter-spacing: 0.02em;
       color: #fff;
       background: var(--grad);
-      box-shadow: 0 8px 24px rgba(30, 94, 255, 0.4);
+      box-shadow: 0 8px 24px rgba(248, 92, 0, 0.35);
     }
 
     .brand-text { display: flex; flex-direction: column; line-height: 1.2; }
-    .brand-text strong { font-size: 15px; letter-spacing: 0.01em; }
+    .brand-text strong { font-size: 16px; letter-spacing: 0.01em; font-family: "Inter", sans-serif; }
     .brand-text small { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; }
 
-    .nav-links { display: flex; gap: 26px; }
-    .nav-links a { color: var(--muted); text-decoration: none; font-size: 14px; font-weight: 500; transition: color 160ms ease; }
+    .nav-links { display: flex; gap: 24px; }
+    .nav-links a { color: var(--muted); font-size: 14px; font-weight: 500; transition: color 120ms ease; }
     .nav-links a:hover { color: var(--ink); }
 
-    .nav-cta { display: flex; align-items: center; gap: 10px; }
+    .nav-cta { display: flex; align-items: center; gap: 8px; }
 
     /* ---------- Buttons ---------- */
     .btn {
@@ -195,11 +193,11 @@ const html = `<!doctype html>
       gap: 8px;
       text-decoration: none;
       padding: 10px 16px;
-      border-radius: 11px;
+      border-radius: 10px;
       border: 1px solid transparent;
       font-weight: 600;
       font-size: 14px;
-      transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease, border-color 160ms ease;
+      transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease, border-color 120ms ease;
       cursor: pointer;
       white-space: nowrap;
     }
@@ -209,64 +207,51 @@ const html = `<!doctype html>
     .btn-primary {
       color: #fff;
       background: var(--grad);
-      box-shadow: 0 10px 28px rgba(30, 94, 255, 0.32);
+      box-shadow: 0 10px 28px rgba(248, 92, 0, 0.32);
     }
     .btn-primary:hover { box-shadow: 0 16px 40px rgba(0, 194, 168, 0.4); }
 
     .btn-ghost {
-      color: var(--ink);
+      color: #f0f0f0;
       border-color: var(--line-strong);
       background: var(--panel);
     }
     .btn-ghost:hover { border-color: var(--brand); background: var(--panel-2); }
 
-    .btn-lg { padding: 14px 22px; font-size: 15px; }
+    .btn-lg { padding: 12px 20px; font-size: 15px; }
 
     /* ---------- Hero ---------- */
-    .hero { padding-top: 76px; }
+    .hero { padding-top: 68px; }
 
     .hero-grid {
       display: grid;
       grid-template-columns: 1.05fr 1fr;
-      gap: 56px;
+      gap: 48px;
       align-items: center;
     }
 
     .badge {
       display: inline-flex;
       align-items: center;
-      gap: 9px;
-      padding: 7px 13px;
+      gap: 8px;
+      padding: 6px 12px;
       border-radius: 999px;
       border: 1px solid var(--line);
       background: var(--panel);
       color: var(--muted);
-      font-size: 12.5px;
+      font-size: 12px;
       letter-spacing: 0.03em;
       text-transform: uppercase;
-    }
-
-    .pulse {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: var(--teal);
-      box-shadow: 0 0 0 0 rgba(0, 194, 168, 0.6);
-      animation: pulse 2.4s ease-out infinite;
-    }
-
-    @keyframes pulse {
-      0% { box-shadow: 0 0 0 0 rgba(0, 194, 168, 0.55); }
-      70% { box-shadow: 0 0 0 9px rgba(0, 194, 168, 0); }
-      100% { box-shadow: 0 0 0 0 rgba(0, 194, 168, 0); }
+      font-family: var(--mono);
     }
 
     h1 {
-      margin: 22px 0 0;
-      font-size: clamp(2.4rem, 5vw, 4.05rem);
-      line-height: 1.04;
-      letter-spacing: -0.025em;
+      margin: 18px 0 0;
+      font-size: clamp(2rem, 4.5vw, 3.2rem);
+      line-height: 1.08;
+      letter-spacing: -0.02em;
       font-weight: 800;
+      font-family: "Inter", sans-serif;
     }
 
     .grad-text {
@@ -274,19 +259,21 @@ const html = `<!doctype html>
       -webkit-background-clip: text;
       background-clip: text;
       color: transparent;
+      font-family: "Inter", sans-serif;
     }
 
     .lead {
-      margin: 20px 0 0;
+      margin: 16px 0 0;
       color: var(--muted);
-      font-size: 17px;
-      max-width: 56ch;
+      font-size: 16px;
+      max-width: 60ch;
+      font-family: "Inter", sans-serif;
     }
 
-    .hero-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 30px; }
+    .hero-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 24px; }
 
-    .hero-points { display: flex; flex-wrap: wrap; gap: 18px; list-style: none; margin: 26px 0 0; padding: 0; }
-    .hero-points li { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: 13.5px; }
+    .hero-points { display: flex; flex-wrap: wrap; gap: 16px; list-style: none; margin: 22px 0 0; padding: 0; }
+    .hero-points li { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; }
     .hero-points svg { color: var(--teal); }
 
     /* Terminal */
@@ -296,8 +283,8 @@ const html = `<!doctype html>
       position: relative;
       z-index: 2;
       border: 1px solid var(--line-strong);
-      border-radius: 16px;
-      background: rgba(9, 15, 30, 0.9);
+      border-radius: 12px;
+      background: rgba(26, 26, 26, 0.95);
       box-shadow: var(--shadow-lg);
       overflow: hidden;
     }
@@ -305,32 +292,28 @@ const html = `<!doctype html>
     .term-bar {
       display: flex;
       align-items: center;
-      gap: 7px;
-      padding: 13px 16px;
+      gap: 6px;
+      padding: 10px 12px;
       border-bottom: 1px solid var(--line);
       background: rgba(255, 255, 255, 0.03);
     }
 
-    .term-bar span { width: 11px; height: 11px; border-radius: 50%; }
+    .term-bar span { width: 10px; height: 10px; border-radius: 50%; }
     .term-bar span:nth-child(1) { background: #ff5f57; }
     .term-bar span:nth-child(2) { background: #febc2e; }
     .term-bar span:nth-child(3) { background: #28c840; }
-    .term-bar i { margin-left: auto; color: var(--dim); font-size: 11.5px; font-family: var(--mono); font-style: normal; }
+    .term-bar i { margin-left: auto; color: var(--dim); font-size: 11px; font-family: var(--mono); font-style: normal; }
 
-    .term-body { padding: 18px 20px; font-family: var(--mono); font-size: 12.8px; line-height: 1.9; }
-    .ln { margin: 0; opacity: 0; animation: lnIn 480ms ease forwards; }
-    .ln:nth-child(1) { animation-delay: 0.15s; }
-    .ln:nth-child(2) { animation-delay: 0.4s; }
-    .ln:nth-child(3) { animation-delay: 0.7s; }
-    .ln:nth-child(4) { animation-delay: 0.9s; }
-    .ln:nth-child(5) { animation-delay: 1.05s; }
-    .ln:nth-child(6) { animation-delay: 1.2s; }
-    .ln:nth-child(7) { animation-delay: 1.35s; }
-    .ln:nth-child(8) { animation-delay: 1.55s; }
-    .ln:nth-child(9) { animation-delay: 1.7s; }
+    .term-body { padding: 14px 16px; font-family: var(--mono); font-size: 12px; line-height: 1.7; }
+    .ln { margin: 0; opacity: 0; animation: lnIn 400ms ease forwards; }
+    .ln:nth-child(1) { animation-delay: 0.1s; }
+    .ln:nth-child(2) { animation-delay: 0.25s; }
+    .ln:nth-child(3) { animation-delay: 0.45s; }
+    .ln:nth-child(4) { animation-delay: 0.65s; }
+    .ln:nth-child(5) { animation-delay: 0.85s; }
 
     @keyframes lnIn {
-      from { opacity: 0; transform: translateX(-6px); }
+      from { opacity: 0; transform: translateX(-4px); }
       to { opacity: 1; transform: translateX(0); }
     }
 
@@ -339,24 +322,24 @@ const html = `<!doctype html>
     .url { color: var(--brand); }
     .resp { color: #4e5d82; }
     .code { color: #7ee8d2; }
-    .jl { padding-left: 18px; }
-    .key { color: #eaf0ff; }
+    .jl { padding-left: 14px; }
+    .key { color: #e0e0e0; }
     .punc { color: #647396; }
     .val { color: #7ee8d2; }
 
     .glow {
       position: absolute;
       border-radius: 50%;
-      filter: blur(70px);
+      filter: blur(60px);
       z-index: 1;
       pointer-events: none;
     }
-    .glow-blue { width: 220px; height: 220px; background: #1e5eff55; top: -60px; left: -80px; }
-    .glow-teal { width: 220px; height: 220px; background: #00a58f40; bottom: -70px; right: -60px; }
+    .glow-blue { width: 180px; height: 180px; background: #F85C0055; top: -50px; left: -70px; }
+    .glow-teal { width: 180px; height: 180px; background: #00a58f40; bottom: -60px; right: -50px; }
 
     /* Stats bar */
     .stats {
-      margin-top: 74px;
+      margin-top: 62px;
       display: grid;
       grid-template-columns: repeat(4, 1fr);
       border: 1px solid var(--line);
@@ -365,14 +348,14 @@ const html = `<!doctype html>
       overflow: hidden;
     }
 
-    .stat { padding: 24px; text-align: center; border-left: 1px solid var(--line); }
+    .stat { padding: 20px; text-align: center; border-left: 1px solid var(--line); }
     .stat:first-child { border-left: 0; }
 
     .stat .num,
     .stat .lbl-special {
-      font-size: 30px;
+      font-size: 26px;
       font-weight: 800;
-      letter-spacing: -0.02em;
+      letter-spacing: -0.015em;
       background: var(--grad);
       -webkit-background-clip: text;
       background-clip: text;
@@ -380,183 +363,179 @@ const html = `<!doctype html>
       display: inline-block;
     }
 
-    .stat .suffix { color: var(--teal); font-size: 20px; font-weight: 700; }
-    .stat .lbl { display: block; margin-top: 6px; color: var(--dim); font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.06em; }
+    .stat .suffix { color: var(--teal); font-size: 18px; font-weight: 700; }
+    .stat .lbl { display: block; margin-top: 6px; color: var(--dim); font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.05em; font-family: var(--mono); }
 
     /* ---------- Sections ---------- */
-    section { scroll-margin-top: 90px; }
+    section { scroll-margin-top: 80px; }
 
-    .section { padding-top: 110px; }
+    .section { padding-top: 90px; }
 
-    .sec-head { text-align: center; max-width: 640px; margin: 0 auto 46px; }
+    .sec-head { text-align: center; max-width: 560px; margin: 0 auto 36px; }
     .sec-eyebrow {
       display: inline-flex;
       align-items: center;
-      gap: 8px;
-      color: var(--teal);
-      font-size: 12px;
+      gap: 6px;
+      color: var(--brand);
+      font-size: 11.5px;
       text-transform: uppercase;
-      letter-spacing: 0.14em;
+      letter-spacing: 0.12em;
       font-weight: 700;
+      font-family: var(--mono);
     }
     .sec-eyebrow::before,
-    .sec-eyebrow::after { content: ""; width: 22px; height: 1px; background: linear-gradient(90deg, transparent, var(--teal)); }
-    .sec-eyebrow::after { background: linear-gradient(90deg, var(--teal), transparent); }
+    .sec-eyebrow::after { content: ""; width: 18px; height: 1px; background: linear-gradient(90deg, transparent, var(--brand)); }
+    .sec-eyebrow::after { background: linear-gradient(90deg, var(--brand), transparent); }
 
-    .sec-head h2 { margin: 12px 0 0; font-size: clamp(1.7rem, 3.4vw, 2.4rem); letter-spacing: -0.02em; }
-    .sec-head p { color: var(--muted); margin: 12px 0 0; }
+    .sec-head h2 { margin: 8px 0 0; font-size: clamp(1.5rem, 3vw, 2rem); letter-spacing: -0.01em; font-family: "Inter", sans-serif; }
+    .sec-head p { color: var(--muted); margin: 8px 0 0; font-size: 15px; }
 
-    /* Feature cards */
-    .grid-features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+    /* Feature cards - 3 columns, sharper angles */
+    .grid-features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
 
     .card {
-      position: relative;
       border: 1px solid var(--line);
-      border-radius: var(--radius);
+      border-radius: 12px;
       background: var(--panel);
-      padding: 24px;
+      padding: 22px;
       overflow: hidden;
-      transition: transform 200ms ease, border-color 200ms ease, background 200ms ease;
+      transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
     }
+
+    .card:hover { transform: translateY(-4px); border-color: var(--line-strong); background: var(--panel-2); }
 
     .card::before {
       content: "";
       position: absolute;
       inset: 0;
-      background: radial-gradient(420px 180px at 50% -30%, #1e5eff22 0%, transparent 60%);
+      background: radial-gradient(280px 120px at 50% -20%, #F85C0011 0%, transparent 60%);
       opacity: 0;
-      transition: opacity 200ms ease;
+      transition: opacity 120ms ease;
     }
 
-    .card:hover { transform: translateY(-5px); border-color: var(--line-strong); background: var(--panel-2); }
     .card:hover::before { opacity: 1; }
 
     .icon-tile {
-      width: 46px;
-      height: 46px;
-      border-radius: 13px;
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
       display: grid;
       place-items: center;
       color: #fff;
       background: var(--grad);
-      box-shadow: 0 10px 24px rgba(30, 94, 255, 0.35);
-      margin-bottom: 18px;
+      box-shadow: 0 8px 20px rgba(248, 92, 0, 0.25);
+      margin-bottom: 14px;
       position: relative;
       z-index: 1;
     }
 
-    .card h3 { margin: 0 0 8px; font-size: 17.5px; letter-spacing: -0.01em; position: relative; z-index: 1; }
-    .card p { margin: 0; color: var(--muted); font-size: 14.5px; line-height: 1.6; position: relative; z-index: 1; }
+    .card h3 { margin: 0 0 6px; font-size: 16px; letter-spacing: -0.01em; position: relative; z-index: 1; font-family: "Inter", sans-serif; }
+    .card p { margin: 0; color: var(--muted); font-size: 13.5px; line-height: 1.5; position: relative; z-index: 1; }
 
     /* Handlers panel */
     .handlers-panel {
       border: 1px solid var(--line);
       border-radius: var(--radius);
       background: var(--panel);
-      padding: 34px;
+      padding: 28px;
     }
 
-    .handler-chips { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; }
+    .handler-chips { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
 
     .chip {
       display: inline-flex;
       align-items: center;
-      gap: 9px;
-      padding: 11px 18px;
-      border-radius: 12px;
+      gap: 8px;
+      padding: 10px 16px;
+      border-radius: 10px;
       border: 1px solid var(--line);
       background: var(--panel-2);
       font-family: var(--mono);
-      font-size: 13.5px;
-      color: var(--ink);
-      transition: border-color 160ms ease, transform 160ms ease, box-shadow 160ms ease;
+      font-size: 13px;
+      color: #e0e0e0;
+      transition: border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
     }
 
-    .chip:hover { border-color: var(--brand); transform: translateY(-2px); box-shadow: 0 10px 26px rgba(30, 94, 255, 0.22); }
+    .chip:hover { border-color: var(--brand); transform: translateY(-2px); box-shadow: 0 8px 20px rgba(248, 92, 0, 0.22); }
 
     .chip .cdt {
-      width: 7px;
-      height: 7px;
+      width: 6px;
+      height: 6px;
       border-radius: 50%;
       background: var(--grad);
     }
 
     /* Problems */
-    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 
-    .vs-card h3 { display: flex; align-items: center; gap: 10px; font-size: 17px; margin: 0 0 18px; }
+    .vs-card h3 { display: flex; align-items: center; gap: 8px; font-size: 16px; margin: 0 0 16px; font-family: "Inter", sans-serif; }
     .vs-card h3 svg { color: var(--brand); }
 
-    .vs-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 13px; }
-    .vs-list li { display: flex; gap: 12px; align-items: flex-start; color: var(--muted); font-size: 14.5px; }
+    .vs-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+    .vs-list li { display: flex; gap: 10px; align-items: flex-start; color: var(--muted); font-size: 13.5px; }
     .vs-list .xi { flex-shrink: 0; margin-top: 2px; }
     .vs-list .xi.ok { color: var(--teal); }
     .vs-list .xi.no { color: #ff6b6b; }
 
     /* Audience */
-    .grid-audience { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+    .grid-audience { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
 
-    .aud-card { display: flex; gap: 14px; align-items: center; padding: 16px 18px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); }
-    .aud-card .av { width: 38px; height: 38px; flex-shrink: 0; border-radius: 11px; display: grid; place-items: center; color: var(--teal); background: var(--panel-2); border: 1px solid var(--line); }
-    .aud-card div strong { display: block; font-size: 15px; }
-    .aud-card div span { color: var(--dim); font-size: 12.5px; }
+    .aud-card { display: flex; gap: 12px; align-items: center; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+    .aud-card .av { width: 34px; height: 34px; flex-shrink: 0; border-radius: 10px; display: grid; place-items: center; color: var(--teal); background: var(--panel-2); border: 1px solid var(--line); }
+    .aud-card div strong { display: block; font-size: 14px; font-family: "Inter", sans-serif; }
+    .aud-card div span { color: var(--dim); font-size: 11.5px; }
 
     /* Quick start */
-    .steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; position: relative; }
+    .steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; position: relative; }
 
     .steps::before {
       content: "";
       position: absolute;
-      top: 25px;
-      left: 8%;
-      right: 8%;
+      top: 20px;
+      left: 10%;
+      right: 10%;
       height: 1px;
       background: linear-gradient(90deg, transparent, var(--line-strong), transparent);
     }
 
-    .step { position: relative; text-align: center; padding: 0 6px; }
+    .step { position: relative; text-align: center; padding: 0 4px; }
     .step .n {
-      width: 52px;
-      height: 52px;
-      margin: 0 auto 16px;
-      border-radius: 16px;
+      width: 44px;
+      height: 44px;
+      margin: 0 auto 12px;
+      border-radius: 10px;
       display: grid;
       place-items: center;
       font-weight: 800;
-      font-size: 18px;
+      font-size: 16px;
       color: #fff;
-      background: var(--panel-2);
+      background: var(--grad);
       border: 1px solid var(--line-strong);
       position: relative;
       z-index: 1;
     }
-    .step:nth-child(1) .n { background: linear-gradient(135deg, #1e5eff, #4d7cff); }
-    .step:nth-child(2) .n { background: linear-gradient(135deg, #1e5eff, #00a58f); }
-    .step:nth-child(3) .n { background: linear-gradient(135deg, #00a58f, #00c2a8); }
-    .step:nth-child(4) .n { background: linear-gradient(135deg, #00c2a8, #00a58f); }
-
-    .step h3 { margin: 0 0 6px; font-size: 15.5px; }
-    .step p { margin: 0; color: var(--muted); font-size: 13.5px; }
+    .step h3 { margin: 0 0 4px; font-size: 14px; font-family: "Inter", sans-serif; }
+    .step p { margin: 0; color: var(--muted); font-size: 12.5px; }
 
     /* Try it */
-    .try-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; align-items: stretch; }
+    .try-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: stretch; }
 
     .code-block {
       border: 1px solid var(--line-strong);
-      border-radius: 16px;
-      background: rgba(9, 15, 30, 0.9);
+      border-radius: 12px;
+      background: rgba(26, 26, 26, 0.95);
       overflow: hidden;
       box-shadow: var(--shadow-lg);
     }
 
-    .code-block .bar { display: flex; align-items: center; gap: 7px; padding: 12px 16px; border-bottom: 1px solid var(--line); background: rgba(255, 255, 255, 0.03); }
-    .code-block .bar i { margin-left: auto; color: var(--dim); font-size: 11.5px; font-family: var(--mono); font-style: normal; }
-    .code-block .bar span { width: 10px; height: 10px; border-radius: 50%; background: var(--line); }
+    .code-block .bar { display: flex; align-items: center; gap: 5px; padding: 10px 12px; border-bottom: 1px solid var(--line); background: rgba(255, 255, 255, 0.03); }
+    .code-block .bar i { margin-left: auto; color: var(--dim); font-size: 10px; font-family: var(--mono); font-style: normal; }
+    .code-block .bar span { width: 8px; height: 8px; border-radius: 50%; background: var(--line); }
     .code-block .bar span:nth-child(1) { background: #ff5f57; }
     .code-block .bar span:nth-child(2) { background: #febc2e; }
     .code-block .bar span:nth-child(3) { background: #28c840; }
 
-    .code-block pre { margin: 0; padding: 18px 20px; font-family: var(--mono); font-size: 13px; line-height: 1.9; overflow-x: auto; color: #cdd9f5; }
+    .code-block pre { margin: 0; padding: 14px 16px; font-family: var(--mono); font-size: 11.5px; line-height: 1.6; overflow-x: auto; color: #cdd9f5; }
     .code-block .c-cmt { color: #5b6a8c; }
     .code-block .c-meth { color: var(--teal); font-weight: 600; }
     .code-block .c-url { color: var(--brand); }
@@ -564,53 +543,52 @@ const html = `<!doctype html>
 
     /* CTA band */
     .cta-band {
-      margin-top: 110px;
+      margin-top: 90px;
       border: 1px solid var(--line-strong);
-      border-radius: 22px;
-      padding: 48px 42px;
+      border-radius: 14px;
+      padding: 42px 32px;
       text-align: center;
       background:
-        radial-gradient(600px 260px at 50% -60%, #1e5eff33 0%, transparent 60%),
+        radial-gradient(500px 220px at 50% -50%, #F85C0033 0%, transparent 50%),
         var(--panel);
       position: relative;
       overflow: hidden;
     }
 
-    .cta-band h2 { margin: 0 0 10px; font-size: clamp(1.5rem, 3vw, 2.1rem); letter-spacing: -0.02em; }
-    .cta-band p { color: var(--muted); max-width: 560px; margin: 0 auto 26px; }
-    .cta-actions { display: flex; justify-content: center; flex-wrap: wrap; gap: 12px; }
+    .cta-band h2 { margin: 0 0 8px; font-size: clamp(1.3rem, 2.5vw, 1.8rem); letter-spacing: -0.01em; font-family: "Inter", sans-serif; }
+    .cta-band p { color: var(--muted); max-width: 520px; margin: 0 auto 22px; font-size: 15px; }
+    .cta-actions { display: flex; justify-content: center; flex-wrap: wrap; gap: 10px; }
 
     /* Footer */
-    footer { margin-top: 90px; border-top: 1px solid var(--line); }
+    footer { margin-top: 80px; border-top: 1px solid var(--line); }
 
     .foot-inner {
       display: flex;
       align-items: center;
       justify-content: space-between;
       flex-wrap: wrap;
-      gap: 16px;
-      padding-top: 30px;
-      padding-bottom: 42px;
+      gap: 12px;
+      padding-top: 24px;
+      padding-bottom: 32px;
     }
 
-    .foot-brand { display: inline-flex; align-items: center; gap: 12px; }
-    .foot-brand .brand-mark { width: 34px; height: 34px; font-size: 13px; box-shadow: none; }
-    .foot-brand span strong { display: block; font-size: 14px; }
-    .foot-brand span small { color: var(--dim); font-size: 12px; }
+    .foot-brand { display: inline-flex; align-items: center; gap: 10px; }
+    .foot-brand .brand-mark { width: 32px; height: 32px; font-size: 12px; box-shadow: none; }
+    .foot-brand span strong { display: block; font-size: 13px; font-family: "Inter", sans-serif; }
+    .foot-brand span small { color: var(--dim); font-size: 10px; }
 
-    .foot-right { display: flex; align-items: center; gap: 22px; }
-    .foot-links { display: flex; gap: 18px; }
-    .foot-links a { color: var(--muted); text-decoration: none; font-size: 13.5px; transition: color 160ms ease; }
+    .foot-right { display: flex; align-items: center; gap: 18px; }
+    .foot-links { display: flex; gap: 14px; }
+    .foot-links a { color: var(--muted); font-size: 12.5px; transition: color 120ms ease; }
     .foot-links a:hover { color: var(--teal); }
-    .foot-ver { color: var(--dim); font-family: var(--mono); font-size: 12.5px; }
+    .foot-ver { color: var(--dim); font-family: var(--mono); font-size: 11px; }
 
     /* Reveal */
-    .reveal { opacity: 0; transform: translateY(26px); transition: opacity 560ms ease, transform 560ms ease; }
-
+    .reveal { opacity: 0; transform: translateY(20px); transition: opacity 400ms ease, transform 400ms ease; }
     .reveal.in { opacity: 1; transform: translateY(0); }
 
-    @media (width <= 980px) {
-      .hero-grid { grid-template-columns: 1fr; gap: 44px; }
+    @media (width <= 920px) {
+      .hero-grid { grid-template-columns: 1fr; gap: 36px; }
       .nav-links { display: none; }
       .grid-features, .grid-audience { grid-template-columns: repeat(2, 1fr); }
       .grid-2, .try-grid { grid-template-columns: 1fr; }
@@ -619,12 +597,12 @@ const html = `<!doctype html>
       .stat:nth-child(n + 3) { border-top: 1px solid var(--line); }
     }
 
-    @media (width <= 640px) {
+    @media (width <= 560px) {
       .grid-features, .grid-audience { grid-template-columns: 1fr; }
       .stats { grid-template-columns: 1fr 1fr; }
       .steps { grid-template-columns: 1fr 1fr; }
       .steps::before { display: none; }
-      .cta-band { padding: 38px 24px; }
+      .cta-band { padding: 32px 20px; }
       .nav-cta .btn-ghost { display: none; }
     }
 
@@ -640,18 +618,19 @@ const html = `<!doctype html>
     <div class="wrap nav-inner">
       <a class="brand" href="#top">
         <span class="brand-mark">OF</span>
-        <span class="brand-text"><strong>${esc(pkg.name)}</strong><small>Runtime API Platform</small></span>
+        <span class="brand-text"><strong>${esc(pkg.name)}</strong><small>Runtime API Platform · v${esc(pkg.version)}</small></span>
       </a>
       <nav class="nav-links" aria-label="Primary">
         <a href="#features">Features</a>
         <a href="#handlers">Handlers</a>
-        <a href="#problems">Why it wins</a>
+        <a href="#automation">Automation</a>
+        <a href="#mcp">MCP & AI</a>
         <a href="#quickstart">Quick Start</a>
         <a href="#try">Try it</a>
       </nav>
       <div class="nav-cta">
         <a class="btn btn-ghost" href="${esc(repoUrl)}" target="_blank" rel="noopener">${ICONS.github} GitHub</a>
-        <a class="btn btn-primary" href="${esc(repoUrl)}#readme" target="_blank" rel="noopener">Get Started ${ICONS.arrowUpRight}</a>
+        <a class="btn btn-primary" href="${esc(repoUrl)}#readme" target="_blank" rel="noopener">Guide ${ICONS.arrowUpRight}</a>
       </div>
     </div>
   </header>
@@ -660,21 +639,20 @@ const html = `<!doctype html>
     <section class="hero">
       <div class="wrap hero-grid">
         <div>
-          <span class="badge"><span class="pulse"></span> Fastify-powered API runtime · v${esc(pkg.version)}</span>
-          <h1>Ship <span class="grad-text">configurable APIs</span> with production-ready control.</h1>
+          <span class="badge"><span class="pulse"></span> v${esc(pkg.version)} · 12 handlers · MCP-native · MIT</span>
+          <h1><span class="grad-text">Configure APIs</span> with production control.</h1>
           <p class="lead">
-            ${esc(pkg.description)} Built on Node.js and Fastify, it turns configuration into live
-            HTTP and WebSocket endpoints across SQL, scripts, SOAP, MCP and MongoDB — for humans
-            and AI agents alike.
+            OpenFusionAPI turns configuration into live HTTP endpoints across SQL, NoSQL, SOAP, 
+            MCP, Hive, and more. Build for machines, deploy for humans.
           </p>
           <div class="hero-actions">
-            <a class="btn btn-primary btn-lg" href="${esc(repoUrl)}#readme" target="_blank" rel="noopener">${ICONS.book} Read the docs</a>
-            <a class="btn btn-ghost btn-lg" href="${SITE_BASE}/api/system/server/version/prd" target="_blank" rel="noopener">Live server version ${ICONS.arrowUpRight}</a>
+            <a class="btn btn-primary btn-lg" href="${esc(repoUrl)}#readme" target="_blank" rel="noopener">${ICONS.book} Read docs</a>
+            <a class="btn btn-ghost btn-lg" href="${SITE_BASE}/api/system/server/version/prd" target="_blank" rel="noopener">Live version ${ICONS.arrowUpRight}</a>
           </div>
           <ul class="hero-points">
-            <li>${ICONS.check} No boilerplate</li>
-            <li>${ICONS.check} Dev / QA / Prod</li>
-            <li>${ICONS.check} MCP &amp; AI ready</li>
+            <li>${ICONS.check} Zero boilerplate</li>
+            <li>${ICONS.check} Dev / QA / Prod tiers</li>
+            <li>${ICONS.check} MCP &amp; AI-native</li>
           </ul>
         </div>
 
@@ -682,27 +660,24 @@ const html = `<!doctype html>
           <div class="glow glow-blue"></div>
           <div class="glow glow-teal"></div>
           <div class="terminal">
-            <div class="term-bar"><span></span><span></span><span></span><i>libOpenFusionAPI</i></div>
+            <div class="term-bar"><span></span><span></span><span></span><i>OpenFusionAPI v${esc(pkg.version)}</i></div>
             <div class="term-body">
-              <p class="ln"><span class="cmt"># public endpoints you can hit right now</span></p>
-              <p class="ln"><span class="meth">GET</span> <span class="url">/api/system/server/version/prd</span></p>
-              <p class="ln resp"><span style="color:#4e5d82">←</span> <span class="code">200 OK</span></p>
-              <p class="ln"><span class="cmt">{"libOpenFusionAPI":</span> <span class="val">"${esc(pkg.version)}"</span><span class="punc">,</span></p>
-              <p class="ln jl"><span class="key">"handlers"</span><span class="punc">:</span> <span class="val">"10+ pluggable"</span><span class="punc">,</span></p>
-              <p class="ln jl"><span class="key">"environments"</span><span class="punc">:</span> <span class="val">"dev, qa, prd"</span><span class="punc">}</span></p>
-              <p class="ln"><span class="meth">GET</span> <span class="url">/api/system/api/agent_onboarding/prd</span></p>
-              <p class="ln resp"><span style="color:#4e5d82">←</span> <span class="code">agent guide served in milliseconds</span></p>
+              <p class="ln"><span class="cmt">GET /api/system/server/version/prd</span></p>
+              <p class="ln"><span class="meth">→</span> <span class="url">{"version":"${esc(pkg.version)}","ddbb":"sqlite"}</span></p>
+              <p class="ln"><span class="cmt">GET /api/demo/archiver/build</span></p>
+              <p class="ln"><span class="meth">POST</span> <span class="url">Content-Type: application/zip</span></p>
+              <p class="ln resp"><span style="color:#4e5d82">← 200 OK</span> - Download ready</p>
             </div>
           </div>
         </div>
       </div>
 
-      <div class="wrap" style="padding-top:34px">
+      <div class="wrap" style="padding-top:30px">
         <div class="stats">
-          <div class="stat"><span class="num" data-count="${versionMajor}">0</span><span class="lbl">Current version</span></div>
-          <div class="stat"><span class="num" data-count="3">0</span><span class="suffix">+</span><span class="lbl">Environment tiers</span></div>
-          <div class="stat"><span class="num" data-count="10">0</span><span class="suffix">+</span><span class="lbl">Endpoint handlers</span></div>
-          <div class="stat"><span class="lbl-special">MIT</span><span class="lbl">Open-source license</span></div>
+          <div class="stat"><span class="num" data-count="${versionMajor}">0</span><span class="lbl">v${versionMajor}.x</span></div>
+          <div class="stat"><span class="num" data-count="3">0</span><span class="lbl">Environments</span></div>
+          <div class="stat"><span class="num" data-count="12">0</span><span class="lbl">Handlers</span></div>
+          <div class="stat"><span class="lbl-special">MIT</span><span class="lbl">Open source</span></div>
         </div>
       </div>
     </section>
@@ -711,39 +686,39 @@ const html = `<!doctype html>
       <div class="wrap">
         <div class="sec-head reveal">
           <span class="sec-eyebrow">Features</span>
-          <h2>Everything a modern API layer needs</h2>
-          <p>Describe the service, pick a handler, deploy. The runtime handles the plumbing.</p>
+          <h2>Everything a runtime needs</h2>
+          <p>Declarative endpoints, built-in validation, and live observability.</p>
         </div>
         <div class="grid-features">
           <article class="card reveal">
             <span class="icon-tile">${ICONS.bolt}</span>
-            <h3>Rapid endpoint creation</h3>
-            <p>Configure endpoints instead of hand-writing boilerplate. Friction drops from days to minutes.</p>
+            <h3>Declarative endpoints</h3>
+            <p>Configure with JSON instead of writing boilerplate. Schema validation built in.</p>
           </article>
           <article class="card reveal">
             <span class="icon-tile">${ICONS.layers}</span>
-            <h3>Pluggable handlers</h3>
-            <p>SQL, MongoDB, SOAP, MCP, JS scripts, FETCH, HANA, bulk inserts, text and native functions.</p>
+            <h3>12 pluggable handlers</h3>
+            <p>SQL, MongoDB, SOAP, MCP, Hive, JS, FETCH, HANA, Bulk Insert, Text, Function, Function.</p>
           </article>
           <article class="card reveal">
             <span class="icon-tile">${ICONS.lock}</span>
-            <h3>Access control built-in</h3>
-            <p>Public, private and bearer access levels with per-endpoint policy hooks.</p>
+            <h3>Access control</h3>
+            <p>Public, private, bearer, and per-endpoint policies with rate limiting.</p>
           </article>
           <article class="card reveal">
             <span class="icon-tile">${ICONS.sparkles}</span>
-            <h3>MCP &amp; AI-agent native</h3>
-            <p>Agents create applications, variables and endpoints through MCP tooling and JSON Schema contracts.</p>
+            <h3>MCP &amp; AI-native</h3>
+            <p>Agents create, configure, and deploy services through model tools.</p>
           </article>
           <article class="card reveal">
             <span class="icon-tile">${ICONS.gauge}</span>
-            <h3>Caching &amp; observability</h3>
-            <p>Endpoint caching, tracing, request logging and lifecycle events out of the box.</p>
+            <h3>Observability</h3>
+            <p>Request tracing, async job status, and runtime metrics out of the box.</p>
           </article>
           <article class="card reveal">
             <span class="icon-tile">${ICONS.clock}</span>
-            <h3>Scheduling &amp; bots</h3>
-            <p>Recurring interval/cron tasks and messaging bots, all managed in-platform.</p>
+            <h3>Interval tasks</h3>
+            <p>Cron and interval scheduling with automatic backoff and retries.</p>
           </article>
         </div>
       </div>
@@ -753,8 +728,8 @@ const html = `<!doctype html>
       <div class="wrap">
         <div class="sec-head reveal">
           <span class="sec-eyebrow">Handlers</span>
-          <h2>One runtime, many protocols</h2>
-          <p>Handlers are pluggable and composable — combine them freely per endpoint.</p>
+          <h2>Twelve handlers, one runtime</h2>
+          <p>Choose the right tool for the data source — no glue code needed.</p>
         </div>
         <div class="handlers-panel reveal">
           <div class="handler-chips">
@@ -765,75 +740,62 @@ const html = `<!doctype html>
             <span class="chip"><span class="cdt"></span>JS&nbsp;Script</span>
             <span class="chip"><span class="cdt"></span>FETCH</span>
             <span class="chip"><span class="cdt"></span>HANA</span>
-            <span class="chip"><span class="cdt"></span>SQL_BULK_I</span>
+            <span class="chip"><span class="cdt"></span>HIVE</span>
+            <span class="chip"><span class="cdt"></span>SQL&nbsp;Bulk</span>
             <span class="chip"><span class="cdt"></span>TEXT</span>
             <span class="chip"><span class="cdt"></span>FUNCTION</span>
+            <span class="chip"><span class="cdt"></span>ASYNC</span>
           </div>
         </div>
       </div>
     </section>
 
-    <section class="section" id="problems">
+    <section class="section" id="automation">
       <div class="wrap">
         <div class="sec-head reveal">
-          <span class="sec-eyebrow">Why OpenFusionAPI</span>
-          <h2>Problems it solves</h2>
-          <p>Stop losing time to infrastructure and repeatable ceremony.</p>
+          <span class="sec-eyebrow">Automation</span>
+          <h2>Schedule, bot, and async</h2>
+          <p>Run endpoints on schedules, receive messages, or defer execution.</p>
         </div>
-        <div class="grid-2">
-          <article class="card vs-card reveal">
-            <h3><span class="icon-tile" style="width:34px;height:34px">${ICONS.code}</span> The old way</h3>
-            <ul class="vs-list">
-              <li><span class="xi no">${ICONS.check}</span>Slow, redundant, boilerplate-heavy development.</li>
-              <li><span class="xi no">${ICONS.check}</span>Complex, inconsistent environment management.</li>
-              <li><span class="xi no">${ICONS.check}</span>Security and validation overhead on every service.</li>
-              <li><span class="xi no">${ICONS.check}</span>AI code with no reliable deployment surface.</li>
-            </ul>
+        <div class="grid-features">
+          <article class="card reveal">
+            <span class="icon-tile">${ICONS.clock}</span>
+            <h3>Interval tasks</h3>
+            <p>Cron and interval scheduling with distributed locking and exclusive groups.</p>
           </article>
-          <article class="card vs-card reveal">
-            <h3><span class="icon-tile" style="width:34px;height:34px">${ICONS.sparkles}</span> With OpenFusionAPI</h3>
-            <ul class="vs-list">
-              <li><span class="xi ok">${ICONS.check}</span>Configure in minutes, zero boilerplate to maintain.</li>
-              <li><span class="xi ok">${ICONS.check}</span>Native dev, qa and production tiers.</li>
-              <li><span class="xi ok">${ICONS.check}</span>JSON Schema validation and access control built in.</li>
-              <li><span class="xi ok">${ICONS.check}</span>MCP tooling that lets agents assemble deployable services.</li>
-            </ul>
+          <article class="card reveal">
+            <span class="icon-tile">${ICONS.users}</span>
+            <h3>Messaging bots</h3>
+            <p>Telegram bots for password recovery, logging, and notifications.</p>
+          </article>
+          <article class="card reveal">
+            <span class="icon-tile">${ICONS.bolt}</span>
+            <h3>Async wrapper</h3>
+            <p>Return 202 Accepted and execute endpoints in the background with WS callbacks.</p>
           </article>
         </div>
       </div>
     </section>
 
-    <section class="section" id="audience">
+    <section class="section" id="mcp">
       <div class="wrap">
         <div class="sec-head reveal">
-          <span class="sec-eyebrow">Built for</span>
-          <h2>Who benefits</h2>
-          <p>Engineers, platforms and AI agents get the same low-friction path to production.</p>
+          <span class="sec-eyebrow">MCP</span>
+          <h2>Model Control Protocol integration</h2>
+          <p>Agents use MCP tools to create apps, endpoints, and variables.</p>
         </div>
         <div class="grid-audience">
           <div class="aud-card reveal">
-            <span class="av">${ICONS.users}</span>
-            <div><strong>Backend developers</strong><span>Ship internal and public APIs faster</span></div>
-          </div>
-          <div class="aud-card reveal">
-            <span class="av">${ICONS.layers}</span>
-            <div><strong>API architects</strong><span>Consistent contracts, schemas and governance</span></div>
-          </div>
-          <div class="aud-card reveal">
             <span class="av">${ICONS.bolt}</span>
-            <div><strong>Integration engineers</strong><span>SQL, SOAP, REST and NoSQL in one place</span></div>
+            <div><strong>AI agents</strong><span>Create and deploy services via MCP tools</span></div>
           </div>
           <div class="aud-card reveal">
-            <span class="av">${ICONS.gauge}</span>
-            <div><strong>DevOps &amp; platform teams</strong><span>Multi-environment control and observability</span></div>
-          </div>
-          <div class="aud-card reveal">
-            <span class="av">${ICONS.sparkles}</span>
-            <div><strong>AI &amp; automation teams</strong><span>MCP-native service creation and upkeep</span></div>
+            <span class="av">${ICONS.code}</span>
+            <div><strong>Developers</strong><span>Test and iterate with inline code execution</span></div>
           </div>
           <div class="aud-card reveal">
             <span class="av">${ICONS.lock}</span>
-            <div><strong>Enterprises at scale</strong><span>Reusable variables, access rules and caching</span></div>
+            <div><strong>Operators</strong><span>Manage production instances via HTTP API</span></div>
           </div>
         </div>
       </div>
@@ -844,28 +806,28 @@ const html = `<!doctype html>
         <div class="sec-head reveal">
           <span class="sec-eyebrow">Quick start</span>
           <h2>From zero to serving traffic</h2>
-          <p>No scaffolding, no framework wiring, no redeploys for a change of config.</p>
+          <p>No scaffolding, no framework wiring, no redeploy for config changes.</p>
         </div>
         <div class="steps">
           <div class="step reveal">
             <div class="n">1</div>
             <h3>Boot the server</h3>
-            <p>Configure the <code>.env</code> file and start the Fastify runtime.</p>
+            <p>Configure <code>.env</code> and run <code>npm start</code>.</p>
           </div>
           <div class="step reveal">
             <div class="n">2</div>
-            <h3>Create an application</h3>
-            <p>Scoped container for variables, keys and endpoints.</p>
+            <h3>Create an app</h3>
+            <p>Scoped container for variables, keys, and endpoints.</p>
           </div>
           <div class="step reveal">
             <div class="n">3</div>
             <h3>Configure endpoints</h3>
-            <p>Pick a handler, method, access level and JSON Schema.</p>
+            <p>Pick handler, method, access level, JSON Schema.</p>
           </div>
           <div class="step reveal">
             <div class="n">4</div>
             <h3>Deploy</h3>
-            <p>Publish and watch the endpoint serve real traffic.</p>
+            <p>Publish and watch traffic flow.</p>
           </div>
         </div>
       </div>
@@ -875,19 +837,21 @@ const html = `<!doctype html>
       <div class="wrap">
         <div class="sec-head reveal">
           <span class="sec-eyebrow">Try it</span>
-          <h2>Real endpoints, ready to curl</h2>
-          <p>These public routes exist on any running instance of the platform.</p>
+          <h2>Live endpoints you can call now</h2>
+          <p>These routes respond on any running instance with the seed data.</p>
         </div>
         <div class="try-grid">
           <div class="code-block reveal">
             <div class="bar"><span></span><span></span><span></span><i>endpoints</i></div>
             <pre>
-<span class="c-cmt"># Public system endpoints</span>
+<span class="c-cmt"># System version (public)</span>
 <span class="c-meth">GET</span> <span class="c-url">${SITE_BASE}/api/system/server/version/prd</span>
+
+<span class="c-cmt"># Agent onboarding guide (MCP skill)</span>
 <span class="c-meth">GET</span> <span class="c-url">${SITE_BASE}/api/system/api/agent_onboarding/prd</span>
 
-<span class="c-cmt"># Public demo app endpoint</span>
-<span class="c-meth">GET</span> <span class="c-url">${SITE_BASE}/api/demo/ofapi/javascript/example03/prd</span></pre>
+<span class="c-cmt"># Demo: archive generation</span>
+<span class="c-meth">POST</span> <span class="c-url">${SITE_BASE}/api/demo/archiver/build</span></pre>
           </div>
           <div class="code-block reveal">
             <div class="bar"><span></span><span></span><span></span><i>response</i></div>
@@ -897,8 +861,9 @@ const html = `<!doctype html>
   "libOpenFusionAPI": {
     "version": "${esc(pkg.version)}"
   },
+  "version": "${esc(pkg.version)}",
   "runtime": "fastify",
-  "status": "running"
+  "ddbb": "sqlite"
 }</span></pre>
           </div>
         </div>
@@ -907,8 +872,8 @@ const html = `<!doctype html>
 
     <div class="wrap">
       <section class="cta-band reveal">
-        <h2>Ready to build your next API in minutes?</h2>
-        <p>Explore the repository, read the guide, or bring your own roadmap to the issues page. OpenFusionAPI is open source under the MIT license.</p>
+        <h2>Ready to configure your first API in minutes?</h2>
+        <p>Read the guide, explore the handlers, or bring your automation roadmap to issues.</p>
         <div class="cta-actions">
           <a class="btn btn-primary btn-lg" href="${esc(repoUrl)}#readme" target="_blank" rel="noopener">${ICONS.github} Open the repository</a>
           <a class="btn btn-ghost btn-lg" href="${esc(issuesUrl)}" target="_blank" rel="noopener">Report an issue</a>
@@ -921,7 +886,7 @@ const html = `<!doctype html>
     <div class="wrap foot-inner">
       <div class="foot-brand">
         <span class="brand-mark">OF</span>
-        <span><strong>${esc(pkg.name)}</strong><small>Maintained by ${esc(pkg.author)}</small></span>
+        <span><strong>${esc(pkg.name)}</strong><small>by ${esc(pkg.author)}</small></span>
       </div>
       <div class="foot-right">
         <div class="foot-links">
@@ -957,7 +922,7 @@ const html = `<!doctype html>
           el.textContent = String(target);
           return;
         }
-        var duration = 950;
+        var duration = 800;
         var start = performance.now();
         function step(now) {
           var p = Math.min(1, (now - start) / duration);
@@ -998,10 +963,10 @@ const html = `<!doctype html>
 async function generateFavicon() {
   try {
     const { createCanvas } = await import("canvas");
-    const size = 128;
+    const size = 32;
     const canvas = createCanvas(size, size);
     const ctx = canvas.getContext("2d");
-    const radius = 30;
+    const radius = 6;
 
     ctx.beginPath();
     ctx.moveTo(radius, 0);
@@ -1010,6 +975,7 @@ async function generateFavicon() {
     ctx.arcTo(0, size, 0, 0, radius);
     ctx.arcTo(0, 0, size, 0, radius);
     ctx.closePath();
+    ctx.clip();
 
     const gradient = ctx.createLinearGradient(0, 0, size, size);
     gradient.addColorStop(0, "#FF7A00");
@@ -1018,17 +984,17 @@ async function generateFavicon() {
     ctx.fill();
 
     ctx.save();
-    ctx.shadowColor = "rgba(0,0,0,0.35)";
+    ctx.shadowColor = "rgba(0,0,0,0.4)";
     ctx.shadowBlur = 0;
     ctx.fillStyle = "#ffffff";
-    ctx.font = "800 52px sans-serif";
+    ctx.font = "700 18px sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("OF", size / 2, size / 2 + 2);
+    ctx.fillText("OF", size / 2, size / 2 + 1);
     ctx.restore();
 
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = "rgba(255,255,255,0.3)";
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "rgba(255,255,255,0.25)";
     ctx.stroke();
 
     fs.writeFileSync(FAVICON_FILE, canvas.toBuffer("image/png"));
@@ -1049,7 +1015,7 @@ if (process.argv.includes("--check")) {
     esc(pkg.name),
     esc(pkg.version),
     `${SITE_BASE}/api/system/server/version/prd`,
-    `${SITE_BASE}/api/system/api/agent_onboarding/prd`,
+    `${SITE_BASE}/api/demo/archiver/build`,
     esc(repoUrl),
     esc(issuesUrl),
   ];
