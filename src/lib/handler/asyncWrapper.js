@@ -53,7 +53,7 @@ export const asyncWrapperFunction = async (context) => {
     // Validar formato UUID básico
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
     if (!uuidRegex.test(idendpoint)) {
-      return sendHandlerError(reply, 400, "El idendpoint base en 'code' debe ser un UUID válido");
+      return sendHandlerError(reply, 400, "The base idendpoint in 'code' must be a valid UUID");
     }
 
     // 1a. Traer el endpoint base (referencia, no copia)
@@ -62,7 +62,7 @@ export const asyncWrapperFunction = async (context) => {
       return sendHandlerError(reply, 404, `Endpoint base no encontrado o deshabilitado: ${idendpoint}`);
     }
     if (endpointBase.handler === "ASYNC_WRAPPER" || endpointBase.handler === "MCP" || endpointBase.handler === "TELEGRAM_BOT") {
-      return sendHandlerError(reply, 400, "El endpoint base seleccionado no es válido para ser envuelto de forma asíncrona");
+      return sendHandlerError(reply, 400, "The selected base endpoint cannot be wrapped asynchronously");
     }
 
     const environment = data_request.environment || endpointBase.environment;
@@ -119,7 +119,7 @@ export const asyncWrapperFunction = async (context) => {
       return reply.code(202).send({
         requestId: existingJob.id,
         status: existingJob.status,
-        message: "Ya existe un job activo para estos parámetros",
+        message: "An active job already exists for these parameters",
         token: existingJob.job_token,
         pollUrl: `/api/system/async/status/${existingJob.id}?token=${existingJob.job_token}`,
         resultUrl: `/api/system/async/result/${existingJob.id}?token=${existingJob.job_token}`,

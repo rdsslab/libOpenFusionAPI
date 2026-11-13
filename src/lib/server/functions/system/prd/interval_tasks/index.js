@@ -326,7 +326,7 @@ export async function fnStopIntervalTaskRun(params) {
     // llamada entera, así que un id no-UUID se responde igual que uno inexistente.
     if (!esUUIDTask(idtask)) {
       r.data = {
-        error: `No existe la tarea ${idtask}`,
+        error: `Interval task ${idtask} not found`,
         code: "INTERVAL_TASK_NOT_FOUND",
       };
       r.code = 404;
@@ -336,7 +336,7 @@ export async function fnStopIntervalTaskRun(params) {
     const task = await getIntervalTaskById(idtask);
     if (!task) {
       r.data = {
-        error: `No existe la tarea ${idtask}`,
+        error: `Interval task ${idtask} not found`,
         code: "INTERVAL_TASK_NOT_FOUND",
       };
       r.code = 404;
@@ -355,8 +355,8 @@ export async function fnStopIntervalTaskRun(params) {
       stopped: outcome.stopped === true,
       reason: outcome.reason || null,
       message: outcome.stopped
-        ? "La ejecución en vuelo fue detenida."
-        : "La tarea no tiene una ejecución en vuelo que detener.",
+        ? "The in-flight execution was stopped."
+        : "The task has no in-flight execution to stop.",
     };
     r.code = 200;
   } catch (error) {

@@ -727,8 +727,8 @@ export const Endpoint = dbsequelize.define(
     /**
      * Si es true, el endpoint se protege con un lock exclusivo para TODA llamada:
      * IntervalTask programada, runNowIntervalTask, GUI Tester, MCP execute_endpoint_test
-     * y cliente HTTP directo. Si otra corrida del mismo endpoint (o de una tarea del
-     * mismo exclusive_group) está en curso, se rechaza con 409 ENDPOINT_LOCKED.
+     * y cliente HTTP directo. Si otra corrida del mismo endpoint está en curso, se
+     * rechaza con 409 ENDPOINT_LOCKED.
      * Cubre el Hallazgo 4: "no hay forma de proteger contra una llamada manual
      * mientras corre la tarea".
      */

@@ -16,20 +16,25 @@ export const jsFunction = async (context) => {
   try {
 
     // --------------------------------------------------
-    // 1) Obtener contexto de ejecución
+    // 1) Get the execution context
     // --------------------------------------------------
     let fnVars = functionsVars(request, reply, method.environment);
 
     // --------------------------------------------------
-    // 2) Extraer token de aborto y crear signal unificado
+    // 2) Abort token + unified abort signal
     // --------------------------------------------------
     const abortToken = request.headers?.['x-ofapi-abort-token'] || null;
-    
-    // Crear AbortController para esta ejecución.
-    const abortController = new AbortController();
-    const abortSignal = abortController.abortSignal;
 
-    // Si el cliente cierra la conexión, abortar la ejecución
+    // One AbortController per execution. Sources that can abort it:
+    //   - VM timeout (inside the sandbox, createFunctionVM)
+    //   - IntervalTask exec_time_limit (the worker sends the token via header)
+    //   - Operator stop (the token is flagged in the shared cache)
+    //   - The HTTP client disconnects (request.raw 'close')
+    const abortController = new AbortController();
+    const abortSignal = abortController.signal;
+
+    // If the client closes the connection, abort the execution.
+    // request.raw is the Node http.IncomingMessage.
     if (request.raw && typeof request.raw.on === 'function') {
       request.raw.on('close', () => {
         if (!abortSignal.aborted) {
@@ -39,30 +44,37 @@ export const jsFunction = async (context) => {
       });
     }
 
-    // Exponer en fnVars para que handlers lo reciban
+    // Expose both to the endpoint code through fnVars.
     fnVars.abortSignal = abortSignal;
     fnVars.abortToken = abortToken;
 
     // --------------------------------------------------
-    // H4: Lock exclusivo por endpoint para llamadas directas
+    // 3) Validate the compiled VM before taking any lock
     // --------------------------------------------------
-    // Si el endpoint tiene `exclusive: true`, cualquier llamada (GUI Tester, MCP,
-    // cliente HTTP directo) debe adquirir el lock antes de ejecutarse. Las
-    // IntervalTasks programadas ya están protegidas por `locked_until` en el worker.
+    if (!method.jsFn) {
+      throw new Error("Function 'jsFn' is not compiled in cache.");
+    }
+
+    // --------------------------------------------------
+    // 4) H4: exclusive lock per endpoint
+    // --------------------------------------------------
+    // If the endpoint has `exclusive: true`, any call (GUI Tester, MCP, direct
+    // HTTP client, or a scheduled IntervalTask hitting this endpoint) must hold
+    // the lock while it runs. The lease is the endpoint timeout plus a grace
+    // window, so a crashed process frees it shortly after its own deadline.
     let endpointLockId = null;
     if (method.exclusive) {
-      const lockResult = await acquireEndpointLock(
-        method.idendpoint,
-        300, // TTL: 5 minutos de lease
-        "manual"
-      );
+      const ttlSeconds = Number(method.timeout || 30) + 30;
+      const lockResult = await acquireEndpointLock(method.idendpoint, ttlSeconds, "manual");
       if (!lockResult.success) {
         return sendHandlerResponse(reply, {
           statusCode: 409,
           data: {
             success: false,
             reason: lockResult.reason || "ENDPOINT_LOCKED",
-            message: lockResult.message || `Endpoint ${method.idendpoint} has an exclusive lock in use (another execution is running).`,
+            message:
+              lockResult.message ||
+              `Endpoint ${method.idendpoint} is locked by another execution in progress.`,
           },
         });
       }
@@ -70,29 +82,22 @@ export const jsFunction = async (context) => {
     }
 
     // --------------------------------------------------
-    // 3) Validar VM compilada del endpoint
-    // --------------------------------------------------
-    if (!method.jsFn) {
-      throw new Error("Function 'jsFn' is not compiled in cache.");
-    }
-
-    // --------------------------------------------------
-    // 4) Ejecutar código dentro de la VM con abortSignal
+    // 5) Run the endpoint code with the abort signal
     // --------------------------------------------------
     let fnresult;
     try {
       fnresult = await method.jsFn(fnVars, abortSignal);
     } finally {
-      // Liberar el lock de endpoint si se adquirió
+      // Always release the lease, on success and on failure.
       if (endpointLockId) {
-        await releaseEndpointLock(method.idendpoint).catch((err) => {
+        await releaseEndpointLock(method.idendpoint, endpointLockId).catch((err) => {
           console.error("[jsFunction] Error releasing endpoint lock:", err);
         });
       }
     }
 
-    // El endpoint puede pedir otro código de éxito con `$_RETURN_STATUS_` (201 al
-    // crear, 202 al encolar, 204 al borrar, 302 al redirigir).
+    // The endpoint may ask for another success code with `$_RETURN_STATUS_`
+    // (201 on create, 202 on enqueue, 204 on delete, 302 on redirect).
     const { statusCode, sendsBody } = resolveSuccessStatus(fnresult.statusCode, {
       endpoint: method.resource || method.idendpoint,
     });

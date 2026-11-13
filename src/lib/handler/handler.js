@@ -162,7 +162,7 @@ export async function runHandler(request, response, endpoint, server_data) {
     if (!handler || !handler.fn) {
       response
         .code(404)
-        .send({ error: `Handler '${endpoint.handler}' no es válido` });
+        .send({ error: `Handler '${endpoint.handler}' is not valid` });
       return;
     }
 

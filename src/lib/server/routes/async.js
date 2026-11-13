@@ -39,7 +39,7 @@ export async function asyncResultRoute(fastify, opts) {
         return reply.code(410).send({ status: "EXPIRED" });
       }
       if (job.status === "PENDING" || job.status === "RUNNING") {
-        return reply.code(202).send({ status: job.status, message: "Aún en proceso" });
+        return reply.code(202).send({ status: job.status, message: "Still in progress" });
       }
       if (job.status === "FAILED") {
         return reply.code(200).send({ status: "FAILED", error_message: job.error_message });

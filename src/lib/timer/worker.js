@@ -1,7 +1,6 @@
 import { parentPort } from "worker_threads";
 import { createLogEntriesBulk } from "../db/log.js";
 import dbsequelize from "../db/sequelize.js";
-import { ModelNames } from "../db/models.js";
 import { LogBuffer } from "./logBuffer.js";
 import {
   getIntervalTaskProcess,
@@ -9,6 +8,7 @@ import {
   updateIntervalTaskStatus,
   reapStaleRunningTasks,
   rescheduleIntervalTask,
+  findExclusiveGroupConflict,
   LOTE_TAREAS_POR_DEFECTO,
 } from "../db/interval_task.js";
 import {
@@ -561,32 +561,14 @@ async function canRun(task, now) {
   // locked_until en el futuro). Esto evita que T1 y T2 (idtask distintos) se pisén
   // entre sí aunque `allow_concurrent` sea por tarea.
   if (task.exclusive_group && !allowConcurrent) {
-    const [conflicting] = await dbsequelize.query(
-      `SELECT idtask, exclusive_policy FROM ${ModelNames.IntervalTask}
-       WHERE exclusive_group = ?
-         AND idtask != ?
-         AND status = ?
-         AND (locked_until IS NOT NULL AND locked_until > ?)
-       LIMIT 1`,
-      {
-        replacements: [
-          task.exclusive_group,
-          task.idtask,
-          TASK_STATUS.RUNNING,
-          now,
-        ],
-        type: dbsequelize.QueryTypes.SELECT,
-      }
-    );
+    const conflicting = await findExclusiveGroupConflict(task);
 
     if (conflicting) {
-      const policy = conflicting.exclusive_policy || "skip";
+      // The policy belongs to the task being scheduled, not to the one holding the group.
+      const policy = task.exclusive_policy || "skip";
       if (policy === "wait") {
-        // Reprogramar a ahora + 30 s para reintentar después
-        await rescheduleIntervalTask({
-          ...task,
-          next_run: new Date(now.getTime() + 30 * 1000),
-        });
+        // Retry in 30 s instead of waiting for the next natural occurrence.
+        await rescheduleIntervalTask(task, new Date(now.getTime() + 30 * 1000));
         return {
           run: false,
           reason: `exclusive_group_wait (group ${task.exclusive_group} busy with task ${conflicting.idtask})`,

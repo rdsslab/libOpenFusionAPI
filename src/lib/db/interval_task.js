@@ -1,6 +1,5 @@
 import { Op } from "sequelize";
 import { IntervalTask, Application, Endpoint } from "./models.js";
-import { ModelNames } from "./models.js";
 import {
   TASK_STATUS,
   computeNextRun,
@@ -651,7 +650,7 @@ export const updateIntervalTaskRun = async (idtask, status) => {
 
     return {
       success: true,
-      message: "La tarea fue actualizada correctamente.",
+      message: "The task was updated successfully.",
     };
   } catch (error) {
     return { success: false, message: error.message };
@@ -826,7 +825,7 @@ export const updateIntervalTaskStatus = async (
     const now = new Date();
     const exito = (runtime) => ({
       success: true,
-      message: "La tarea fue actualizada correctamente.",
+      message: "The task was updated successfully.",
       runtime,
     });
 
@@ -836,44 +835,34 @@ export const updateIntervalTaskStatus = async (
     // y que la tarea no está ya RUNNING ni suspendida por sistema.
     // Si affectedRows === 0, otro worker/runNow ya tomó el lock.
     if (new_status === TASK_STATUS.RUNNING) {
+      // The RUNNING transition needs the row to compute the lease, the next run and
+      // the exclusive group. The worker already has it, but callers that do not
+      // (runNow, tests, admin tools) must get the same guarantees.
+      const conocida =
+        tareaConocida || (await IntervalTask.findOne({ where: { idtask } }));
+
+      if (!conocida) {
+        return { success: false, message: `Task ${idtask} not found`, code: "TASK_NOT_FOUND" };
+      }
+
       const lockGraceSeconds = 30;
-      const lockUntil = new Date(now.getTime() + (Number((tareaConocida?.exec_time_limit) || 30) + lockGraceSeconds) * 1000);
+      const lockUntil = new Date(now.getTime() + (Number(conocida.exec_time_limit || 30) + lockGraceSeconds) * 1000);
 
       // H4: Verificar exclusión mutua por grupo antes de tomar el lock.
       // Si la tarea tiene `exclusive_group` y no permite concurrencia, ninguna otra
       // tarea del mismo grupo puede tener un lock vigente.
-      if (tareaConocida?.exclusive_group && !tareaConocida.allow_concurrent) {
-        const [conflicting] = await IntervalTask.sequelize.query(
-          `SELECT idtask FROM ${ModelNames.IntervalTask}
-           WHERE exclusive_group = ?
-             AND idtask != ?
-             AND status = ?
-             AND (locked_until IS NOT NULL AND locked_until > ?)
-           LIMIT 1`,
-          {
-            replacements: [
-              tareaConocida.exclusive_group,
-              idtask,
-              TASK_STATUS.RUNNING,
-              now,
-            ],
-            type: IntervalTask.sequelize.QueryTypes.SELECT,
-          }
-        );
-
-        if (conflicting && conflicting.length > 0) {
-          const conflictId = Array.isArray(conflicting) ? conflicting[0].idtask : conflicting.idtask;
-          return {
-            success: false,
-            message: `Task belongs to exclusive group "${tareaConocida.exclusive_group}" which is occupied by another task (${conflictId}).`,
-            code: "TASK_GROUP_LOCKED",
-          };
-        }
+      const conflicting = await findExclusiveGroupConflict(conocida);
+      if (conflicting) {
+        return {
+          success: false,
+          message: `Task belongs to exclusive group "${conocida.exclusive_group}" which is occupied by another task (${conflicting.idtask}).`,
+          code: "TASK_GROUP_LOCKED",
+        };
       }
 
       const lockUpdate = {
         last_run: now,
-        next_run: computeNextRun(tareaConocida, { from: now }),
+        next_run: computeNextRun(conocida, { from: now }),
         status: TASK_STATUS.RUNNING,
         locked_until: lockUntil,
       };
@@ -1014,11 +1003,15 @@ export const reapStaleRunningTasks = async (graceSeconds = 30) => {
  * esto seguiría vencida y se reevaluaría cada 10 s.
  *
  * @param {object} task fila (o proyección) de la tarea, con los campos de planificación
+ * @param {Date} [nextRun] instante explícito (p. ej. reintento de `exclusive_policy: wait`);
+ *   si se omite se calcula el siguiente hueco natural
  */
-export const rescheduleIntervalTask = async (task) => {
+export const rescheduleIntervalTask = async (task, nextRun = null) => {
   try {
+    const when =
+      nextRun instanceof Date ? nextRun : computeNextRun(task, { from: new Date() });
     await IntervalTask.update(
-      { next_run: computeNextRun(task, { from: new Date() }) },
+      { next_run: when },
       { where: { idtask: task.idtask } },
     );
     return true;
@@ -1026,6 +1019,39 @@ export const rescheduleIntervalTask = async (task) => {
     console.error("Error rescheduling interval task:", error);
     return false;
   }
+};
+
+/**
+ * Finds another task in the same exclusive group that currently holds a valid lease.
+ *
+ * The date comparison happens in JS on purpose. `sequelize.query` with
+ * `replacements` escapes a `Date` with the local offset while the model writes the
+ * value in UTC; SQLite compares dates as text, so `locked_until > ?` against a raw
+ * replacement is wrong there (a past lease can look like a future one). Reading the
+ * candidates and comparing `Date` objects is dialect-independent and keeps the cost
+ * at one indexed read per candidate group.
+ *
+ * @param {{idtask: string, exclusive_group?: string|null, allow_concurrent?: boolean}} task
+ * @returns {Promise<{idtask: string}|null>} the conflicting task, or null when the group is free
+ */
+export const findExclusiveGroupConflict = async (task) => {
+  if (!task?.exclusive_group || task.allow_concurrent) return null;
+
+  const candidates = await IntervalTask.findAll({
+    attributes: ["idtask", "locked_until"],
+    where: {
+      exclusive_group: task.exclusive_group,
+      idtask: { [Op.ne]: task.idtask },
+      status: TASK_STATUS.RUNNING,
+    },
+  });
+
+  const now = new Date();
+  const conflict = candidates.find(
+    (row) => row.locked_until && new Date(row.locked_until) > now,
+  );
+
+  return conflict ? { idtask: conflict.idtask } : null;
 };
 
 /**
@@ -1052,7 +1078,7 @@ export const runNowIntervalTask = async (idtask) => {
   try {
     const task = await IntervalTask.findOne({ where: { idtask } });
     if (!task) {
-      return { success: false, message: `No existe la tarea ${idtask}` };
+      return { success: false, message: `Task ${idtask} not found` };
     }
 
     // Verificar lock distribuido: si hay locked_until en el futuro, otra ejecución
@@ -1071,36 +1097,21 @@ export const runNowIntervalTask = async (idtask) => {
     if (task.status === TASK_STATUS.RUNNING && !task.allow_concurrent) {
       return {
         success: false,
-        message: "La tarea está en ejecución y no permite concurrencia.",
+        message: "The task is running and does not allow concurrency.",
       };
     }
 
     // H4: Verificar exclusión mutua por grupo antes de forzar la ejecución.
     // Si la tarea tiene `exclusive_group`, ninguna otra tarea del mismo grupo puede
     // tener un lock vigente.
-    if (task.exclusive_group && !task.allow_concurrent) {
-      const [conflicting] = await IntervalTask.sequelize.query(
-        `SELECT idtask FROM ${ModelNames.IntervalTask}
-         WHERE exclusive_group = ?
-           AND idtask != ?
-           AND status = ?
-           AND (locked_until IS NOT NULL AND locked_until > ?)
-         LIMIT 1`,
-        {
-          replacements: [task.exclusive_group, task.idtask, TASK_STATUS.RUNNING, now],
-          type: IntervalTask.sequelize.QueryTypes.SELECT,
-        }
-      );
-
-      if (conflicting && conflicting.length > 0) {
-        const conflictId = Array.isArray(conflicting) ? conflicting[0].idtask : conflicting.idtask;
-        return {
-          success: false,
-          message: `Task belongs to exclusive group "${task.exclusive_group}" which is occupied by another task (${conflictId}).`,
-          code: 409,
-          reason: "TASK_GROUP_LOCKED",
-        };
-      }
+    const conflicting = await findExclusiveGroupConflict(task);
+    if (conflicting) {
+      return {
+        success: false,
+        message: `Task belongs to exclusive group "${task.exclusive_group}" which is occupied by another task (${conflicting.idtask}).`,
+        code: 409,
+        reason: "TASK_GROUP_LOCKED",
+      };
     }
 
     if (!task.enabled) {
@@ -1109,8 +1120,8 @@ export const runNowIntervalTask = async (idtask) => {
         code: 409,
         reason: "TASK_DISABLED",
         message:
-          "La tarea está deshabilitada y el worker no la ejecutará. " +
-          "Habilítala con upsert_interval_task (enabled: true).",
+          "The task is disabled and the worker will not run it. " +
+          "Enable it with upsert_interval_task (enabled: true).",
       };
     }
 
@@ -1125,9 +1136,9 @@ export const runNowIntervalTask = async (idtask) => {
         code: 409,
         reason: "TASK_SUSPENDED",
         message:
-          "La tarea está suspendida tras agotar sus reintentos. " +
-          "Corrige la causa y usa reset_interval_task_attempts para reactivarla; " +
-          "forzarla no la ejecutaría.",
+          "The task is suspended after exhausting its retries. " +
+          "Fix the cause and use reset_interval_task_attempts to reactivate it; " +
+          "forcing it would not run it.",
       };
     }
 
@@ -1142,7 +1153,7 @@ export const runNowIntervalTask = async (idtask) => {
       { where: { idtask } },
     );
 
-    return { success: true, message: "La tarea se ejecutará en el próximo ciclo." };
+    return { success: true, message: "The task will run on the next cycle." };
   } catch (error) {
     return { success: false, message: error.message };
   }
@@ -1164,7 +1175,7 @@ export const resetIntervalTaskAttempts = async (idtask) => {
   try {
     const task = await IntervalTask.findOne({ where: { idtask } });
     if (!task) {
-      return { success: false, message: `No existe la tarea ${idtask}` };
+      return { success: false, message: `Task ${idtask} not found` };
     }
 
     const data_update = {
@@ -1185,7 +1196,7 @@ export const resetIntervalTaskAttempts = async (idtask) => {
 
     await IntervalTask.update(data_update, { where: { idtask } });
 
-    return { success: true, message: "Contador de fallos reiniciado." };
+    return { success: true, message: "Failure counter reset." };
   } catch (error) {
     return { success: false, message: error.message };
   }

@@ -18,6 +18,34 @@ see [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [14.1.4] - 2026-11-12
+
+### Changed
+
+- **Hallazgo 4 (optimización)**: `endpoint_lock.js` reescrito para que el lock no añada una consulta a BD por request y funcione igual en todos los motores soportados.
+  - Endpoints sin `exclusive: true` no tocan este módulo: coste cero.
+  - Endpoints exclusivos: caché en memoria (`Map`) por proceso. Lock propio o conflicto reciente se resuelven sin BD; solo se consulta al adquirir o al vencer la ventana de conflicto.
+  - La ventana de "lo tiene otro proceso" se limita a **1 s** (no al TTL completo): en cuanto el dueño libera, cualquier instancia lo ve casi de inmediato.
+  - Adquisición portable: `UPDATE ... WHERE locked_until IS NULL OR locked_until < ?` y, si aún no hay fila, `INSERT`; una violación de unicidad se interpreta como "lo tiene otro". Sin `ON CONFLICT ... RETURNING` (exclusivo de PostgreSQL).
+  - La fila no se borra al liberar: `locked_until` pasa al pasado con `locked_by = 'released'`. Estado estable = UPDATE/UPDATE, sin churn de INSERT/DELETE en una tabla caliente.
+  - Liberación comprobada por propiedad (`idlock`): un proceso cuyo lease ya venció no puede liberar el lease que otro adquirió después.
+  - `ensureEndpointLockTable` repara instalaciones de 14.1.3: deduplica filas y crea el índice único `uq_endpoint_lock_idendpoint` que hace atómica la carrera UPDATE/INSERT.
+  - TTL del lease = `timeout` del endpoint + 30 s, para que un proceso caído libere poco después de su propio plazo.
+
+### Fixed
+
+- Los chequeos de `exclusive_group` comparan fechas en JS en vez de SQL. En SQLite, `sequelize.query` con `replacements` escapa un `Date` con el desfase local mientras el modelo lo guarda en UTC, y la comparación textual daba por vigente un lease ya vencido (`TASK_GROUP_LOCKED` permanente). Afecta a `updateIntervalTaskStatus`, `runNowIntervalTask` y `canRun()` del worker; ahora los tres usan `findExclusiveGroupConflict`.
+- `updateIntervalTaskStatus` obtiene la fila cuando el llamador no la pasa, de modo que la comprobación de grupo y el cálculo de `next_run` se aplican también a `runNow`, herramientas de administración y tests (antes solo al worker).
+- `jsFunction`: `abortController.abortSignal` corregido a `.signal`; el lock se adquiere después de validar la VM (antes una VM sin compilar dejaba el lease tomado).
+- Todos los mensajes entregados al usuario están en **inglés**: `ENDPOINT_LOCKED`, `TASK_LOCKED`, `TASK_GROUP_LOCKED`, `TASK_DISABLED`, `TASK_SUSPENDED`, `TASK_NOT_FOUND`, el handler inválido, el wrapper asíncrono, el estado de jobs asíncronos y las razones de `canRun()`.
+
+### Added
+
+- `dev/test/endpoint_lock_test.js` (6 casos: caché, BD, propiedad, expiración, 10 adquisiciones concurrentes, fila conservada).
+- `dev/test/interval_task_exclusive_group_test.js` (5 casos: transición, `runNow`, expiración, `allow_concurrent`, tareas sin grupo).
+
+---
+
 ## [14.1.3] - 2026-11-12
 
 ### Added

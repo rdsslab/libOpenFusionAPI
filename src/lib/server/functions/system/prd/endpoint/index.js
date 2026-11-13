@@ -1195,7 +1195,7 @@ export async function fnEndpointTest(params) {
       if (msg.includes("not valid json") || msg.includes("unexpected token")) {
         return "invalid_json_or_appvar";
       }
-      if (msg.includes("handler") && msg.includes("no es válido")) {
+      if (msg.includes("handler") && (msg.includes("is not valid") || msg.includes("no es válido"))) {
         return "invalid_handler";
       }
       if (statusCode >= 500) {

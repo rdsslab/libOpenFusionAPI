@@ -158,7 +158,7 @@ export async function fnGetAsyncJobResult(params) {
     }
     if (job.status === "PENDING" || job.status === "RUNNING") {
       r.code = 202;
-      r.data = { status: job.status, message: "Aún en proceso" };
+      r.data = { status: job.status, message: "Still in progress" };
       return r;
     }
     if (job.status === "FAILED") {
