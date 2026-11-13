@@ -57,6 +57,7 @@ import dnsPromises from "dns/promises";
 import OpenAI from "openai";
 import * as ldaptsModule from "ldapts";
 import SftpClient from "ssh2-sftp-client";
+import * as archiver from "archiver";
 
 const { PORT, JWT_KEY } = process.env;
 
@@ -908,6 +909,101 @@ try {
 } finally {
   await sftp.end();
 }
+      `,
+    },
+    archiver: {
+      fn: request && reply ? archiver : undefined,
+      description: "Streaming interface for archive generation, exposed as the ESM namespace of the `archiver` package. Builds ZIP, TAR, TAR+GZIP and JSON archives from buffers, strings, streams or files entirely inside a JS handler, returning the result as a Buffer.",
+      web: "https://www.archiverjs.com/docs/",
+      params: [
+        {
+          name: "new archiver.ZipArchive({ comment?, store?, forceZip64?, namePrependSlash?, zlib?: { level } })",
+          description: "Creates a ZIP archive instance. `zlib.level` (0-9) sets the compression level; `store: true` disables compression entirely (STORE method).",
+          required: false,
+          type: "class",
+        },
+        {
+          name: "new archiver.TarArchive({ gzip?, gzipOptions? })",
+          description: "Creates a TAR archive instance. Set `gzip: true` (with optional `gzipOptions`) to produce a .tar.gz.",
+          required: false,
+          type: "class",
+        },
+        {
+          name: "new archiver.JsonArchive({ ... })",
+          description: "Creates an archive in `json` format, with the same append/file/directory/glob contract as the ZIP and TAR instances.",
+          required: false,
+          type: "class",
+        },
+        {
+          name: "archive.append(source, { name, date?, mode?, prefix?, type? })",
+          description: "Appends a Buffer, a string or a stream as an entry. `name` is the internal path inside the archive and is required.",
+          required: false,
+          type: "function",
+        },
+        {
+          name: "archive.file(filepath, data) / archive.directory(dirpath, destpath, data) / archive.glob(pattern, options, data) / archive.symlink(filepath, target, mode)",
+          description: "Filesystem-backed appends. Paths are resolved on the server that runs the handler; never pass untrusted request paths straight into them.",
+          required: false,
+          type: "function",
+        },
+        {
+          name: "await archive.finalize()",
+          description: "Closes the archive and resolves when every appended source has drained. Returns a Promise.",
+          required: false,
+          type: "function",
+        },
+      ],
+      return: {
+        type: "object",
+        description: "`archiver` ESM namespace exposing the archive classes.",
+        object: [
+          { name: "ZipArchive", type: "class", description: "ZIP archive instance." },
+          { name: "TarArchive", type: "class", description: "TAR archive instance; `gzip: true` produces .tar.gz." },
+          { name: "JsonArchive", type: "class", description: "Archive in JSON format." },
+          { name: "Archiver", type: "class", description: "Base class without an assigned format. Do not instantiate it directly: it cannot produce output." },
+        ],
+      },
+      notes: [
+        "archiver@8 is ESM-only and exposes classes, NOT the old `archiver('zip')` factory from earlier majors: always `new archiver.ZipArchive()` or `new archiver.TarArchive()`.",
+        "Creating an archive is streaming work: register the `data` and `error` listeners BEFORE appending, otherwise chunks are lost and failures surface as nothing.",
+        "`finalize()` returns a Promise; await it together with the completion event of the destination to be certain the archive is whole.",
+        "archiver only CREATES archives. It cannot extract one; extraction workflows belong outside the sandbox.",
+        "In-memory generation keeps the whole archive in RAM: cap the number and size of the appended sources and delegate very large artifacts to a dedicated endpoint.",
+        "Compression is CPU-bound: `zlib.level: 9` over large payloads can exhaust the endpoint timeout. Lower the level, or use `store: true`, for big inputs.",
+      ],
+      agentGuidance: [
+        "Use `archiver` when the endpoint must package several payloads into a single downloadable artifact: a ZIP of reports, a TAR.GZ of logs, and so on.",
+        "Collect the `data` events and register the `error` handler before appending anything; then await `finalize()` and the completion promise before returning.",
+        "Return the archive as a Buffer in `$_RETURN_DATA_`, with `Content-Type` and `Content-Disposition` set in `$_CUSTOM_HEADERS_` so the browser downloads it.",
+        "Never pass request-supplied file paths to `file()`, `directory()` or `glob()`: resolve them against an allowlisted base directory to avoid path traversal.",
+        "Prefer a moderate `zlib.level` (or `store: true`) for large payloads so compression does not consume the endpoint timeout.",
+        "Read the archive entry names you append from validated data, never raw from `request.body`, so caller input cannot control paths inside the archive.",
+      ],
+      example: `
+const archive = new archiver.ZipArchive({ zlib: { level: 6 } });
+
+// A ZIP is a stream: capture it in memory before returning it.
+const chunks = [];
+archive.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+
+const finished = new Promise((resolve, reject) => {
+  archive.on('end', resolve);
+  archive.on('error', reject);
+});
+
+archive.append(Buffer.from('hello world'), { name: 'hello.txt' });
+archive.append(JSON.stringify({ created: true, rows: 2 }), { name: 'data.json' });
+
+await archive.finalize();
+await finished;
+
+$_CUSTOM_HEADERS_.set('Content-Type', 'application/zip');
+$_CUSTOM_HEADERS_.set(
+  'Content-Disposition',
+  'attachment; filename="files.zip"',
+);
+
+$_RETURN_DATA_ = Buffer.concat(chunks);
       `,
     },
     xml2js: {

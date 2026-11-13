@@ -353,6 +353,7 @@ Common pre-injected modules available in many deployments include:
 - `uFetchAutoEnv` — for calling internal API endpoints
 - `request_xlsx_body_to_json` — for parsing uploaded XLSX files
 - `ldap` — for connecting to LDAP v3 / Active Directory servers (bind, search, credential validation)
+- `archiver` — for building ZIP / TAR.GZ archives in memory and returning them as a download
 
 </details>
 
@@ -473,6 +474,38 @@ try {
 ```
 
 For an authentication check, find the user DN first and then `bind()` with that DN and the password typed by the caller. Escape any user-supplied value used inside a filter with `ldap.Filter.escape(value)` or the tagged template ``ldap.escapeFilter`(uid=${value})`` (a plain call to `escapeFilter(x)` does NOT escape).
+
+**ZIP creation — build an archive in memory and return it as a download**
+
+The `archiver` variable exposes the ESM namespace of the [`archiver`](https://www.archiverjs.com/docs/) package (`ZipArchive`, `TarArchive`, `JsonArchive`). An archive is a **stream**: capture the `data` events, register the `error` handler before appending, and await `finalize()`:
+
+```javascript
+const archive = new archiver.ZipArchive({ zlib: { level: 6 } });
+
+const chunks = [];
+archive.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+
+const finished = new Promise((resolve, reject) => {
+  archive.on('end', resolve);
+  archive.on('error', reject);
+});
+
+archive.append(Buffer.from('hello world'), { name: 'hello.txt' });
+archive.append(JSON.stringify({ created: true, rows: 2 }), { name: 'data.json' });
+
+await archive.finalize();
+await finished;
+
+$_CUSTOM_HEADERS_.set('Content-Type', 'application/zip');
+$_CUSTOM_HEADERS_.set(
+  'Content-Disposition',
+  'attachment; filename="files.zip"',
+);
+
+$_RETURN_DATA_ = Buffer.concat(chunks);
+```
+
+For a `.tar.gz`, swap the instance for `new archiver.TarArchive({ gzip: true })` and set `Content-Type: application/gzip`. Keep the payload small: the whole archive lives in RAM, and compression competes for the endpoint `timeout`.
 
 **Orchestration — call multiple internal endpoints and merge results**
 

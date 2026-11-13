@@ -18,6 +18,26 @@ see [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [14.2.0] - 2026-11-12
+
+### Added
+
+- **`archiver` en el sandbox JS** (package `archiver@8.0.0`): generación de archivos ZIP / TAR / TAR.GZ / JSON dentro de un handler JS, devolviendo el binario en `$_RETURN_DATA_` con `Content-Type` y `Content-Disposition` en `$_CUSTOM_HEADERS_`.
+  - `functionVars.js`: nueva variable `archiver` con la metadata completa del patrón (params, return, notes, agentGuidance y ejemplo). Se expone como namespace ESM (`new archiver.ZipArchive()` / `new archiver.TarArchive()`): `archiver@8` ya no ofrece el factory `archiver('zip')` de versiones anteriores.
+  - Documentación generada regenerada (`npm run docs:js-api`): `src/docs/handlers/JS/libraries/archiver.md` y el índice de librerías.
+  - Guía humana nueva `src/docs/dependencies/archiver.md` y sección de ejemplo "ZIP creation" en `src/docs/handlers/JS/README.md`.
+  - Regla para agentes en `src/docs/skills/JS_CORE.md` (compartida por el handler JS, los bloques JS de MONGODB y los bots) y mención en la descripción de la tool MCP `handler_library_documentation` (seed `system.js`).
+  - App demo: endpoint `POST /api/demo/archiver/build` (`demo-archiver-01`), que acepta `format` (`zip` | `tar` | `tar.gz`) y una lista de ficheros `{ name, content }`, y ejecuta una prueba e2e en `dev/test/archiver_demo_endpoints_test.js` (28 comprobaciones: ZIP por defecto y personalizado, TAR.GZ, TAR, cabeceras de descarga, saneado de nombres de entrada y extracción real del binario a disco con `unzip`/`tar`).
+
+## [14.1.5] - 2026-11-12
+
+### Fixed
+
+- **Hallazgo 4 (exclusión mutua inerte)**: `getIntervalTask` no seleccionaba `exclusive_group` ni `exclusive_policy`, así que el worker del scheduler (`getIntervalTaskProcess` → `worker.js`) y `list_interval_tasks` recibían esas columnas como `undefined` y el chequeo de grupo no se ejecutaba nunca, pese a estar implementado.
+  - `interval_task.js`: ambas columnas añadidas al SELECT y a la proyección de `getIntervalTask`. `getIntervalTaskById` usa `findByPk`, que ya devolvía todas las columnas, así que la vía de `run_interval_task_now` nunca estuvo afectada.
+  - `system.js`: descripciones de `endpoint_upsert` / `upsert_interval_task` / `run_interval_task_now` y schemas de `exclusive`, `exclusive_group` y `exclusive_policy`.
+  - Documentación: `src/docs/endpoint/README.md` §8, `src/docs/handlers/JS/AI_SKILL.md`, `src/docs/interval_tasks/` (AI_SKILL, README, HUMAN_GUIDE, manifest.json) y README raíz.
+
 ## [14.1.4] - 2026-11-12
 
 ### Changed
@@ -3171,3 +3191,8 @@ Measured on real startup: **5 → 0** password occurrences in logs, in both form
 - Versioning: `package.json`
 - Check MCP contract after documentation changes: `npm run test:mcp-contract`
 - Validate handler documentation: `npm run docs:handlers`
+
+
+## [14.2.1] - 2026-11-13
+
+- Bumped project version to 14.2.1 and pushed changes to GitHub (including archiver support, test suite, documentation updates).
