@@ -68,6 +68,15 @@ const INTERVAL_TASK_COLUMNS = [
   // que el ADD es metadata-only en PostgreSQL/MSSQL.
   ["disabled_by", { type: DataTypes.STRING(8), allowNull: true }],
   ["disabled_reason", { type: DataTypes.TEXT, allowNull: true }],
+  // H4: grupo de exclusión mutua entre tareas y protección de endpoint exclusivo.
+  // `exclusive_group` agrupa tareas que no deben correr simultáneamente (aunque tengan
+  // `idtask` distinto). `exclusive_policy` decide skip (no lanzar) o wait (reprogramar
+  // a ahora + 30 s) cuando el grupo está ocupado.
+  ["exclusive_group", { type: DataTypes.STRING(128), allowNull: true }],
+  [
+    "exclusive_policy",
+    { type: DataTypes.STRING(10), allowNull: false, defaultValue: "skip" },
+  ],
 ];
 
 /**

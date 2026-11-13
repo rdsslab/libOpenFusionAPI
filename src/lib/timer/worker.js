@@ -1,6 +1,7 @@
 import { parentPort } from "worker_threads";
 import { createLogEntriesBulk } from "../db/log.js";
 import dbsequelize from "../db/sequelize.js";
+import { ModelNames } from "../db/models.js";
 import { LogBuffer } from "./logBuffer.js";
 import {
   getIntervalTaskProcess,
@@ -537,7 +538,7 @@ async function runFetchTask(task, runningState = {}) {
  * ¿Se puede lanzar esta tarea en este ciclo?
  * @returns {{run: boolean, reason?: string}}
  */
-function canRun(task, now) {
+async function canRun(task, now) {
   const allowConcurrent = !!task.allow_concurrent;
 
   if (running.has(String(task.idtask)) && !allowConcurrent) {
@@ -553,6 +554,50 @@ function canRun(task, now) {
   // Lock distribuido: si locked_until está en el futuro, otro worker/runNow ya tiene la tarea
   if (task.locked_until && new Date(task.locked_until) > now && !allowConcurrent) {
     return { run: false, reason: "task locked by another process (locked_until)" };
+  }
+
+  // H4: Grupo de exclusión mutua. Si la tarea tiene `exclusive_group`, verificar que
+  // ninguna otra tarea del mismo grupo tenga un lock vigente (esté RUNNING con
+  // locked_until en el futuro). Esto evita que T1 y T2 (idtask distintos) se pisén
+  // entre sí aunque `allow_concurrent` sea por tarea.
+  if (task.exclusive_group && !allowConcurrent) {
+    const [conflicting] = await dbsequelize.query(
+      `SELECT idtask, exclusive_policy FROM ${ModelNames.IntervalTask}
+       WHERE exclusive_group = ?
+         AND idtask != ?
+         AND status = ?
+         AND (locked_until IS NOT NULL AND locked_until > ?)
+       LIMIT 1`,
+      {
+        replacements: [
+          task.exclusive_group,
+          task.idtask,
+          TASK_STATUS.RUNNING,
+          now,
+        ],
+        type: dbsequelize.QueryTypes.SELECT,
+      }
+    );
+
+    if (conflicting) {
+      const policy = conflicting.exclusive_policy || "skip";
+      if (policy === "wait") {
+        // Reprogramar a ahora + 30 s para reintentar después
+        await rescheduleIntervalTask({
+          ...task,
+          next_run: new Date(now.getTime() + 30 * 1000),
+        });
+        return {
+          run: false,
+          reason: `exclusive_group_wait (grupo ${task.exclusive_group} ocupado por tarea ${conflicting.idtask})`,
+        };
+      }
+      // skip (default): pasar al siguiente ciclo natural
+      return {
+        run: false,
+        reason: `exclusive_group_skip (grupo ${task.exclusive_group} ocupado por tarea ${conflicting.idtask})`,
+      };
+    }
   }
 
   if (!isWithinWindow(task, now)) {
@@ -582,7 +627,7 @@ async function tick() {
     const now = new Date();
 
     for (const task of app_tasks) {
-      const decision = canRun(task, now);
+      const decision = await canRun(task, now);
 
       if (!decision.run) {
         // Fuera de la ventana la tarea seguiría vencida en cada ciclo: se reprograma al

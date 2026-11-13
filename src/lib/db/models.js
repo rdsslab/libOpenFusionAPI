@@ -724,6 +724,20 @@ export const Endpoint = dbsequelize.define(
       },
     },
     timeout: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 30, comment: 'Maximum time the endpoint has to complete its execution' },
+    /**
+     * Si es true, el endpoint se protege con un lock exclusivo para TODA llamada:
+     * IntervalTask programada, runNowIntervalTask, GUI Tester, MCP execute_endpoint_test
+     * y cliente HTTP directo. Si otra corrida del mismo endpoint (o de una tarea del
+     * mismo exclusive_group) está en curso, se rechaza con 409 ENDPOINT_LOCKED.
+     * Cubre el Hallazgo 4: "no hay forma de proteger contra una llamada manual
+     * mientras corre la tarea".
+     */
+    exclusive: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+      comment: "Si true, el endpoint no acepta llamadas concurrentes (lock por endpoint)",
+    },
     resource: {
       type: DataTypes.STRING(300),
       allowNull: false,
@@ -1874,6 +1888,33 @@ export const IntervalTask = dbsequelize.define(
       type: DataTypes.DATE,
       allowNull: true,
       comment: "Hasta cuándo la tarea está bloqueada por otra ejecución (lock distribuido). Null = sin lock",
+    },
+    /**
+     * Grupo de exclusión mutua. Si se define, esta tarea no se lanza mientras otra
+     * tarea del mismo grupo tenga un lock vigente (`locked_until` en el futuro).
+     * Sirve para evitar que T1 (sincronización larga) y T2 (bajas inmediatas) pisadas
+     * entre sí aunque tengan `idtask` distintos, que es el caso del Hallazgo 4 del
+     * informe del cliente.
+     *
+     * @example "sync-portal-sap"
+     */
+    exclusive_group: {
+      type: DataTypes.STRING(128),
+      allowNull: true,
+      comment:
+        "Grupo de exclusión mutua: tareas del mismo grupo no se ejecutan simultáneamente",
+    },
+    /**
+     * Política cuando el grupo está ocupado:
+     * - "skip": no lanzar, pasar al siguiente ciclo natural
+     * - "wait": reprogramar next_run a ahora + 30 s y volver a intentar
+     * Default "skip".
+     */
+    exclusive_policy: {
+      type: DataTypes.STRING(10),
+      allowNull: false,
+      defaultValue: "skip",
+      comment: "skip | wait: qué hacer cuando el grupo de exclusión está ocupado",
     },
     last_exec_time: {
       type: DataTypes.BIGINT,

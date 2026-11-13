@@ -12,6 +12,8 @@ import {
 } from "../../src/lib/db/models.js";
 import { BOT_RUNTIME_ATTRIBUTES } from "../../src/lib/db/bot.js";
 import { closeDb } from "./close_db.js";
+import { ensureEndpointColumns } from "../../src/lib/db/ensureEndpointColumns.js";
+import { ensureIntervalTaskColumns } from "../../src/lib/db/ensureIntervalTaskColumns.js";
 
 function deepClone(obj) {
   return JSON.parse(JSON.stringify(obj));
@@ -21,6 +23,10 @@ const TEST_APP_ID = "c4ca4238-a0b9-2382-0dcc-509a6f75849b";
 
 async function runTests() {
   console.log("--- Starting Backup/Restore Tests ---");
+
+  // Asegurar columnas nuevas (incluyendo exclusive en endpoints y exclusive_group en tasks)
+  await ensureIntervalTaskColumns(console.log);
+  await ensureEndpointColumns(console.log);
 
   // Setup: ensure the app has an external user (ApiClient) with an ApiKey so the
   // clients/keys section of the backup has something to exercise.

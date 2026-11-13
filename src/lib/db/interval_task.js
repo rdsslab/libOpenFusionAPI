@@ -1,5 +1,6 @@
 import { Op } from "sequelize";
 import { IntervalTask, Application, Endpoint } from "./models.js";
+import { ModelNames } from "./models.js";
 import {
   TASK_STATUS,
   computeNextRun,
@@ -838,6 +839,38 @@ export const updateIntervalTaskStatus = async (
       const lockGraceSeconds = 30;
       const lockUntil = new Date(now.getTime() + (Number((tareaConocida?.exec_time_limit) || 30) + lockGraceSeconds) * 1000);
 
+      // H4: Verificar exclusión mutua por grupo antes de tomar el lock.
+      // Si la tarea tiene `exclusive_group` y no permite concurrencia, ninguna otra
+      // tarea del mismo grupo puede tener un lock vigente.
+      if (tareaConocida?.exclusive_group && !tareaConocida.allow_concurrent) {
+        const [conflicting] = await IntervalTask.sequelize.query(
+          `SELECT idtask FROM ${ModelNames.IntervalTask}
+           WHERE exclusive_group = ?
+             AND idtask != ?
+             AND status = ?
+             AND (locked_until IS NOT NULL AND locked_until > ?)
+           LIMIT 1`,
+          {
+            replacements: [
+              tareaConocida.exclusive_group,
+              idtask,
+              TASK_STATUS.RUNNING,
+              now,
+            ],
+            type: IntervalTask.sequelize.QueryTypes.SELECT,
+          }
+        );
+
+        if (conflicting && conflicting.length > 0) {
+          const conflictId = Array.isArray(conflicting) ? conflicting[0].idtask : conflicting.idtask;
+          return {
+            success: false,
+            message: `La tarea pertenece al grupo de exclusión "${tareaConocida.exclusive_group}" que está ocupado por otra tarea (${conflictId}).`,
+            code: "TASK_GROUP_LOCKED",
+          };
+        }
+      }
+
       const lockUpdate = {
         last_run: now,
         next_run: computeNextRun(tareaConocida, { from: now }),
@@ -1040,6 +1073,34 @@ export const runNowIntervalTask = async (idtask) => {
         success: false,
         message: "La tarea está en ejecución y no permite concurrencia.",
       };
+    }
+
+    // H4: Verificar exclusión mutua por grupo antes de forzar la ejecución.
+    // Si la tarea tiene `exclusive_group`, ninguna otra tarea del mismo grupo puede
+    // tener un lock vigente.
+    if (task.exclusive_group && !task.allow_concurrent) {
+      const [conflicting] = await IntervalTask.sequelize.query(
+        `SELECT idtask FROM ${ModelNames.IntervalTask}
+         WHERE exclusive_group = ?
+           AND idtask != ?
+           AND status = ?
+           AND (locked_until IS NOT NULL AND locked_until > ?)
+         LIMIT 1`,
+        {
+          replacements: [task.exclusive_group, task.idtask, TASK_STATUS.RUNNING, now],
+          type: IntervalTask.sequelize.QueryTypes.SELECT,
+        }
+      );
+
+      if (conflicting && conflicting.length > 0) {
+        const conflictId = Array.isArray(conflicting) ? conflicting[0].idtask : conflicting.idtask;
+        return {
+          success: false,
+          message: `La tarea pertenece al grupo de exclusión "${task.exclusive_group}" que está ocupado por otra tarea (${conflictId}).`,
+          code: 409,
+          reason: "TASK_GROUP_LOCKED",
+        };
+      }
     }
 
     if (!task.enabled) {

@@ -21,6 +21,8 @@ import { defaultApiClient } from "./db/apiclient.js";
 import dbAPIs from "./db/sequelize.js";
 import { ensureBotRuntimeColumns } from "./db/ensureBotRuntimeColumns.js";
 import { ensureIntervalTaskColumns } from "./db/ensureIntervalTaskColumns.js";
+import { ensureEndpointColumns } from "./db/ensureEndpointColumns.js";
+import { ensureEndpointLockTable } from "./db/ensureEndpointLockTable.js";
 import { ensureApiClientExpTimeColumn } from "./db/ensureApiClientExpTimeColumn.js";
 import { ensureAppVarNoteColumn } from "./db/ensureAppVarNoteColumn.js";
 import {
@@ -711,6 +713,21 @@ export default class ServerAPI extends EventEmitter {
       await ensureIntervalTaskColumns(log);
     } catch (error) {
       log("Error ensuring interval task columns:", error);
+    }
+
+    // H4: columna `exclusive` en ofapi_endpoint para protección contra llamadas
+    // concurrentes (IntervalTask, runNow, GUI Tester, MCP, cliente HTTP directo).
+    try {
+      await ensureEndpointColumns(log);
+    } catch (error) {
+      log("Error ensuring endpoint columns:", error);
+    }
+
+    // H4: tabla de lock por endpoint `ofapi_endpoint_lock`.
+    try {
+      await ensureEndpointLockTable(log);
+    } catch (error) {
+      log("Error ensuring endpoint lock table:", error);
     }
 
     // La columna exp_time en ofapi_api_client permite configurar la duración del
