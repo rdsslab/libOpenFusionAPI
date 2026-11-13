@@ -18,6 +18,26 @@ see [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [14.1.3] - 2026-11-12
+
+### Added
+
+- **Hallazgo 4**: Exclusión mutua entre tareas distintas y protección de llamadas directas al endpoint.
+  - `exclusive_group` en `ofapi_intervaltask`: agrupa tareas que no deben ejecutarse simultáneamente (aunque tengan `idtask` distinto).
+  - `exclusive_policy` (`skip` | `wait`, default `skip`): qué hacer cuando el grupo está ocupado.
+  - `exclusive` en `ofapi_endpoint`: si true, el endpoint se protege con lock exclusivo para TODA llamada (IntervalTask, runNow, GUI Tester, MCP, cliente HTTP directo).
+  - Tabla `ofapi_endpoint_lock`: lease atómico por endpoint con `locked_until` (TTL).
+  - Worker `canRun()`: verifica grupo de exclusión; `skip` no lanza, `wait` reprograma a ahora + 30 s.
+  - `updateIntervalTaskStatus()` y `runNowIntervalTask()`: rechazan con `409 TASK_GROUP_LOCKED` si el grupo está ocupado.
+  - `jsFunction.js`: adquiere lock de endpoint antes de ejecutar VM si `exclusive: true`; responde `409 ENDPOINT_LOCKED` si otro proceso lo tiene.
+
+### Changed
+
+- `canRun()` ahora es `async` (consulta BD para verificar `exclusive_group`).
+- `backup_restore_test.js`: ejecuta `ensureIntervalTaskColumns` y `ensureEndpointColumns` en setup.
+
+---
+
 ## [14.1.2] - 2026-11-12
 
 ### Fixed
