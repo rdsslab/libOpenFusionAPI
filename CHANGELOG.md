@@ -18,6 +18,32 @@ see [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **Encriptación obligatoria de AppVars**: todos los valores de Application Variables se almacenan encriptados con AES-256-GCM usando la variable de entorno `APPVAR_ENCRYPTION_KEY` (obligatoria). Los backups exportan valores encriptados por defecto. El valor plano solo se expone con autorización explícita (`plaintext_authorized=true`).
+  - Nuevo modelo: campo `valueEncrypted` es el campo principal
+  - Campo `value` antiguo eliminado después de migración automática
+  - Variable `APPVAR_ENCRYPTION_KEY` obligatoria al arranque (la app no arranca sin ella)
+  - Migración automática en primer arranque
+  - Referencia: [Issue #1](https://github.com/rdsslab/libOpenFusionAPI/issues/1)
+- **JS Handler – soporte `ffmpeg`/`ffprobe`**: nuevos helpers seguros `ffmpeg.run(args, options?)` y `ffprobe.run(args, options?)` expuestos en `functionVars` (sandbox de handlers JS). Ejecutan los binarios del sistema con `child_process.spawn` (`shell:false`, whitelist `ffmpeg|ffprobe`, `args: string[]`) para evitar inyección de comandos y desbordes de buffer de `exec` ante la salida verbosa de ffmpeg; capturan `stdout/stderr` con límites configurables, timeout y sin callbacks de streaming/progreso. Si el binario no está instalado en `PATH`, `run()` rechaza con error `ENOENT` claro. Documentación autogenerada para humanos/agentes (`src/docs/handlers/JS/libraries/ffmpeg.md`, `ffprobe.md`, índice) y mención en `src/docs/handlers/JS/README.md`. Prueba E2E: `dev/test/ffmpeg_functionvars_test.js`.
+
+### Changed
+
+- **Variable de entorno obligatoria**: `APPVAR_ENCRYPTION_KEY` ahora es requerida. Genera una clave única por entorno con: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
+
+### Migration
+
+- **Para producción**: 
+  1. Generar `APPVAR_ENCRYPTION_KEY` único por entorno
+  2. Levantar la app - migración automática
+  3. Verificar que todos los AppVars estén encriptados
+  4. Actualizar procedimientos de backup/restore
+
+---
+
 ## [14.2.0] - 2026-11-12
 
 ### Added

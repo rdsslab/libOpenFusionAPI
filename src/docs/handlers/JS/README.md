@@ -58,6 +58,7 @@ In schemas and MCP tools, the `log_level` field accepts these values (0-3) and m
 -   `request_xlsx_body_to_json(request)` — Built-in async helper that parses a multipart/form-data XLSX upload into a JSON array.
 -   `askIAWithMCP(options)` — Built-in async helper for AI chats with optional MCP tool usage.
 -   `listMcpTools(options)` — Built-in async helper that lists the tools exposed by one or more MCP servers.
+-   `ffmpeg` / `ffprobe` — Safe wrappers over the system binaries (`ffmpeg.run(args, options)` / `ffprobe.run(args, options)`). They use `child_process.spawn` with `shell:false` and argument arrays (no command injection via shell), assume binaries are installed in `PATH` (if missing, `run()` rejects with an `ENOENT` error), and capture stdout/stderr with size limits (no streaming/progress callbacks). See `libraries/ffmpeg.md` and `libraries/ffprobe.md` for the full contract.
 
 `$_RETURN_STATUS_` in detail:
 -   The response body still goes in `$_RETURN_DATA_`; only the status changes.

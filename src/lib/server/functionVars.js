@@ -58,6 +58,7 @@ import OpenAI from "openai";
 import * as ldaptsModule from "ldapts";
 import SftpClient from "ssh2-sftp-client";
 import * as archiver from "archiver";
+import { spawn } from "node:child_process";
 
 const { PORT, JWT_KEY } = process.env;
 
@@ -106,6 +107,192 @@ const nodemailerSafe = {
     return wrapNodemailerTransport(nodemailer.createTransport(...args));
   },
 };
+
+const FFMPEG_BINARIES = new Set(["ffmpeg", "ffprobe"]);
+
+const appendCapped = (state, chunk) => {
+  if (!chunk) return;
+  const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+  state.totalBytes += buffer.length;
+
+  if (state.chunks.length === 0 && buffer.length <= state.maxBytes) {
+    state.chunks.push(buffer);
+    state.bytes = buffer.length;
+    return;
+  }
+
+  if (state.bytes >= state.maxBytes) {
+    state.truncated = true;
+    return;
+  }
+
+  const remaining = state.maxBytes - state.bytes;
+  if (buffer.length <= remaining) {
+    state.chunks.push(buffer);
+    state.bytes += buffer.length;
+  } else {
+    state.chunks.push(buffer.subarray(0, remaining));
+    state.bytes += remaining;
+    state.truncated = true;
+  }
+};
+
+const finalizeCaptured = (state, encoding = "utf8") => {
+  const data = Buffer.concat(state.chunks, state.bytes);
+  return {
+    data: encoding === "buffer" ? data : data.toString(encoding),
+    bytes: state.bytes,
+    totalBytes: state.totalBytes,
+    truncated: state.truncated,
+  };
+};
+
+/**
+ * Safe wrapper around ffmpeg/ffprobe using child_process.spawn (no shell).
+ * - Forces shell:false and argument-array execution to prevent command injection.
+ * - Streams stdio into capped buffers to avoid exec/maxBuffer crashes on verbose output.
+ * - Assumes ffmpeg/ffprobe are installed and available in PATH.
+ */
+const runMediaBinary = (binary, args = [], options = {}) =>
+  new Promise((resolve, reject) => {
+    try {
+      if (!FFMPEG_BINARIES.has(binary)) {
+        throw new Error(
+          `Unsupported binary "${String(binary)}". Allowed binaries: ffmpeg, ffprobe.`,
+        );
+      }
+
+      if (!Array.isArray(args) || args.some((a) => typeof a !== "string")) {
+        throw new TypeError(
+          "args must be an array of strings. Do not pass a command string.",
+        );
+      }
+
+      const {
+        cwd,
+        env,
+        timeoutMs = 120000,
+        maxStdoutBytes = 10 * 1024 * 1024,
+        maxStderrBytes = 2 * 1024 * 1024,
+        stdoutEncoding = "utf8",
+        stderrEncoding = "utf8",
+        stdin,
+        windowsHide = true,
+      } = options || {};
+
+      if (options && options.shell === true) {
+        throw new Error(
+          "shell:true is not allowed. Use args as an array to prevent command injection.",
+        );
+      }
+
+      const child = spawn(binary, args, {
+        cwd,
+        env: env ? { ...process.env, ...env } : process.env,
+        shell: false,
+        windowsHide,
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+
+      const stdoutState = { chunks: [], bytes: 0, totalBytes: 0, maxBytes: Math.max(0, Number(maxStdoutBytes) || 0), truncated: false };
+      const stderrState = { chunks: [], bytes: 0, totalBytes: 0, maxBytes: Math.max(0, Number(maxStderrBytes) || 0), truncated: false };
+
+      let settled = false;
+      let timedOut = false;
+      let timeoutId;
+
+      const cleanup = () => {
+        if (timeoutId) clearTimeout(timeoutId);
+      };
+
+      const fail = (error) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(error);
+      };
+
+      const finish = (code, signal) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        const stdout = finalizeCaptured(stdoutState, stdoutEncoding);
+        const stderr = finalizeCaptured(stderrState, stderrEncoding);
+        resolve({
+          ok: code === 0 && !timedOut,
+          code,
+          signal: signal || null,
+          timedOut,
+          stdout: stdout.data,
+          stderr: stderr.data,
+          stdoutBytes: stdout.bytes,
+          stderrBytes: stderr.bytes,
+          stdoutTotalBytes: stdout.totalBytes,
+          stderrTotalBytes: stderr.totalBytes,
+          stdoutTruncated: stdout.truncated,
+          stderrTruncated: stderr.truncated,
+        });
+      };
+
+      child.stdout.on("data", (chunk) => appendCapped(stdoutState, chunk));
+      child.stderr.on("data", (chunk) => appendCapped(stderrState, chunk));
+
+      child.on("error", (error) => {
+        if (error && error.code === "ENOENT") {
+          fail(
+            new Error(
+              `${binary} binary not found in PATH. Install ${binary} on the server and ensure it is available in PATH. Original error: ${error.message}`,
+            ),
+          );
+          return;
+        }
+        fail(error);
+      });
+
+      child.on("close", (code, signal) => {
+        finish(code, signal);
+      });
+
+      if (stdin !== undefined && stdin !== null) {
+        try {
+          child.stdin.end(stdin);
+        } catch (e) {
+          // ignore stdin write/end errors; process result/error handlers will settle
+        }
+      } else {
+        child.stdin.end();
+      }
+
+      const ms = Number(timeoutMs);
+      if (Number.isFinite(ms) && ms > 0) {
+        timeoutId = setTimeout(() => {
+          timedOut = true;
+          try {
+            child.kill("SIGKILL");
+          } catch (e) {
+            // ignore
+          }
+        }, ms);
+      }
+    } catch (error) {
+      reject(error);
+    }
+  });
+
+const createFfmpegTool = (binary) => ({
+  binary,
+  /**
+   * Run ffmpeg/ffprobe with an argument array (no shell).
+   * @param {string[]} args
+   * @param {object} [options]
+   */
+  run(args = [], options = {}) {
+    return runMediaBinary(binary, args, options);
+  },
+});
+
+const ffmpegTool = createFfmpegTool("ffmpeg");
+const ffprobeTool = createFfmpegTool("ffprobe");
 
 /**
  * @param {any} data
@@ -2966,6 +3153,243 @@ $_RETURN_DATA_ = Buffer.from(buffer);
       fn: Uint8Array,
       description: "Global Uint8Array typed array constructor.",
       web: "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Uint8Array"
+    },
+    ffmpeg: {
+      fn: request && reply ? ffmpegTool : undefined,
+      description:
+        "Safe wrapper to run the system `ffmpeg` binary from JS handlers. Executes with `child_process.spawn` (`shell:false`) and an argument array, capturing stdout/stderr with size limits (no streaming/progress callbacks).",
+      web: "https://ffmpeg.org/ffmpeg.html",
+      params: [
+        {
+          name: "run(args, options?)",
+          description:
+            "Runs `ffmpeg` with the provided argument array. `args` must be `string[]` (never a command string). Returns a Promise with execution result.",
+          required: true,
+          type: "function",
+        },
+        {
+          name: "args",
+          description:
+            "FFmpeg arguments as an array, e.g. ['-y','-i','/tmp/in.mp4','-vn','/tmp/out.mp3']. Do not include the binary name.",
+          required: true,
+          type: "string[]",
+        },
+        {
+          name: "options.timeoutMs",
+          description: "Maximum execution time in milliseconds before the process is killed.",
+          required: false,
+          type: "integer",
+          default: 120000,
+        },
+        {
+          name: "options.cwd",
+          description: "Working directory for the spawned process.",
+          required: false,
+          type: "string",
+        },
+        {
+          name: "options.env",
+          description: "Extra environment variables merged over process.env.",
+          required: false,
+          type: "object",
+        },
+        {
+          name: "options.stdin",
+          description: "Optional data written to stdin (string or Buffer).",
+          required: false,
+          type: "string|Buffer",
+        },
+        {
+          name: "options.maxStdoutBytes",
+          description: "Maximum captured stdout bytes. Extra output is truncated to protect memory.",
+          required: false,
+          type: "integer",
+          default: 10485760,
+        },
+        {
+          name: "options.maxStderrBytes",
+          description: "Maximum captured stderr bytes. Extra output is truncated to protect memory.",
+          required: false,
+          type: "integer",
+          default: 2097152,
+        },
+        {
+          name: "options.stdoutEncoding",
+          description: "Output encoding for stdout (`utf8` by default). Use `buffer` to receive a Buffer.",
+          required: false,
+          type: "string",
+          default: "utf8",
+        },
+        {
+          name: "options.stderrEncoding",
+          description: "Output encoding for stderr (`utf8` by default). Use `buffer` to receive a Buffer.",
+          required: false,
+          type: "string",
+          default: "utf8",
+        },
+      ],
+      return: {
+        type: "object",
+        description: "Execution result (Promise resolves; it does not throw for non-zero exit codes).",
+        object: [
+          { name: "ok", type: "boolean", description: "True when exit code is 0 and the process was not killed by timeout." },
+          { name: "code", type: "number|null", description: "Process exit code." },
+          { name: "signal", type: "string|null", description: "Termination signal when applicable." },
+          { name: "timedOut", type: "boolean", description: "True if the process exceeded timeoutMs and was killed." },
+          { name: "stdout", type: "string|Buffer", description: "Captured stdout (possibly truncated)." },
+          { name: "stderr", type: "string|Buffer", description: "Captured stderr/log output (possibly truncated)." },
+          { name: "stdoutBytes", type: "integer", description: "Captured stdout size in bytes." },
+          { name: "stderrBytes", type: "integer", description: "Captured stderr size in bytes." },
+          { name: "stdoutTruncated", type: "boolean", description: "True if stdout exceeded maxStdoutBytes." },
+          { name: "stderrTruncated", type: "boolean", description: "True if stderr exceeded maxStderrBytes." },
+        ],
+      },
+      notes: [
+        "Requires the `ffmpeg` binary installed on the server and available in PATH. If missing, `run()` rejects with a clear `ENOENT` error: `ffmpeg binary not found in PATH. Install ffmpeg on the server...`.",
+        "Uses `spawn` with `shell:false` (not `exec`) to avoid shell command injection and to stream verbose ffmpeg logs without `exec` maxBuffer crashes.",
+        "No streaming/progress callbacks are exposed to the handler; output is collected into capped buffers and returned when the process finishes.",
+        "Non-zero exit codes are reported in the resolved result (`ok:false`, `code`, `stderr`) so callers can inspect ffmpeg errors; spawn/start failures (e.g. ENOENT, invalid args type) reject the Promise.",
+      ],
+      agentGuidance: [
+        "Always pass arguments as a string array and never build a shell command string. Treat file paths/options derived from request input as untrusted: validate/allowlist them before use.",
+        "Check `result.ok` (or `result.code === 0`) before using outputs; include `result.stderr` in logs/errors for diagnostics.",
+        "Set an appropriate `timeoutMs` for long transcodes and ensure output paths are writable/isolated for the handler's execution context.",
+        "Use `stdoutEncoding:'buffer'` only when intentionally piping binary data to stdout; otherwise keep text encoding and file outputs.",
+      ],
+      example: `
+const input = '/tmp/input.mp4';
+const output = '/tmp/output.mp3';
+
+const result = await ffmpeg.run([
+  '-y',
+  '-i', input,
+  '-vn',
+  '-acodec', 'libmp3lame',
+  output,
+], { timeoutMs: 180000 });
+
+if (!result.ok) {
+  throw new Error(\`ffmpeg failed (code=\${result.code}, timedOut=\${result.timedOut}): \${result.stderr}\`);
+}
+
+$_RETURN_DATA_ = {
+  output,
+  code: result.code,
+  stderrBytes: result.stderrBytes,
+  stderrTruncated: result.stderrTruncated,
+};
+      `,
+    },
+    ffprobe: {
+      fn: request && reply ? ffprobeTool : undefined,
+      description:
+        "Safe wrapper to run the system `ffprobe` binary from JS handlers. Executes with `child_process.spawn` (`shell:false`) and an argument array, capturing stdout/stderr with size limits.",
+      web: "https://ffmpeg.org/ffprobe.html",
+      params: [
+        {
+          name: "run(args, options?)",
+          description:
+            "Runs `ffprobe` with the provided argument array. `args` must be `string[]` (never a command string). Returns a Promise with execution result.",
+          required: true,
+          type: "function",
+        },
+        {
+          name: "args",
+          description:
+            "FFprobe arguments as an array, e.g. ['-v','error','-show_format','-show_streams','-of','json','/tmp/in.mp4'].",
+          required: true,
+          type: "string[]",
+        },
+        {
+          name: "options.timeoutMs",
+          description: "Maximum execution time in milliseconds before the process is killed.",
+          required: false,
+          type: "integer",
+          default: 120000,
+        },
+        {
+          name: "options.cwd",
+          description: "Working directory for the spawned process.",
+          required: false,
+          type: "string",
+        },
+        {
+          name: "options.env",
+          description: "Extra environment variables merged over process.env.",
+          required: false,
+          type: "object",
+        },
+        {
+          name: "options.maxStdoutBytes",
+          description: "Maximum captured stdout bytes. Extra output is truncated to protect memory.",
+          required: false,
+          type: "integer",
+          default: 10485760,
+        },
+        {
+          name: "options.maxStderrBytes",
+          description: "Maximum captured stderr bytes. Extra output is truncated to protect memory.",
+          required: false,
+          type: "integer",
+          default: 2097152,
+        },
+        {
+          name: "options.stdoutEncoding",
+          description: "Output encoding for stdout (`utf8` by default). Use `buffer` to receive a Buffer.",
+          required: false,
+          type: "string",
+          default: "utf8",
+        },
+        {
+          name: "options.stderrEncoding",
+          description: "Output encoding for stderr (`utf8` by default). Use `buffer` to receive a Buffer.",
+          required: false,
+          type: "string",
+          default: "utf8",
+        },
+      ],
+      return: {
+        type: "object",
+        description: "Execution result (Promise resolves; it does not throw for non-zero exit codes).",
+        object: [
+          { name: "ok", type: "boolean", description: "True when exit code is 0 and the process was not killed by timeout." },
+          { name: "code", type: "number|null", description: "Process exit code." },
+          { name: "signal", type: "string|null", description: "Termination signal when applicable." },
+          { name: "timedOut", type: "boolean", description: "True if the process exceeded timeoutMs and was killed." },
+          { name: "stdout", type: "string|Buffer", description: "Captured stdout (possibly truncated)." },
+          { name: "stderr", type: "string|Buffer", description: "Captured stderr output (possibly truncated)." },
+          { name: "stdoutBytes", type: "integer", description: "Captured stdout size in bytes." },
+          { name: "stderrBytes", type: "integer", description: "Captured stderr size in bytes." },
+          { name: "stdoutTruncated", type: "boolean", description: "True if stdout exceeded maxStdoutBytes." },
+          { name: "stderrTruncated", type: "boolean", description: "True if stderr exceeded maxStderrBytes." },
+        ],
+      },
+      notes: [
+        "Requires the `ffprobe` binary installed on the server and available in PATH. If missing, `run()` rejects with a clear `ENOENT` error: `ffprobe binary not found in PATH. Install ffprobe on the server...`.",
+        "Uses `spawn` with `shell:false` and argument arrays to prevent command injection; do not pass a composed shell command.",
+        "No streaming/progress callbacks are exposed to the handler; output is collected into capped buffers and returned when the process finishes.",
+      ],
+      agentGuidance: [
+        "For metadata extraction prefer JSON output (`-of json`) and parse `result.stdout` after checking `result.ok`.",
+        "Never interpolate untrusted request values into a command string; pass them as validated array elements and restrict accessible paths when possible.",
+      ],
+      example: `
+const mediaPath = '/tmp/input.mp4';
+
+const result = await ffprobe.run([
+  '-v', 'error',
+  '-show_format',
+  '-show_streams',
+  '-of', 'json',
+  mediaPath,
+]);
+
+if (!result.ok) {
+  throw new Error(\`ffprobe failed (code=\${result.code}): \${result.stderr}\`);
+}
+
+$_RETURN_DATA_ = JSON.parse(result.stdout);
+      `,
     },
   };
 };
