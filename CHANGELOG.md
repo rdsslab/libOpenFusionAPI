@@ -44,6 +44,14 @@ see [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [14.2.3] - 2026-11-16
+
+### Fixed
+
+- **`ffmpeg.run` / `ffprobe.run`: un EPIPE en `stdin` ya no tumba el proceso.** Cuando el binario termina antes de consumir todo el `stdin` (ffprobe en cuanto lee la cabecera, ffmpeg al alcanzar `-frames:v`, o un timeout que lo mata), Node emitía `error` con `code: EPIPE` en `child.stdin` y, sin listener, era una excepción no capturada que mataba el worker del handler o del bot aunque el llamador estuviera esperando la promesa. Ahora el evento se ignora y el resultado real se reporta por `close` (`ok`, `code`, `timedOut`). Regresión cubierta en `dev/test/ffmpeg_functionvars_test.js` (caso 6).
+
+---
+
 ## [14.2.0] - 2026-11-12
 
 ### Added

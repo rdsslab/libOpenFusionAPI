@@ -253,6 +253,14 @@ const runMediaBinary = (binary, args = [], options = {}) =>
         finish(code, signal);
       });
 
+      // A large stdin buffer keeps writing after the child is gone whenever it
+      // exits early (ffprobe stops once it has the header, ffmpeg after
+      // `-frames:v`, or a timeout kill). Node then emits `error` with EPIPE on
+      // child.stdin; with no listener that is an uncaught exception that takes
+      // down the whole handler/bot worker, even though the caller awaits this
+      // promise. The exit code is reported through `close`, so ignore it here.
+      child.stdin.on("error", () => {});
+
       if (stdin !== undefined && stdin !== null) {
         try {
           child.stdin.end(stdin);
