@@ -1,6 +1,6 @@
 {
   "name": "@rdsslab/libopenfusionapi",
-  "version": "14.3.2",
+  "version": "14.3.3",
   "description": "Library based on Fastify to create APIs quickly and easily from a web interface.",
   "scripts": {
     "test": "node ./dev/test/index.js",
@@ -61,6 +61,7 @@
     "@fastify/websocket": "^11.2.0",
     "@google/genai": "^1.36.0",
     "@modelcontextprotocol/sdk": "^1.24.3",
+    "@rdsslab/agentkit": "git+https://github.com/rdsslab/libAgentKit.git",
     "@rdsslab/sequential-promises": "git+https://github.com/rdsslab/sequential-promises.git",
     "@rdsslab/uFetch": "git+https://github.com/rdsslab/uFetch.git",
     "@sap/hana-client": "^2.22.32",

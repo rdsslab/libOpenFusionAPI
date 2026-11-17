@@ -51,6 +51,28 @@ see [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [14.3.3] - 2026-11-17
+
+### Changed
+
+- **El agent kit pasa a ser un paquete independiente (`@rdsslab/agentkit`)**: el codigo de `src/lib/server/agentKit/` (2.838 lineas) y la capa de providers `src/lib/server/ia.js` (2.713 lineas) salen de este repositorio, que ahora los consume por URL git (`git+https://github.com/rdsslab/libAgentKit.git`) y los re-exporta.
+  - **La API publica de la plataforma no cambia**: `askAgent`, `webSearch`, `readDocument`, `transcribeAudio`, `synthesizeSpeech`, `extractVideoFrames`, `describeMediaSupport` y el namespace `agentKit` siguen igual, y `src/lib/server/ia.js` sigue exportando los mismos nombres (incluido `__internalIAForTests`, que usan los tests).
+  - `src/lib/server/agentKit/index.js` y `src/lib/server/ia.js` quedan como re-exports de una linea: los imports internos del repo y los de cualquier consumidor externo siguen resolviendo igual.
+  - El motivo: el harness estaba atado al ciclo de release de la plataforma (migracion de BD -> rebuild de Docker -> despliegue), que no es el ritmo que necesita una libreria que consumen bots, CLIs y agentes. Con un solo dueno, el fix se aplica una vez: el bot ya no necesita copiar los patrones de recall ni los de busqueda web, y una correccion no depende de que el servidor se actualice.
+- **Nuevo modulo `artifacts` en el paquete** con el contrato `create_file` (pdf, image, html, text, json, markdown, csv): el renderizador lo inyecta el host, de modo que la plataforma puede seguir usando su `createPDFFromHTML`/`createImageFromHTML` sin dependencias nuevas y el paquete no arrastra Chromium.
+- **Carga perezosa de las dependencias pesadas**: en el paquete, la capa de providers (SDK de OpenAI, Anthropic, Google GenAI y MCP) y `pdfjs-dist` se importan cuando se usan, no al cargar el indice. Importar el indice paso de **693 ms a 24 ms**.
+
+### Fixed
+
+- **`safeFileName` ya no acepta `..` ni `.` como nombre de archivo** (en el paquete): un host que concatenara ese nombre con un directorio escribia fuera de el.
+
+### Verified
+
+- `dev/test/agentkit_test.js`, `dev/test/bot_v225_kit_contract_test.js`, `dev/test/bot_v225_sandbox_load_test.js` y `dev/test/bot_v225_poll_logic_test.js` en verde; `npm run docs:js-api:check` sigue coincidiendo (93 archivos).
+- El paquete trae sus propias suites hermeticas (`dev/test/agentkit_test.js` y `dev/test/artifacts_test.js`), sin red, sin BD y sin credenciales.
+
+---
+
 ## [14.3.2] - 2026-11-17
 
 ### Changed
