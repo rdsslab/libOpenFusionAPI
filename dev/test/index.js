@@ -536,6 +536,26 @@ async function runAllTests() {
         command: "node",
         args: ["agentkit_test.js"],
       },
+      {
+        // Contrato entre el bot de Telegram y el agent kit: las llamadas exactas
+        // que hace el bot (STT, TTS, documentos, busqueda web, media support y
+        // askAgent) con las firmas REALES del kit. Sin esta suite, un cambio de
+        // forma en el kit (por ejemplo `transcribe()` devolviendo `{ text }` en
+        // vez de un string) solo se descubre en produccion, cuando el bot ya
+        // esta desplegado.
+        label: "bot_v225_kit_contract_test.js",
+        command: "node",
+        args: ["bot_v225_kit_contract_test.js"],
+      },
+      {
+        // Logica de encuestas del bot: parseo de `/encuesta "P" "A" "B"`, conteo
+        // de votos en vivo a partir de los `poll_answer` (un Map usuario ->
+        // indices, no indice -> votos) y resolucion del poll_id. Es logica pura,
+        // sin Telegram ni base de datos.
+        label: "bot_v225_poll_logic_test.js",
+        command: "node",
+        args: ["bot_v225_poll_logic_test.js"],
+      },
     ];
 
     // Se recorren TODAS las suites aunque alguna falle: con `break` en el primer
