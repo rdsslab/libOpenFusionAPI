@@ -25,6 +25,7 @@ export {
 	trimWebResults,
 	looksLikeMissingMedia,
 	mergeQuoted,
+	URL_RE,
 } from "./policies.js";
 
 export {

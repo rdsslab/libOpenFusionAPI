@@ -23,23 +23,14 @@ export const normalizeForMatch = (value) => String(value || "")
 	.toLowerCase()
 	.trim();
 
-const RECALL_RE = new RegExp(
-	"("
-	+ "recuerdas|te acuerdas|acuerdas de|"
-	+ "te (mande|envie|pase|dije|comente|pregunte)|"
-	+ "lo que (hablamos|dijimos|dije|te dije|comentamos)|"
-	+ "conversacion(es)? (pasad|anterior|de antes)|"
-	+ "(mensajes?|historial) (anterior(es)?|pasad|viej)|"
-	+ "(antes|anteriormente|hace (mucho|dias|semanas|meses|anos|un rato|tiempo))|"
-	+ "(esa|aquella|la misma) (foto|imagen|video|audio)|"
-	+ "hablamos de|habiamos hablado|como te dije|"
-	+ "ayer|antier|la ultima vez|otra vez te"
-	+ ")",
-	"i",
-);
+// The recall patterns cover the phrasings that were missing and made the bot
+// answer "no tengo acceso a las fotos" even though the history search could
+// find them: "las ultimas cinco fotos que se revisaron", "todos los autos",
+// "las fotos que me mandaste", ...
+const RECALL_RE = /(recuerdas|te acuerdas|acuerdas de|te (mande|envie|pase|dije|comente|pregunte|mostre|enviaste)|lo que (hablamos|dijimos|dije|te dije|comentamos|vimos)|conversacion(es)? (pasad|anterior|de antes)|(mensajes?|historial) (anterior(es)?|pasad|viej)|(antes|anteriormente|hace (mucho|dias|semanas|meses|anos|un rato|tiempo))|(esa|aquella|la misma) (foto|imagen|video|audio)|hablamos de|habiamos hablado|como te dije|ayer|antier|la ultima vez|otra vez te|(ultim[ao]s?|anteriores|pasad[ao]s?|tod[ao]s?|revisad[ao]s?|vist[ao]s?|enviad[ao]s?|mandad[ao]s?)[^.]{0,70}(fotos?|imagenes?|videos?|audios?|archivos?|documentos?|autos?|vehiculos?|carros?)|(fotos?|imagenes?|videos?|audios?|autos?|vehiculos?|carros?)[^.]{0,70}(ultim[ao]s?|anteriores|pasad[ao]s?|revisad[ao]s?|vist[ao]s?|enviad[ao]s?|mandad[ao]s?)|resumen de[^.]{0,50}(fotos?|imagenes?|videos?)|lista de (tod[ao]s? )?(los|las) (autos?|vehiculos?|carros?|fotos?|imagenes?))/i;
 
-const MEDIA_RE = /(foto|imagen|video|audio|nota de voz|voz|grabacion|captura|pantalla)/i;
-const COUNT_FOLLOWUP_RE = /(cuant[oa]s?|que (era|fue|dije|te dije|se dijo)|donde (estaba|quedo)|cual (era|fue))/i;
+const MEDIA_RE = /(fotos?|imagenes?|videos?|audios?|nota de voz|voz|grabacion|captura|pantalla|autos?|vehiculos?|carros?|placas?|modelos?|colores?)/i;
+const COUNT_FOLLOWUP_RE = /(cuant[oa]s?|que (era|fue|dije|te dije|se dijo)|donde (estaba|quedo)|cual (era|fue)|lista|detalles|resumen|todos|todas|modelos|colores|placas)/i;
 
 /**
  * True when the message asks about something said/shown earlier. Kept
@@ -100,19 +91,34 @@ export const formatHistoryRecap = (found, options = {}) => {
 	return `${title}:\n${lines.join("\n")}\n\n${instructions}`;
 };
 
-const EXPLICIT_WEB_RE = /\b(busca|buscame|buscar|investiga|averigua|consulta|consultar|googlea|search|dime|dame|muestrame)\b[^.]{0,40}\b(internet|la web|web|google|online|en linea)\b/;
-const FRESH_DATA_RE = /\b(precios?|cotizaciones?|clima|pronosticos?|temperatura|noticias?|resultados?|marcador|posiciones|estrenos?|taquilla|tipo de cambio|dolar|criptomoneda|bitcoin)\b/;
-const FRESH_WHEN_RE = /\b(hoy|ahora|actual|actualmente|esta semana|este mes|manana|ayer|2025|2026)\b/;
-const STANDALONE_WEB_RE = /\b(clima|precios?|pronosticos?|noticias?|tipo de cambio|dolar)\b/;
+// A pasted link is a web query by itself: the old patterns missed bare URLs,
+// so the bot answered "no puedo ver YouTube" to a link.
+export const URL_RE = /(https?:\/\/\S+|www\.\S+|\b[a-z0-9-]+\.(?:com|net|org|io|co|ai|dev|app|es|com\.br|com\.ar|com\.mx|co\.uk)\/\S*)/i;
+
+// Multilingual trigger words: es, en, pt, fr, de, it. The text is accent
+// normalized before matching, so "noticias", "noticias" and "meteo" all hit.
+const EXPLICIT_WEB_RE = /\b(busca|buscame|buscar|busque|investiga|investigue|investigar|averigua|averigüe|averiguar|consulta|consultar|googlea|search|look up|find out|cherche|chercher|rechercher|suche|suchen|cerca|cercare|pesquise|pesquisar|procure|procurar|dime|dame|muestrame|show me|tell me)\b[^.]{0,60}\b(internet|la web|web|google|online|en linea|en ligne|im web|na web)\b/;
+const FRESH_DATA_RE = /\b(precios?|precos?|prix|preise|cotizaciones?|clima|meteo|meteorologia|weather|pronosticos?|prevision|temperatura|temperature|noticias?|news|nouvelles|nachrichten|notizie|resultados?|marcador|score|posiciones|standings|estrenos?|taquilla|box office|tipo de cambio|exchange rate|dolar|usd|eur|cop|mxn|criptomoneda|bitcoin|crypto|bolsa|stock market)\b/;
+const FRESH_WHEN_RE = /\b(hoy|ahora|actual|actualmente|esta semana|este mes|manana|ayer|today|now|current|currently|this week|this month|tomorrow|yesterday|aujourdhui|maintenant|cette semaine|heute|jetzt|aktuell|diese woche|hoje|agora)\b/;
+const STANDALONE_WEB_RE = /\b(clima|weather|meteo|precios?|precos?|prix|preise|noticias?|news|nouvelles|nachrichten|tipo de cambio|dolar)\b/;
 
 /**
  * True when the message clearly asks for fresh web data. Small models answer
  * "no tengo acceso a internet" when handed a tool, so the harness searches first
  * and injects the results.
+ *
+ * A URL pasted by the user always counts as a web query, whatever the language.
  */
 export const looksLikeWebQuery = (text) => {
-	const normalized = normalizeForMatch(text);
-	if (!normalized || normalized.length > 300) {
+	const raw = String(text || "");
+	const normalized = normalizeForMatch(raw);
+	if (!normalized) {
+		return false;
+	}
+	if (URL_RE.test(raw)) {
+		return true;
+	}
+	if (normalized.length > 300) {
 		return false;
 	}
 
@@ -125,7 +131,7 @@ export const looksLikeWebQuery = (text) => {
 export const cleanWebQuery = (text) => {
 	const raw = String(text || "").trim();
 	const stripped = raw.replace(
-		/^\s*((tu|oye|por favor|please)\s+)?(busca|buscame|buscar|investiga|averigua|consulta|consultar|dime|dame)\b[^.]{0,40}?\b(internet|la web|web|google|online|en linea)\b[:,]?\s*/i,
+		/^\s*((tu|oye|por favor|please|bitte|s'il te plait)\s+)?(busca|buscame|buscar|investiga|averigua|consulta|consultar|dime|dame|search|look up|find out|cherche|rechercher|suche|cerca|pesquise|procure)\b[^.]{0,40}?\b(internet|la web|web|google|online|en linea|en ligne|im web|na web)\b[:,]?\s*/i,
 		"",
 	).trim();
 
