@@ -16185,7 +16185,7 @@ export const system_app = {
     {
       "ctrl": {},
       "cors": {},
-      "mcp": { "enabled": true, "name": "list_async_jobs", "title": "List Async Jobs", "description": "READ ONLY. Returns async jobs with filters: idapp, status, environment. Requires system access (access 2+).", "operation_mode": "read", "requires_explicit_confirmation": false, "side_effects": "No persistent write side effects expected.", "safe_alternative": "N/A" },
+      "mcp": { "enabled": true, "name": "list_async_jobs", "title": "List Async Jobs", "description": "READ ONLY: This tool does not modify persistent data.\nUsage: Safe for diagnostics, discovery, and analysis workflows.\nReturns async jobs with filters: idapp, status, environment. Requires system access (access 2+).", "operation_mode": "read", "requires_explicit_confirmation": false, "side_effects": "No persistent write side effects expected.", "safe_alternative": "N/A" },
       "json_schema": { "in": { "enabled": true, "schema": { "title": "ListAsyncJobsRequest", "type": "object", "additionalProperties": false, "properties": { "idapp": { "type": "string", "format": "uuid", "description": "Filter by app id (required if filtering by app)" }, "status": { "type": "string", "enum": ["PENDING","RUNNING","COMPLETED","FAILED","EXPIRED"] }, "environment": { "type": "string" } } } }, "out": { "enabled": false } },
       "custom_data": {},
       "headers_test": {},

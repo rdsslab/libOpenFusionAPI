@@ -100,6 +100,18 @@ const DOMAIN_IDENTIFIERS = new Set([
   "allow_concurrent",
   "max_failed_attempts",
   "history_limit",
+  // Columna del modelo de interval task. `upsert_interval_task` la declara como
+  // parámetro de entrada, pero `run_interval_task_now` solo recibe `idtask` y la
+  // cita al explicar el 409 `TASK_GROUP_LOCKED`: es el nombre de la columna cuyo
+  // grupo se solapa, no el de otra tool.
+  "exclusive_group",
+  // Columnas de las filas de `ofapi_log`. `get_system_logs` las cita al describir
+  // qué trae cada fila (y cuáles se omiten con `lightweight=true`); ninguna es
+  // una tool.
+  "user_agent",
+  "req_headers",
+  "res_headers",
+  "response_data",
   // Claves de `custom_data` exclusive de la familia SQL. La descripción de
   // 'endpoint_upsert' las cita al enumerar, por handler, las opciones que sólo
   // existen en SQL / SQL_BULK_I / HANA. No son tools: son claves de configuración

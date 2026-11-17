@@ -34,6 +34,13 @@ see [MIGRATION.md](./MIGRATION.md).
 
 - **Variable de entorno obligatoria**: `APPVAR_ENCRYPTION_KEY` ahora es requerida. Genera una clave única por entorno con: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
 
+### Fixed
+
+- **CI "MCP Docs Contract" en verde (llevaba rojo en todos los pushes desde v14.1.2)**: los 3 hallazgos que lo bloqueaban eran del auditor, no del contrato.
+  - `list_async_jobs`: su descripción MCP empezaba por `"READ ONLY."` en vez de `"READ ONLY:"`, el único prefijo mal formado entre las 50 tools de lectura. Ahora usa el encabezado estándar (`READ ONLY: This tool does not modify persistent data.` + `Usage:`), que es el que leen los agentes. El seed se re-aplica en cada arranque, así que la descripción corregida llega sola a los despliegues existentes.
+  - Falsos positivos de referencias cruzadas: el auditor confundía con nombres de tool unas columnas del modelo citadas en la prosa. `exclusive_group` es una columna del modelo de interval task (en `upsert_interval_task` es parámetro de entrada, por eso esa tool no se marcaba) y `user_agent`, `req_headers`, `res_headers` y `response_data` son columnas de las filas de `ofapi_log`. Se declaran en `DOMAIN_IDENTIFIERS`, que es la lista de identificadores del dominio exentos de esa regla, sin tocar la prosa que ve el agente.
+  - La landing page (`www/index.html`) se regenera con el branding de v14.3.0 (el número de versión estaba en v14.2.1 desde 14.2.2).
+
 ### Migration
 
 - **Para producción**: 
