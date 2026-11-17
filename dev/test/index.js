@@ -556,6 +556,17 @@ async function runAllTests() {
         command: "node",
         args: ["bot_v225_poll_logic_test.js"],
       },
+      {
+        // Arranca el codigo del bot en un contexto vm igual que el worker del
+        // runtime (grammy + $BOT_TOKEN + app vars) y comprueba que carga dentro
+        // del timeout de 10 s y que registra los handlers esperados: /encuesta,
+        // /resultados, /proveedores, message:document, message:poll y
+        // poll_answer. Se ejecuta con y sin agent kit, porque en un servidor
+        // viejo el bot debe seguir arrancando por el camino de fallback.
+        label: "bot_v225_sandbox_load_test.js",
+        command: "node",
+        args: ["bot_v225_sandbox_load_test.js"],
+      },
     ];
 
     // Se recorren TODAS las suites aunque alguna falle: con `break` en el primer
