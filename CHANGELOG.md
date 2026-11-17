@@ -51,6 +51,29 @@ see [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [14.3.1] - 2026-11-17
+
+### Added
+
+- **Documentacion del Agent Kit**: las 7 librerias del kit tenian metadata completa en `functionVars.js` pero **no existia ninguna pagina de documentacion**, asi que `GET /api/handler/js/libraries?handler=JS` seguia listando 84 librerias sin el kit y ningun agente podia descubrirlo. Ahora `npm run docs:js-api` genera `agentKit.md`, `askAgent.md`, `webSearch.md`, `readDocument.md`, `transcribeAudio.md`, `synthesizeSpeech.md`, `extractVideoFrames.md` y `describeMediaSupport.md`, y el indice los lista.
+- **Seccion "Agent Kit" en `src/docs/handlers/JS/AI_SKILL.md`**: tabla de los helpers con nombre, ejemplo de uso (leer un PDF en memoria y responder con el modelo) y las reglas que un agente necesita: procesamiento enteramente en memoria, providers explicitos (el kit nunca lee credenciales de la base por su cuenta), forma del resultado de `readDocument` (`ok`, `kind`, `text`, `truncated`, `pages`, `chars`) y `userMessage`/`code` en los errores (`PDF_NO_TEXT`, `FFMPEG_FAILED`).
+
+### Fixed
+
+- **El numero de version es la senal que usa npm para mover una dependencia git**. `caafe99` (el fix del CI) y `deb70c4` (el release 14.3.0) tienen la misma version, asi que `npm update` no movia el SHA fijado en el lockfile del wrapper y el despliegue se quedaba en el commit anterior. Con este parche (14.3.1) la comparacion de versiones si detecta el cambio y el lockfile se actualiza al reconstruir la imagen.
+
+### Verified
+
+- **Kit en produccion (servidor `.126`, v14.3.0)**: `agentKit` presente con 57 exports y los 7 helpers nombrados (`askAgent`, `webSearch`, `readDocument`, `transcribeAudio`, `synthesizeSpeech`, `extractVideoFrames`, `describeMediaSupport`) respondiendo de verdad.
+  - Lectura de PDF real generado en el servidor (`createPDFFromHTML` -> 17490 B) y extraido con pdfjs-dist: `kind: pdf`, 1 pagina, texto completo.
+  - Web search real: `source: duckduckgo`, 3 resultados.
+  - `askAgent` real contra Ollama: respuesta del modelo.
+  - TTS real (supertonic, 26842 B `audio/mpeg`) -> STT real (whisper): ida y vuelta con el texto exacto.
+  - Video real (MP4 de 10903 B con `moov`) -> 2 fotogramas JPEG base64.
+  - Ruta del bot probada de punta a punta con un PDF subido por el usuario al chat de Telegram: el bot extrajo el texto con el kit (`kind=document`, 1 pagina) y respondio con los tres datos correctos del documento (numero secreto 7429, ciudad Lisboa, presupuesto 1234 euros).
+
+---
+
 ## [14.3.0] - 2026-11-17
 
 ### Added

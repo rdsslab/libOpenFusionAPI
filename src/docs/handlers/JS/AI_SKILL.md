@@ -52,6 +52,61 @@ These rules apply **only** when the JavaScript runs as an HTTP endpoint. They do
 
 ---
 
+## Agent Kit
+
+The sandbox injects a provider-agnostic **agent kit** so an endpoint can answer with an LLM,
+search the web, read documents or handle audio/video without wiring providers by hand. It is
+independent of any bot, HTTP layer or database, and it is available in bot sandboxes too.
+
+**Named helpers** (prefer them for readability):
+
+| Helper | What it does |
+| --- | --- |
+| `askAgent(options)` | Runs an LLM turn with tool calls, optional pre-search and continuation. |
+| `webSearch(options)` | Web search with a provider chain (DuckDuckGo → Bing → http-json). |
+| `readDocument(input, options)` | Extracts text from an in-memory PDF, DOCX or text file. |
+| `transcribeAudio(input, options)` | Speech to text through the configured STT providers. |
+| `synthesizeSpeech(text, options)` | Text to speech through the configured TTS providers. |
+| `extractVideoFrames(input, options)` | Extracts stills from a video container as base64 JPEGs. |
+| `describeMediaSupport(options)` | Reports which media capabilities are available right now. |
+
+**`agentKit`** is the full namespace: use it for the policy helpers (`looksLikeWebQuery`,
+`cleanWebQuery`, `formatWebRecap`, `mergeQuoted`), the buffer helpers and the media-provider
+registries.
+
+```javascript
+// Read a PDF that arrived as base64 and answer with the model.
+const doc = await readDocument(
+  { data: Buffer.from($_BODY_.file_base64, 'base64'), mimeType: 'application/pdf' },
+  { maxChars: 40000 }
+);
+
+const answer = await askAgent({
+  provider: { provider: 'ollama', model: 'llama3.2:3b', baseUrl: OLLAMA_URL + '/v1', apiKey: 'ollama' },
+  system: 'Answer briefly and never invent data.',
+  messages: [{ role: 'user', content: doc.text }]
+});
+
+$_RETURN_DATA_ = { chars: doc.chars, answer: answer.text };
+```
+
+**Rules**
+
+- Nothing is written to disk: documents, audio and video are processed entirely in memory.
+- The kit is **not** a Telegram client and knows nothing about bots. Keep the bot's own logic
+  (commands, handlers, keyboards) in the bot code; keep only the reusable harness here.
+- Providers are explicit. Pass the provider config (`type`, `baseUrl`, `apiKey`, `voice`...) in
+  the options; the kit never reads credentials from the database by itself.
+- `readDocument` returns `{ ok, kind, text, truncated, pages, chars, mimeType, fileName }`.
+  Check `truncated` and tell the caller when only part of the document was read.
+- Errors thrown by the kit carry a `userMessage` suitable for showing to an end user, next to
+  the technical `message` and a `code` such as `PDF_NO_TEXT` or `FFMPEG_FAILED`.
+
+Full reference for each helper: `GET /api/handler/js/libraries?handler=JS&library=<name>`
+(or `agentKit` for the namespace).
+
+---
+
 ## Common Payload Shape for Creation/Updates
 When creating or modifying a JS endpoint using `endpoint_upsert` with `handler: "JS"`, your input payload should contain:
 - `idapp`: UUID of the application.
