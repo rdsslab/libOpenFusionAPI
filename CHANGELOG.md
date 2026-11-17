@@ -51,6 +51,32 @@ see [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [14.3.2] - 2026-11-17
+
+### Changed
+
+- **Agent Kit – `looksLikeRecall` reconoce las frases que se le escapaban**: el patron solo aceptaba "recuerdas", "te mande", "la ultima vez"... y la combinacion `MEDIA_RE` + `COUNT_FOLLOWUP_RE` exigia que el mensaje nombrara el medio **y** una palabra de conteo. Preguntas como *"Dame un resumen de las ultimas cinco fotos que se revisaron"*, *"Dame una lista de todos los autos, modelos, colores y placas"* o *"las fotos que me mandaste"* no matcheaban, asi que quien dependia de esta politica para recuperar el historial (bots) se quedaba sin los mensajes y respondia "no tengo acceso a las fotos" aunque la busqueda semantica los encontrara.
+  - `RECALL_RE` cubre ahora las familias "ultimas/ultimos/anteriores/pasadas/todas + fotos|imagenes|videos|audios|archivos|documentos|autos|vehiculos|carros", "fotos|... + enviadas|revisadas|vistas|mandadas" y "resumen/lista de todas las fotos".
+  - `MEDIA_RE` acepta el plural de cada medio (`foto(?:s)?`, `imagen(?:es)?`, `video(?:s)?`, `audio(?:s)?`, `vehiculo(?:s)?`, `carro(?:s)?`, `placa(?:s)?`, `modelo(?:s)?`, `color(?:es)?`) y `COUNT_FOLLOWUP_RE` acepta "lista", "detalles", "resumen", "todos", "modelos", "colores" y "placas".
+- **Agent Kit – `looksLikeWebQuery` y `cleanWebQuery` ahora son multilenguaje y detectan URLs**:
+  - Una **URL pegada suelta** ya cuenta como consulta web (`URL_RE`: esquema `http(s)://`, `www.` o dominio con ruta; un correo como `juan@empresa.com` no cuenta). Antes una URL no disparaba nada y el bot respondia "no puedo ver o descargar contenido de YouTube".
+  - Verbos y temas de web en **es/en/pt/fr/de/it** (`busca|investiga|search|look up|cherche|rechercher|suche|cerca|pesquise|procure`, `clima|weather|meteo|precios|precos|prix|preise|noticias|news|nouvelles|nachrichten`, `dolar|exchange rate|bitcoin|stock market`...), con las mismas reglas de "tema + momento" para lo que cambia.
+  - `cleanWebQuery` quita el prefijo de instruccion tambien en los otros idiomas ("search the web for X" -> "for X").
+- **`URL_RE` se exporta desde el kit** (`agentKit.URL_RE`) para reutilizar la deteccion de enlaces sin duplicar el patron.
+
+### Fixed
+
+- **Plurales mal formados en los patrones de recall**: la primera version de estos cambios escribia `imagenes?` (que matchea "imagene"/"imagenes" y **no** "imagen"), lo que rompio `looksLikeRecall("cuantas gallinas habia en la imagen")`. Detectado por `dev/test/agentkit_test.js`; corregido a `imagen(?:es)?` y a `foto(?:s)?`, `video(?:s)?`, `audio(?:s)?`, `auto(?:s)?`, `vehiculo(?:s)?`, `carro(?:s)?`, `archivo(?:s)?`, `documento(?:s)?`.
+
+### Verified
+
+- `dev/test/agentkit_test.js`, `dev/test/bot_v225_kit_contract_test.js`, `dev/test/bot_v225_sandbox_load_test.js` y `dev/test/bot_v225_poll_logic_test.js` en verde; `npm run docs:js-api:check` sigue coincidiendo (93 archivos).
+- Comportamiento medido contra Ollama 0.40.16 con `lfm3-omni` (1.7B, vision) en el servidor `.126`:
+  - Con la respuesta anterior del asistente en el contexto, el modelo devolvia una **copia byte-identica** de la descripcion previa (sha1 `b8386adf184f`, la misma de las filas 321/327/329/331/333 del historial del bot) tanto para una imagen roja como para una azul. Sin esa respuesta en el contexto describe la imagen correcta.
+  - El prompt de la continuacion que fallaba con `request (4144 tokens) exceeds the available context size (4096 tokens)` baja de **3180 a 1094 tokens** al reconstruir el contexto (sistema + peticion + parcial) en vez de reenviar el historial entero.
+
+---
+
 ## [14.3.1] - 2026-11-17
 
 ### Added
