@@ -130,7 +130,8 @@ The runtime resolves `$_VAR_TELEGRAM_TOKEN` against the AppVars of the bot's `en
 
 ## Notes
 
-- Only `message` and `callback_query` updates are delivered — the runtime fixes `allowed_updates`. Handlers for other update types never fire.
+- Only `message`, `callback_query`, `poll` and `poll_answer` updates are delivered — the runtime fixes `allowed_updates`. Handlers for other update types never fire.
+- `poll_answer` only arrives for polls the bot created; a bot can never read a foreign poll. `stopPoll(chatId, messageId)` closes your poll and returns the official counts.
 - `drop_pending_updates: true`: messages sent while the bot was down or restarting are discarded.
 - Keep the top level of the script limited to registering handlers; it has a 10 s evaluation budget and no top-level `await`.
 - `$_RETURN_DATA_` is not read for bots. There is no HTTP response.

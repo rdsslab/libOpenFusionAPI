@@ -19,13 +19,14 @@ The runtime starts the bot with a configuration you cannot override from bot cod
 
 ```js
 start({
-  allowed_updates: ["message", "callback_query"],
+  allowed_updates: ["message", "callback_query", "poll", "poll_answer"],
   drop_pending_updates: true,
   handleSignals: false,
 })
 ```
 
-- Only `message` and `callback_query` updates are delivered. Handlers for `inline_query`, `edited_message`, `my_chat_member`, `poll`, `channel_post` and the rest **never fire**.
+- Only `message`, `callback_query`, `poll` and `poll_answer` updates are delivered. Handlers for `inline_query`, `edited_message`, `my_chat_member`, `channel_post` and the rest **never fire**.
+- `poll_answer` is sent only for polls **the bot created**. Telegram does not expose the votes of polls sent by users or other bots; `stopPoll(chatId, messageId)` closes one of your polls and returns the official counts.
 - Updates received while the bot was stopped, restarting or in cooldown are dropped.
 
 ## Sandbox surface

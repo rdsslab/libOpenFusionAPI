@@ -24,7 +24,7 @@
   "runtime": {
     "worker": "src/lib/server/bot-manager/worker.js",
     "load_timeout_ms": 10000,
-    "allowed_updates": ["message", "callback_query"],
+    "allowed_updates": ["message", "callback_query", "poll", "poll_answer"],
     "drop_pending_updates": true,
     "handle_signals": false,
     "token_validation": "api.getMe() before start"

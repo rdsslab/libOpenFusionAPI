@@ -9,7 +9,7 @@
 //   - El worker envuelve el código: ya instancia `$BOT` (nunca `new grammy.Bot`).
 //   - Nunca llamar `$BOT.start()` / `$BOT.stop()`.
 //   - El script solo REGISTRA handlers; debe terminar en < 10 segundos (sin await top-level).
-//   - Long polling fijo: allowed_updates = ["message", "callback_query"].
+//   - Long polling fijo: allowed_updates = ["message", "callback_query", "poll", "poll_answer"].
 //   - Llamadas internas: uFetchAutoEnv.auto("/api/system<resource>/auto").
 //
 // Funciones por tipo de chat:

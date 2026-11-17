@@ -65,6 +65,31 @@ const BUILTIN_PROVIDER_PRESETS = {
 		clientType: "google-genai",
 		model: DEFAULT_GEMINI_MODEL,
 	},
+	openrouter: {
+		provider: "openrouter",
+		clientType: "openai-compatible",
+		baseUrl: "https://openrouter.ai/api/v1",
+	},
+	deepseek: {
+		provider: "deepseek",
+		clientType: "openai-compatible",
+		baseUrl: "https://api.deepseek.com/v1",
+	},
+	groq: {
+		provider: "groq",
+		clientType: "openai-compatible",
+		baseUrl: "https://api.groq.com/openai/v1",
+	},
+	mistral: {
+		provider: "mistral",
+		clientType: "openai-compatible",
+		baseUrl: "https://api.mistral.ai/v1",
+	},
+	xai: {
+		provider: "xai",
+		clientType: "openai-compatible",
+		baseUrl: "https://api.x.ai/v1",
+	},
 };
 
 export const AI_PROVIDER_PRESETS = Object.freeze({
@@ -414,7 +439,7 @@ const buildToolUsageGuidance = (toolEntries) => {
 	}
 
 	const lines = [
-		"Rules for MCP tool usage:",
+		"Rules for tool usage:",
 		"- Use tools only when they provide real data or perform an action that is necessary to answer.",
 		"- After a tool returns useful data, answer the user with that result instead of calling the same tool again.",
 		"- If you can answer correctly with general knowledge and do not need external data, answer directly without using tools.",
@@ -424,12 +449,14 @@ const buildToolUsageGuidance = (toolEntries) => {
 		"- If a tool fails validation or does not fit the context, try a more appropriate tool before responding.",
 		"- Base the decision on each tool's name, description, and input schema.",
 		"- Never respond with JSON that merely describes a tool call; either execute the tool for real or provide the final answer to the user.",
-		"Available MCP servers:",
+		"Available tool sources:",
 	];
 
 	for (const server of byServer.values()) {
 		lines.push(`- ${server.serverName}:`);
-		lines.push(`  URL: ${server.serverUrl}`);
+		if (server.serverUrl) {
+			lines.push(`  URL: ${server.serverUrl}`);
+		}
 		lines.push(`  Read-only: ${server.readOnly.join(", ") || "none"}`);
 		lines.push(`  Mutating: ${server.mutating.join(", ") || "none"}`);
 	}
@@ -464,6 +491,285 @@ const normalizePromptMessages = (prompts) => {
 const normalizeMessageContentToString = (value) => {
 	return toContentText(value).trim();
 };
+
+const DATA_URL_PATTERN = /^data:([^;,]+)?(?:;charset=[^;,]+)?(;base64)?,([\s\S]*)$/i;
+
+const isDataUrlValue = (value) => typeof value === "string" && /^data:/i.test(value.trim());
+
+const parseDataUrlValue = (value) => {
+	const match = String(value || "").trim().match(DATA_URL_PATTERN);
+	if (!match) {
+		return null;
+	}
+
+	const isBase64 = Boolean(match[2]);
+	const payload = match[3] || "";
+	let base64 = payload;
+
+	if (!isBase64) {
+		try {
+			base64 = Buffer.from(decodeURIComponent(payload), "utf8").toString("base64");
+		} catch (error) {
+			base64 = Buffer.from(payload, "utf8").toString("base64");
+		}
+	}
+
+	return {
+		mimeType: (match[1] || "application/octet-stream").trim(),
+		base64: base64.replace(/\s+/g, ""),
+	};
+};
+
+const isLikelyBase64 = (value) => typeof value === "string"
+	&& value.replace(/\s+/g, "").length >= 16
+	&& /^[A-Za-z0-9+/=]+$/.test(value.replace(/\s+/g, ""));
+
+/**
+ * Normalises one image-ish value into `{ mimeType, base64 }` or `{ mimeType, url }`.
+ * Accepts data URLs, http(s) URLs, Buffers, base64 strings and provider-native
+ * shapes (OpenAI image_url, Anthropic image+source, Gemini inlineData).
+ */
+const normalizeImageDescriptor = (value, fallbackMimeType = "image/jpeg") => {
+	if (value == null) {
+		return null;
+	}
+
+	if (typeof Buffer !== "undefined" && Buffer.isBuffer(value)) {
+		return { mimeType: fallbackMimeType, base64: value.toString("base64") };
+	}
+
+	if (value instanceof Uint8Array) {
+		return { mimeType: fallbackMimeType, base64: Buffer.from(value).toString("base64") };
+	}
+
+	if (typeof value === "string") {
+		const trimmed = value.trim();
+		if (!trimmed) {
+			return null;
+		}
+		if (isDataUrlValue(trimmed)) {
+			const parsed = parseDataUrlValue(trimmed);
+			return parsed ? { mimeType: parsed.mimeType, base64: parsed.base64 } : null;
+		}
+		if (/^https?:\/\//i.test(trimmed)) {
+			return { mimeType: fallbackMimeType, url: trimmed };
+		}
+		if (isLikelyBase64(trimmed)) {
+			return { mimeType: fallbackMimeType, base64: trimmed.replace(/\s+/g, "") };
+		}
+		return null;
+	}
+
+	if (!isPlainObject(value)) {
+		return null;
+	}
+
+	const mimeType = String(
+		value.mimeType
+		?? value.mime_type
+		?? value.mediaType
+		?? value.media_type
+		?? fallbackMimeType,
+	).trim() || fallbackMimeType;
+
+	if (isPlainObject(value.source)) {
+		if (value.source.type === "base64" && isLikelyBase64(value.source.data)) {
+			return {
+				mimeType: String(value.source.media_type ?? value.source.mimeType ?? mimeType),
+				base64: value.source.data.replace(/\s+/g, ""),
+			};
+		}
+		if (value.source.type === "url" && typeof value.source.url === "string") {
+			return normalizeImageDescriptor(value.source.url, mimeType);
+		}
+	}
+
+	if (isPlainObject(value.inlineData)) {
+		const inline = value.inlineData;
+		if (isLikelyBase64(inline.data)) {
+			return {
+				mimeType: String(inline.mimeType ?? inline.mime_type ?? mimeType),
+				base64: inline.data.replace(/\s+/g, ""),
+			};
+		}
+	}
+
+	if (isPlainObject(value.image_url)) {
+		return normalizeImageDescriptor(value.image_url.url ?? value.image_url, mimeType);
+	}
+
+	if (typeof value.image_url === "string") {
+		return normalizeImageDescriptor(value.image_url, mimeType);
+	}
+
+	if (typeof value.url === "string") {
+		return normalizeImageDescriptor(value.url, mimeType);
+	}
+
+	if (typeof value.dataUrl === "string") {
+		return normalizeImageDescriptor(value.dataUrl, mimeType);
+	}
+
+	if (typeof value.base64 === "string") {
+		return { mimeType, base64: value.base64.replace(/\s+/g, "") };
+	}
+
+	if (typeof value.data === "string") {
+		return normalizeImageDescriptor(value.data, mimeType);
+	}
+
+	if (typeof Buffer !== "undefined" && Buffer.isBuffer(value.data)) {
+		return { mimeType, base64: value.data.toString("base64") };
+	}
+
+	if (value.data instanceof Uint8Array) {
+		return { mimeType, base64: Buffer.from(value.data).toString("base64") };
+	}
+
+	if (typeof value.image === "string") {
+		return normalizeImageDescriptor(value.image, mimeType);
+	}
+
+	return null;
+};
+
+/**
+ * Splits a message content into text plus images. Content may be a string, an
+ * array of parts or a provider-native object.
+ */
+const normalizeContentParts = (content) => {
+	const textParts = [];
+	const images = [];
+
+	const collect = (part) => {
+		if (part == null) {
+			return;
+		}
+
+		if (typeof part === "string") {
+			textParts.push(part);
+			return;
+		}
+
+		if (!isPlainObject(part)) {
+			return;
+		}
+
+		const type = String(part.type || "").toLowerCase();
+
+		if (type === "text" || type === "input_text" || type === "output_text") {
+			if (typeof part.text === "string") {
+				textParts.push(part.text);
+			} else if (typeof part.content === "string") {
+				textParts.push(part.content);
+			}
+			return;
+		}
+
+		if (type === "image" || type === "image_url" || type === "input_image" || type === "image_base64") {
+			const image = normalizeImageDescriptor(part);
+			if (image) {
+				images.push(image);
+			}
+			return;
+		}
+
+		if (isPlainObject(part.source) || isPlainObject(part.image_url) || part.inlineData || part.image || part.dataUrl) {
+			const image = normalizeImageDescriptor(part);
+			if (image) {
+				images.push(image);
+				return;
+			}
+		}
+
+		if (typeof part.text === "string") {
+			textParts.push(part.text);
+			return;
+		}
+
+		if (typeof part.content === "string") {
+			textParts.push(part.content);
+		}
+	};
+
+	if (Array.isArray(content)) {
+		content.forEach(collect);
+	} else {
+		collect(content);
+	}
+
+	return {
+		text: textParts.join("\n").trim(),
+		images,
+	};
+};
+
+const imageDescriptorToDataUrl = (image) => {
+	if (!image) {
+		return undefined;
+	}
+	if (image.url) {
+		return image.url;
+	}
+	return `data:${image.mimeType || "image/jpeg"};base64,${image.base64}`;
+};
+
+const normalizeImagesOption = (images) => {
+	if (images == null) {
+		return [];
+	}
+
+	return normalizeArray(images)
+		.map((image) => normalizeImageDescriptor(image))
+		.filter(Boolean);
+};
+
+/**
+ * Appends top-level `images` to the last user message (or a new user message).
+ * Messages keep their portable shape; each adapter converts it to its own API.
+ */
+const appendImagesToMessages = (messages, images) => {
+	const normalizedImages = normalizeImagesOption(images);
+	if (!normalizedImages.length) {
+		return messages;
+	}
+
+	const output = messages.map((message) => ({ ...message }));
+	let targetIndex = -1;
+
+	for (let index = output.length - 1; index >= 0; index -= 1) {
+		if (output[index].role === "user") {
+			targetIndex = index;
+			break;
+		}
+	}
+
+	if (targetIndex < 0) {
+		targetIndex = output.length;
+		output.push({ role: "user", content: "" });
+	}
+
+	const target = output[targetIndex];
+	const parts = normalizeContentParts(target.content);
+	const contentParts = [];
+
+	if (parts.text) {
+		contentParts.push({ type: "text", text: parts.text });
+	}
+
+	for (const image of [...parts.images, ...normalizedImages]) {
+		contentParts.push({
+			type: "image",
+			mimeType: image.mimeType || "image/jpeg",
+			...(image.url ? { url: image.url } : { base64: image.base64 }),
+		});
+	}
+
+	output[targetIndex] = { ...target, content: contentParts };
+
+	return output;
+};
+
 
 const splitSystemMessages = (messages, extraSystemText) => {
 	const systemParts = [];
@@ -1002,10 +1308,12 @@ const connectMcpServer = async (server, { clientName, clientVersion } = {}) => {
 class MCPToolRuntime {
 	constructor({
 		mcpServers = [],
+		toolHandlers = {},
 		clientName = DEFAULT_CLIENT_NAME,
 		clientVersion = DEFAULT_CLIENT_VERSION,
 	} = {}) {
 		this.mcpServers = normalizeArray(mcpServers).filter((item) => isPlainObject(item));
+		this.toolHandlers = isPlainObject(toolHandlers) ? toolHandlers : {};
 		this.clientName = clientName;
 		this.clientVersion = clientVersion;
 		this.serverBundles = [];
@@ -1013,6 +1321,7 @@ class MCPToolRuntime {
 		this.toolRegistry = new Map();
 		this.executionLog = [];
 		this.executionCache = new Map();
+		this.oneShotUsed = new Set();
 		this.connected = false;
 	}
 
@@ -1043,10 +1352,65 @@ class MCPToolRuntime {
 			this.serverBundles.push(bundle);
 		}
 
-		this.toolEntries = this.buildToolEntries();
+		this.toolEntries = [...this.buildLocalToolEntries(), ...this.buildToolEntries()];
 		this.toolRegistry = this.buildToolRegistry(this.toolEntries);
 		this.connected = true;
 		return this;
+	}
+
+	/**
+	 * Local tools are plain JS handlers supplied by the caller:
+	 *
+	 *   toolHandlers: {
+	 *     web_search: {
+	 *       description: "...",
+	 *       inputSchema: { type: "object", properties: {...} },
+	 *       handler: async (args, context) => ({...}),
+	 *       policy: { oneShot: true },
+	 *     },
+	 *     ping: (args) => "pong",           // shorthand
+	 *   }
+	 *
+	 * They go through the same registry, loop and diagnostics as MCP tools, so a
+	 * deployment can expose local capabilities without standing up an MCP server.
+	 */
+	buildLocalToolEntries() {
+		const entries = [];
+
+		for (const [key, definition] of Object.entries(this.toolHandlers)) {
+			const normalized = typeof definition === "function" ? { handler: definition } : definition;
+
+			if (!isPlainObject(normalized) || normalized.enabled === false) {
+				continue;
+			}
+
+			const handler = normalized.handler ?? normalized.run ?? normalized.execute;
+			if (typeof handler !== "function") {
+				throw new Error(`Local tool "${key}" requires a handler function.`);
+			}
+
+			const publicName = sanitizeToolNamePart(normalized.name || key, "tool");
+
+			entries.push({
+				alias: publicName,
+				shortName: publicName,
+				toolName: normalized.name || key,
+				title: normalized.title,
+				description: normalized.description || `Local tool ${key}.`,
+				inputSchema: normalizeToolSchema(normalized.inputSchema ?? normalized.parameters ?? normalized.schema),
+				serverName: normalized.serverName || "local",
+				serverUrl: null,
+				policy: isPlainObject(normalized.policy) ? normalized.policy : {},
+				local: true,
+				client: {
+					callTool: async ({ arguments: toolArguments }) => {
+						return handler(toolArguments ?? {}, { toolName: key, runtime: this });
+					},
+				},
+			});
+		}
+
+		return entries;
 	}
 
 	buildToolEntries() {
@@ -1171,6 +1535,33 @@ class MCPToolRuntime {
 			const fingerprint = buildToolCallFingerprint(toolEntry.toolName, toolArguments);
 			const previousExecution = this.executionCache.get(fingerprint);
 
+			// A one-shot tool (web search, for example) answers once per turn. The
+			// second call gets the first result back instead of hitting the network:
+			// small models otherwise repeat the same search until the round limit.
+			if (toolEntry.policy?.oneShot && this.oneShotUsed.has(toolEntry.alias)) {
+				const previousOneShot = [...this.executionLog]
+					.reverse()
+					.find((item) => item.toolAlias === toolEntry.alias && !item.isError);
+
+				const execution = {
+					callId: toolCall.id,
+					toolAlias: toolEntry.alias,
+					toolName: toolEntry.toolName,
+					serverName: toolEntry.serverName,
+					serverUrl: toolEntry.serverUrl,
+					policy: toolEntry.policy,
+					arguments: toolArguments,
+					textResult: `This tool can only be used once per turn. Use the previous result to answer the user.\n\n${previousOneShot?.textResult || ""}`,
+					rawResult: previousOneShot?.rawResult ?? null,
+					isError: false,
+					deduplicated: true,
+				};
+
+				this.executionLog.push(execution);
+				executionResults.push(execution);
+				continue;
+			}
+
 			if (previousExecution && !previousExecution.isError) {
 				const execution = {
 					callId: toolCall.id,
@@ -1178,6 +1569,7 @@ class MCPToolRuntime {
 					toolName: toolEntry.toolName,
 					serverName: toolEntry.serverName,
 					serverUrl: toolEntry.serverUrl,
+					policy: toolEntry.policy,
 					arguments: toolArguments,
 					textResult: `Duplicate tool call suppressed. Reuse the previous successful result and answer the user unless you need different arguments.\n\n${previousExecution.textResult}`,
 					rawResult: previousExecution.rawResult,
@@ -1204,6 +1596,7 @@ class MCPToolRuntime {
 					toolName: toolEntry.toolName,
 					serverName: toolEntry.serverName,
 					serverUrl: toolEntry.serverUrl,
+					policy: toolEntry.policy,
 					arguments: toolArguments,
 					textResult,
 					rawResult,
@@ -1213,6 +1606,9 @@ class MCPToolRuntime {
 
 				this.executionLog.push(execution);
 				this.executionCache.set(fingerprint, execution);
+				if (toolEntry.policy?.oneShot) {
+					this.oneShotUsed.add(toolEntry.alias);
+				}
 				executionResults.push(execution);
 			} catch (error) {
 				const rawResult = {
@@ -1224,6 +1620,7 @@ class MCPToolRuntime {
 					toolName: toolEntry.toolName,
 					serverName: toolEntry.serverName,
 					serverUrl: toolEntry.serverUrl,
+					policy: toolEntry.policy,
 					arguments: toolArguments,
 					textResult: `Error: ${rawResult.error}`,
 					rawResult,
@@ -1239,6 +1636,20 @@ class MCPToolRuntime {
 		return executionResults;
 	}
 
+	/**
+	 * True when a successful execution asked the loop to stop (tool policy
+	 * `stopAfterToolSuccess: true`). The adapter then returns the tool output as
+	 * the final answer instead of asking the model again.
+	 */
+	shouldStopAfterToolSuccess(executions = []) {
+		return normalizeArray(executions).some((execution) => {
+			return execution
+				&& !execution.isError
+				&& !execution.deduplicated
+				&& execution.policy?.stopAfterToolSuccess === true;
+		});
+	}
+
 	async close() {
 		for (const bundle of this.serverBundles) {
 			try {
@@ -1250,6 +1661,7 @@ class MCPToolRuntime {
 		this.toolEntries = [];
 		this.toolRegistry = new Map();
 		this.executionCache = new Map();
+		this.oneShotUsed = new Set();
 		this.connected = false;
 	}
 }
@@ -1290,6 +1702,39 @@ class BaseProviderAdapter {
 	}
 }
 
+const toOpenAIMessages = (messages) => messages.map((message) => {
+	if (message.role === "tool") {
+		return message;
+	}
+
+	const parts = normalizeContentParts(message.content);
+
+	if (!parts.images.length) {
+		return {
+			...message,
+			content: parts.text,
+		};
+	}
+
+	const content = [];
+
+	if (parts.text) {
+		content.push({ type: "text", text: parts.text });
+	}
+
+	for (const image of parts.images) {
+		content.push({
+			type: "image_url",
+			image_url: { url: imageDescriptorToDataUrl(image) },
+		});
+	}
+
+	return {
+		...message,
+		content,
+	};
+});
+
 class OpenAICompatibleAdapter extends BaseProviderAdapter {
 	constructor(providerConfig) {
 		super(providerConfig);
@@ -1319,6 +1764,13 @@ class OpenAICompatibleAdapter extends BaseProviderAdapter {
 		const defaultHeaders = normalizeHeadersObject(this.providerConfig.headers);
 		const defaultQuery = normalizeDefaultQueryObject(this.providerConfig.defaultQuery ?? this.providerConfig.default_query);
 
+		// The platform installs JSDOM globals (`window`, `document`, `self`) so
+		// JS handlers can use browser libraries. The OpenAI SDK then concludes it is
+		// running in a browser and refuses to start, which broke `askIAWithMCP` from
+		// handlers and bot workers. This code only ever runs server-side, so the
+		// browser guard is explicitly disabled.
+		const dangerouslyAllowBrowser = true;
+
 		this.client = isAzure
 			? new AzureOpenAI({
 				apiKey,
@@ -1329,6 +1781,7 @@ class OpenAICompatibleAdapter extends BaseProviderAdapter {
 				defaultQuery,
 				organization: this.providerConfig.organization,
 				project: this.providerConfig.project,
+				dangerouslyAllowBrowser,
 			})
 			: new OpenAI({
 				apiKey,
@@ -1338,6 +1791,7 @@ class OpenAICompatibleAdapter extends BaseProviderAdapter {
 				defaultQuery,
 				organization: this.providerConfig.organization,
 				project: this.providerConfig.project,
+				dangerouslyAllowBrowser,
 			});
 
 		this.model = this.providerConfig.model.trim();
@@ -1347,8 +1801,8 @@ class OpenAICompatibleAdapter extends BaseProviderAdapter {
 		this.provider = this.providerConfig.modelProvider ?? this.providerConfig.provider ?? (isAzure ? "azure-openai" : DEFAULT_PROVIDER);
 	}
 
-	async run({ prompts, runtime, maxToolRounds = DEFAULT_MAX_TOOL_ROUNDS, includeDiagnostics = false, signal } = {}) {
-		const messages = normalizePromptMessages(prompts);
+	async run({ prompts, images, runtime, maxToolRounds = DEFAULT_MAX_TOOL_ROUNDS, includeDiagnostics = false, signal } = {}) {
+		const messages = appendImagesToMessages(normalizePromptMessages(prompts), images);
 
 		if (messages.length === 0) {
 			throw new Error("At least one prompt/message is required.");
@@ -1358,7 +1812,14 @@ class OpenAICompatibleAdapter extends BaseProviderAdapter {
 
 		const toolGuidance = runtime.getToolUsageGuidance();
 		if (toolGuidance) {
-			messages.unshift({ role: "system", content: toolGuidance });
+			// Some chat templates (MiniCPM) return empty content when they receive two
+			// system messages, so merge the guidance into the leading system message.
+			const leading = messages[0];
+			if (leading?.role === "system" && typeof leading.content === "string") {
+				messages[0] = { ...leading, content: `${leading.content}\n\n${toolGuidance}` };
+			} else {
+				messages.unshift({ role: "system", content: toolGuidance });
+			}
 		}
 
 		const roundsLimit = Number.isFinite(Number(maxToolRounds))
@@ -1375,7 +1836,7 @@ class OpenAICompatibleAdapter extends BaseProviderAdapter {
 				model: this.model,
 				temperature: this.temperature,
 				max_tokens: this.maxTokens,
-				messages,
+				messages: toOpenAIMessages(messages),
 				tools: tools.length > 0 ? tools : undefined,
 				tool_choice: tools.length > 0 ? this.toolChoice : undefined,
 			};
@@ -1549,6 +2010,22 @@ class OpenAICompatibleAdapter extends BaseProviderAdapter {
 					content: toolMessageContent,
 				});
 			}
+
+			if (runtime.shouldStopAfterToolSuccess(executions)) {
+				return this.buildDiagnostics(includeDiagnostics, {
+					text: executions
+						.filter((execution) => !execution.isError)
+						.map((execution) => execution.textResult)
+						.filter(Boolean)
+						.join("\n\n"),
+					provider: this.provider,
+					model: this.model,
+					messages,
+					toolExecutions: runtime.executionLog,
+					mcpServers: runtime.getDiagnosticsServers(),
+					stoppedAfterToolSuccess: true,
+				});
+			}
 		}
 
 		throw new Error(`The AI did not finish after ${roundsLimit} tool rounds.`);
@@ -1591,11 +2068,38 @@ const convertToAnthropicMessages = (messages, toolGuidance) => {
 		systemText,
 		messages: nonSystemMessages
 			.filter((message) => message.role === "user" || message.role === "assistant")
-			.map((message) => ({
-				role: message.role,
-				content: normalizeMessageContentToString(message.content),
-			}))
-			.filter((message) => message.content !== ""),
+			.map((message) => {
+				const parts = normalizeContentParts(message.content);
+				const blocks = [];
+
+				if (parts.text) {
+					blocks.push({ type: "text", text: parts.text });
+				}
+
+				for (const image of parts.images) {
+					if (image.base64) {
+						blocks.push({
+							type: "image",
+							source: {
+								type: "base64",
+								media_type: image.mimeType || "image/jpeg",
+								data: image.base64,
+							},
+						});
+					} else if (image.url) {
+						blocks.push({
+							type: "image",
+							source: { type: "url", url: image.url },
+						});
+					}
+				}
+
+				return {
+					role: message.role,
+					content: blocks.length === 1 && blocks[0].type === "text" ? blocks[0].text : blocks,
+				};
+			})
+			.filter((message) => (Array.isArray(message.content) ? message.content.length > 0 : message.content !== "")),
 	};
 };
 
@@ -1626,6 +2130,9 @@ class AnthropicAdapter extends BaseProviderAdapter {
 			baseURL: this.providerConfig.baseUrl ?? this.providerConfig.baseURL,
 			timeout: Number.isFinite(timeout) && timeout > 0 ? timeout : DEFAULT_TIMEOUT,
 			defaultHeaders: normalizeHeadersObject(this.providerConfig.headers),
+			// Same reason as the OpenAI adapter: the platform sets JSDOM globals and
+			// this only runs server-side.
+			dangerouslyAllowBrowser: true,
 		});
 		this.model = this.providerConfig.model.trim();
 		this.temperature = this.providerConfig.temperature;
@@ -1638,8 +2145,8 @@ class AnthropicAdapter extends BaseProviderAdapter {
 		this.provider = this.providerConfig.modelProvider ?? this.providerConfig.provider ?? "anthropic";
 	}
 
-	async run({ prompts, runtime, maxToolRounds = DEFAULT_MAX_TOOL_ROUNDS, includeDiagnostics = false, signal } = {}) {
-		const normalizedMessages = normalizePromptMessages(prompts);
+	async run({ prompts, images, runtime, maxToolRounds = DEFAULT_MAX_TOOL_ROUNDS, includeDiagnostics = false, signal } = {}) {
+		const normalizedMessages = appendImagesToMessages(normalizePromptMessages(prompts), images);
 
 		if (normalizedMessages.length === 0) {
 			throw new Error("At least one prompt/message is required.");
@@ -1698,6 +2205,22 @@ class AnthropicAdapter extends BaseProviderAdapter {
 					is_error: execution.isError || undefined,
 				})),
 			});
+
+			if (runtime.shouldStopAfterToolSuccess(executions)) {
+				return this.buildDiagnostics(includeDiagnostics, {
+					text: executions
+						.filter((execution) => !execution.isError)
+						.map((execution) => execution.textResult)
+						.filter(Boolean)
+						.join("\n\n"),
+					provider: this.provider,
+					model: this.model,
+					messages,
+					toolExecutions: runtime.executionLog,
+					mcpServers: runtime.getDiagnosticsServers(),
+					stoppedAfterToolSuccess: true,
+				});
+			}
 		}
 
 		throw new Error(`The AI did not finish after ${roundsLimit} tool rounds.`);
@@ -1777,14 +2300,38 @@ const convertToGeminiContents = (messages) => {
 			continue;
 		}
 
-		const text = normalizeMessageContentToString(message.content);
-		if (!text) {
+		const parts = normalizeContentParts(message.content);
+		const geminiParts = [];
+
+		if (parts.text) {
+			geminiParts.push({ text: parts.text });
+		}
+
+		for (const image of parts.images) {
+			if (image.base64) {
+				geminiParts.push({
+					inlineData: {
+						mimeType: image.mimeType || "image/jpeg",
+						data: image.base64,
+					},
+				});
+			} else if (image.url) {
+				geminiParts.push({
+					fileData: {
+						mimeType: image.mimeType || "image/jpeg",
+						fileUri: image.url,
+					},
+				});
+			}
+		}
+
+		if (!geminiParts.length) {
 			continue;
 		}
 
 		contents.push({
 			role: message.role === "assistant" ? "model" : "user",
-			parts: [{ text }],
+			parts: geminiParts,
 		});
 	}
 
@@ -1797,6 +2344,7 @@ class GoogleGenAIAdapter extends BaseProviderAdapter {
 
 		const apiKey = this.providerConfig.apiKey ?? this.providerConfig.api_key;
 		const isVertex = Boolean(this.providerConfig.vertexai ?? this.providerConfig.vertexAI);
+		const httpOptions = this.providerConfig.httpOptions ?? this.providerConfig.http_options;
 
 		if (!apiKey && !isVertex) {
 			throw new Error("Google GenAI provider configuration requires `apiKey` or Vertex AI settings.");
@@ -1807,6 +2355,10 @@ class GoogleGenAIAdapter extends BaseProviderAdapter {
 			vertexai: isVertex,
 			project: this.providerConfig.project,
 			location: this.providerConfig.location,
+			// `httpOptions` lets a deployment point the SDK at a proxy or a fake
+			// server in tests (baseUrl, headers, timeout). Passing it only when it is
+			// an object keeps the SDK defaults untouched otherwise.
+			...(isPlainObject(httpOptions) ? { httpOptions } : {}),
 		});
 		this.model = this.providerConfig.model || DEFAULT_GEMINI_MODEL;
 		this.temperature = this.providerConfig.temperature;
@@ -1816,8 +2368,8 @@ class GoogleGenAIAdapter extends BaseProviderAdapter {
 		this.provider = this.providerConfig.modelProvider ?? this.providerConfig.provider ?? "google-gemini";
 	}
 
-	async run({ prompts, runtime, maxToolRounds = DEFAULT_MAX_TOOL_ROUNDS, includeDiagnostics = false, signal } = {}) {
-		const normalizedMessages = normalizePromptMessages(prompts);
+	async run({ prompts, images, runtime, maxToolRounds = DEFAULT_MAX_TOOL_ROUNDS, includeDiagnostics = false, signal } = {}) {
+		const normalizedMessages = appendImagesToMessages(normalizePromptMessages(prompts), images);
 
 		if (normalizedMessages.length === 0) {
 			throw new Error("At least one prompt/message is required.");
@@ -1900,6 +2452,22 @@ class GoogleGenAIAdapter extends BaseProviderAdapter {
 					},
 				)),
 			});
+
+			if (runtime.shouldStopAfterToolSuccess(executions)) {
+				return this.buildDiagnostics(includeDiagnostics, {
+					text: executions
+						.filter((execution) => !execution.isError)
+						.map((execution) => execution.textResult)
+						.filter(Boolean)
+						.join("\n\n"),
+					provider: this.provider,
+					model: this.model,
+					contents,
+					toolExecutions: runtime.executionLog,
+					mcpServers: runtime.getDiagnosticsServers(),
+					stoppedAfterToolSuccess: true,
+				});
+			}
 		}
 
 		throw new Error(`The AI did not finish after ${roundsLimit} tool rounds.`);
@@ -1915,6 +2483,11 @@ registerBuiltinAdapter("openai-compatible", (providerConfig) => new OpenAICompat
 registerBuiltinAdapter("azure", (providerConfig) => new OpenAICompatibleAdapter(providerConfig));
 registerBuiltinAdapter("azure-openai", (providerConfig) => new OpenAICompatibleAdapter(providerConfig));
 registerBuiltinAdapter("ollama", (providerConfig) => new OpenAICompatibleAdapter(providerConfig));
+registerBuiltinAdapter("openrouter", (providerConfig) => new OpenAICompatibleAdapter(providerConfig));
+registerBuiltinAdapter("deepseek", (providerConfig) => new OpenAICompatibleAdapter(providerConfig));
+registerBuiltinAdapter("groq", (providerConfig) => new OpenAICompatibleAdapter(providerConfig));
+registerBuiltinAdapter("mistral", (providerConfig) => new OpenAICompatibleAdapter(providerConfig));
+registerBuiltinAdapter("xai", (providerConfig) => new OpenAICompatibleAdapter(providerConfig));
 registerBuiltinAdapter("anthropic", (providerConfig) => new AnthropicAdapter(providerConfig));
 registerBuiltinAdapter("claude", (providerConfig) => new AnthropicAdapter(providerConfig));
 registerBuiltinAdapter("google", (providerConfig) => new GoogleGenAIAdapter(providerConfig));
@@ -1959,6 +2532,7 @@ export class AIProviderMCPClient {
 	constructor({
 		provider,
 		mcpServers = [],
+		toolHandlers = {},
 		clientName = DEFAULT_CLIENT_NAME,
 		clientVersion = DEFAULT_CLIENT_VERSION,
 		maxToolRounds = DEFAULT_MAX_TOOL_ROUNDS,
@@ -1969,6 +2543,7 @@ export class AIProviderMCPClient {
 		this.includeDiagnostics = includeDiagnostics;
 		this.runtime = new MCPToolRuntime({
 			mcpServers,
+			toolHandlers,
 			clientName: provider?.clientName ?? clientName,
 			clientVersion: provider?.clientVersion ?? clientVersion,
 		});
@@ -1987,6 +2562,7 @@ export class AIProviderMCPClient {
 
 	async run({
 		prompts,
+		images,
 		maxToolRounds = this.maxToolRounds,
 		includeDiagnostics = this.includeDiagnostics,
 		signal,
@@ -1995,6 +2571,7 @@ export class AIProviderMCPClient {
 
 		return this.adapter.run({
 			prompts,
+			images,
 			runtime: this.runtime,
 			maxToolRounds,
 			includeDiagnostics,
@@ -2053,7 +2630,9 @@ export const listMcpTools = async ({
 export const askIAWithProviderMCP = async ({
 	provider,
 	mcpServers = [],
+	toolHandlers = {},
 	prompts,
+	images,
 	clientName = DEFAULT_CLIENT_NAME,
 	clientVersion = DEFAULT_CLIENT_VERSION,
 	maxToolRounds = DEFAULT_MAX_TOOL_ROUNDS,
@@ -2063,6 +2642,7 @@ export const askIAWithProviderMCP = async ({
 	const client = new AIProviderMCPClient({
 		provider,
 		mcpServers,
+		toolHandlers,
 		clientName,
 		clientVersion,
 		maxToolRounds,
@@ -2072,6 +2652,7 @@ export const askIAWithProviderMCP = async ({
 	try {
 		return await client.run({
 			prompts,
+			images,
 			maxToolRounds,
 			includeDiagnostics,
 			signal,
@@ -2086,7 +2667,9 @@ export const askAIWithTools = askIAWithProviderMCP;
 export const askIAWithMCP = async ({
 	ai,
 	mcpServers = [],
+	toolHandlers = {},
 	prompts,
+	images,
 	clientName = DEFAULT_CLIENT_NAME,
 	clientVersion = DEFAULT_CLIENT_VERSION,
 	maxToolRounds = DEFAULT_MAX_TOOL_ROUNDS,
@@ -2096,7 +2679,9 @@ export const askIAWithMCP = async ({
 	return askIAWithProviderMCP({
 		provider: ai,
 		mcpServers,
+		toolHandlers,
 		prompts,
+		images,
 		clientName,
 		clientVersion,
 		maxToolRounds,
@@ -2114,6 +2699,13 @@ export const __internalIAForTests = Object.freeze({
 	resolveResponseTimeoutMs,
 	createExecutionSignal,
 	runWithAbortSignal,
+	normalizeContentParts,
+	normalizeImageDescriptor,
+	appendImagesToMessages,
+	toOpenAIMessages,
+	convertToAnthropicMessages,
+	convertToGeminiContents,
+	splitSystemMessages,
 	OpenAICompatibleAdapter,
 	MCPToolRuntime,
 });

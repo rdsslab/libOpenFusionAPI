@@ -22,6 +22,17 @@ see [MIGRATION.md](./MIGRATION.md).
 
 ### Added
 
+- **Agent Kit (`src/lib/server/agentKit/`)**: bloque de construccion de agentes, independiente del proveedor y de la plataforma de mensajeria, sobre `ia.js`. Todo vive en memoria (sin filesystem) y se expone igual en handlers JS, en bots y en tareas programadas.
+  - `askAgent({ provider, system, messages, images, tools, preSearch, maxToolRounds })` devuelve siempre el mismo sobre `{ text, usedWeb, webQuery, webResults, toolCalls, truncated, diagnostics }`, sea cual sea el proveedor (Ollama, OpenAI-compatible, OpenRouter, DeepSeek, Anthropic, Gemini, Groq, Mistral, xAI, Azure...).
+  - **Busqueda web determinista** (`websearch.js`): DuckDuckGo -> DuckDuckGo Lite -> Bing -> http-json, con User-Agent de navegador, parser propio por motor (`extractDuckDuckGoResults`, `extractBingResults`) y `listWebSearchEngines()`. El pre-busqueda usa solo el texto propio del usuario o la pregunta citada, nunca el prompt fusionado.
+  - **Lectura de documentos en memoria** (`documents.js`): PDF (pdfjs-dist), DOCX, TXT, MD, CSV, JSON y HTML. `extractDocumentText(buffer, { fileName, mimeType, maxChars })` devuelve `{ text, kind, pages, truncated }`; `createDocumentReader()` da un lector reutilizable.
+  - **Medios** (`media.js`): registros de proveedores STT/TTS extensibles (`registerSttProviderType`, `registerTtsProviderType`, `createSpeechToText`, `createTextToSpeech`), normalizacion de imagenes a data URL, extraccion de fotogramas de video con ffmpeg (`extractVideoFrames`, con faststart MP4 en memoria) y `describeMediaSupport()` para informar de lo que el entorno soporta de verdad.
+  - **Politicas** (`policies.js`): `looksLikeWebQuery`, `cleanWebQuery`, `formatWebRecap`, `looksLikeRecall`, `formatHistoryRecap`, `looksLikeMissingMedia`, `mergeQuoted`.
+  - `functionVars.js` expone `askAgent`, `askAgentText`, `webSearch`, `readDocument`, `transcribeAudio`, `synthesizeSpeech`, `extractVideoFrames`, `describeMediaSupport` y el namespace `agentKit` con la metadata completa (params, return, notas y guia para agentes).
+  - `ia.js` acepta ahora **herramientas locales** (`toolHandlers`) con el mismo registro, bucle y diagnostico que las tools MCP; admite `images` en el prompt, `oneShot`/`stopAfterToolSuccess` por politica, y guias de uso de herramientas fusionadas en el mensaje de sistema (MiniCPM devuelve vacio con dos mensajes de sistema).
+  - Prueba E2E: `dev/test/agentkit_test.js` (politicas, buffers, documentos, medios, registros STT/TTS, busqueda web, conversiones de `ia.js`, `askAgent` en texto/imagenes/documentos/pre-busqueda/tool-loop/one-shot, fotogramas de video y exposicion en `functionVars`).
+- **Bots de Telegram – soporte de encuestas**: `allowed_updates` del worker pasa a `["message", "callback_query", "poll", "poll_answer"]`. `poll_answer` solo llega para encuestas creadas por el propio bot (Telegram nunca expone los votos de una encuesta ajena); `stopPoll(chatId, messageId)` cierra la votacion y devuelve los conteos oficiales.
+  - Documentacion actualizada: `src/docs/bots/providers/telegram/{AI_SKILL.md,README.md,examples.md,manifest.json}`, `src/docs/flows/BACKGROUND.md` y el comentario de cabecera de `systemBot.telegram.js`.
 - **Encriptación obligatoria de AppVars**: todos los valores de Application Variables se almacenan encriptados con AES-256-GCM usando la variable de entorno `APPVAR_ENCRYPTION_KEY` (obligatoria). Los backups exportan valores encriptados por defecto. El valor plano solo se expone con autorización explícita (`plaintext_authorized=true`).
   - Nuevo modelo: campo `valueEncrypted` es el campo principal
   - Campo `value` antiguo eliminado después de migración automática
@@ -32,6 +43,7 @@ see [MIGRATION.md](./MIGRATION.md).
 
 ### Changed
 
+- **`ia.js` – clientes de navegador y opciones HTTP**: los adaptadores de OpenAI/AzureOpenAI y Anthropic se crean con `dangerouslyAllowBrowser: true` (la plataforma instala `window`/`document`/`self` globales de JSDOM, que los clientes rechazan por defecto) y `GoogleGenAIAdapter` reenvia `httpOptions`/`http_options` cuando son un objeto.
 - **Variable de entorno obligatoria**: `APPVAR_ENCRYPTION_KEY` ahora es requerida. Genera una clave única por entorno con: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
 
 ### Migration

@@ -39,6 +39,7 @@ class QRCodeStylingNode {
 }
 
 import { askAIWithTools, askIAWithMCP, askIAWithProviderMCP, createAIProviderMCPClient, listMcpTools } from "./ia.js";
+import * as agentKit from "./agentKit/index.js";
 
 import {
   createImage as createImageFromHTML,
@@ -301,6 +302,25 @@ const createFfmpegTool = (binary) => ({
 
 const ffmpegTool = createFfmpegTool("ffmpeg");
 const ffprobeTool = createFfmpegTool("ffprobe");
+
+/**
+ * Agent-kit helpers exposed to JS handlers.
+ *
+ * They are thin wrappers so the handler API stays small and stable even if the
+ * internal modules are reorganised. Each wrapper keeps the same semantics as the
+ * underlying function from `src/lib/server/agentKit/`.
+ */
+const readDocumentTool = (input, options = {}) => agentKit.extractDocumentText(input, options);
+
+const transcribeAudioTool = (input, options = {}) => {
+  const stt = agentKit.createSpeechToText(options);
+  return stt.transcribe(input, options);
+};
+
+const synthesizeSpeechTool = (text, options = {}) => {
+  const tts = agentKit.createTextToSpeech(options);
+  return tts.synthesize(text, options);
+};
 
 /**
  * @param {any} data
@@ -3397,6 +3417,639 @@ if (!result.ok) {
 }
 
 $_RETURN_DATA_ = JSON.parse(result.stdout);
+      `,
+    },
+    askAgent: {
+      fn: request && reply ? agentKit.askAgent : undefined,
+      description:
+        "Provider-agnostic agent turn on top of `ia.js`. Adds deterministic web pre-search for weak models, local tools (including `web_search`), in-memory document injection, optional MCP servers, and returns a single envelope with the answer, search results and diagnostics. Works with Ollama, OpenAI-compatible providers, OpenRouter, DeepSeek, Anthropic and Gemini.",
+      web: own_repo,
+      params: [
+        {
+          name: "options.provider",
+          description:
+            "Provider configuration (same shape as `askIAWithMCP`), or a preset name such as `ollama`, `openai`, `openai-compatible`, `openrouter`, `deepseek`, `anthropic` or `google-gemini`. Must include `model`.",
+          required: true,
+          type: "object|string",
+        },
+        {
+          name: "options.messages",
+          description: "Conversation messages, oldest first: `[{ role, content }]`. Content may be a string or an array of text/image parts.",
+          required: false,
+          type: "array<object>|string",
+        },
+        {
+          name: "options.prompt",
+          description: "Shorthand for a single user message.",
+          required: false,
+          type: "string",
+        },
+        {
+          name: "options.system",
+          description: "System prompt prepended to the conversation.",
+          required: false,
+          type: "string",
+        },
+        {
+          name: "options.history",
+          description: "Prior conversation, oldest first, prepended to `messages`.",
+          required: false,
+          type: "array<object>",
+        },
+        {
+          name: "options.images",
+          description: "Images for the last user turn: Buffers, base64 strings, data URLs or `{ mimeType, data }`.",
+          required: false,
+          type: "array<any>",
+        },
+        {
+          name: "options.documents",
+          description:
+            "In-memory documents whose text is extracted and injected into the prompt. Accepts Buffers, base64, data URLs or `{ data, mimeType, fileName }`. Supported: PDF, DOCX and text formats.",
+          required: false,
+          type: "array<any>",
+        },
+        {
+          name: "options.tools",
+          description: "Tools to enable: `{ web_search: true, read_document: true, [customName]: { handler, inputSchema } }`. A plain function is accepted as a shorthand handler.",
+          required: false,
+          type: "object",
+        },
+        {
+          name: "options.toolHandlers",
+          description: "Extra local tool handlers merged into `tools` (same shape as `askIAWithMCP`).",
+          required: false,
+          type: "object",
+        },
+        {
+          name: "options.documentResolver",
+          description: "Optional `async ({ name, id }) => document` used by the `read_document` tool when documents are not injected directly.",
+          required: false,
+          type: "function",
+        },
+        {
+          name: "options.mcpServers",
+          description: "MCP servers connected for this turn, same shape as `askIAWithMCP`.",
+          required: false,
+          type: "array<object>",
+        },
+        {
+          name: "options.preSearch",
+          description: "Deterministic web search before the model: `\"auto\"` (default, only when the text asks for fresh data), `true`/`\"always\"` (always), or `false` (never).",
+          required: false,
+          type: "boolean|string",
+          default: "auto",
+        },
+        {
+          name: "options.webSearch",
+          description: "Options forwarded to the search helper: `providers`, `maxResults`, `timeoutMs`, `fetchImpl`...",
+          required: false,
+          type: "object",
+        },
+        {
+          name: "options.maxToolRounds",
+          description: "Maximum tool rounds before forcing a final answer.",
+          required: false,
+          type: "integer",
+          default: 4,
+        },
+        {
+          name: "options.includeDiagnostics",
+          description: "When true, the result includes full documents and the `ia.js` diagnostics object.",
+          required: false,
+          type: "boolean",
+          default: false,
+        },
+        {
+          name: "options.signal",
+          description: "Optional AbortSignal to cancel the request.",
+          required: false,
+          type: "AbortSignal",
+        },
+      ],
+      return: {
+        type: "object",
+        description: "Promise resolving to one envelope for every provider.",
+        object: [
+          { name: "text", type: "string", description: "Assistant answer." },
+          { name: "usedWeb", type: "boolean", description: "True when web results were injected into the prompt." },
+          { name: "webQuery", type: "string", description: "Query used by the deterministic pre-search." },
+          { name: "webResults", type: "array<object>", description: "Results `{ title, url, snippet }`." },
+          { name: "webSource", type: "string|null", description: "Engine that answered the search." },
+          { name: "webErrors", type: "array<string>", description: "Per-provider search errors, when any." },
+          { name: "documents", type: "array<object>", description: "Metadata of the injected documents." },
+          { name: "toolExecutions", type: "array<object>", description: "Summary `{ tool, server, ok, deduplicated }`." },
+          { name: "hasTools", type: "boolean", description: "True when any tool was offered to the model." },
+          { name: "diagnostics", type: "object", description: "Full `ia.js` diagnostics when `includeDiagnostics` is true." },
+        ],
+      },
+      notes: [
+        "The deterministic pre-search fixes the common failure of small local models that answer \"no tengo acceso a internet\" even when a search tool is available.",
+        "Documents are extracted before the model call because JS handlers have no filesystem: pass the bytes, not a path.",
+        "A `MediaProviderError`, `DocumentExtractionError` or `AgentError` carries a `userMessage` that can be shown to the end user verbatim.",
+      ],
+      agentGuidance: [
+        "Prefer `askAgent` over `askIAWithMCP` when you need web access or document reading: it does the plumbing for you.",
+        "Keep `maxToolRounds` low (2-4) for slow local models; each round is a full prompt processing pass.",
+      ],
+      example: `
+const answer = await askAgent({
+  provider: {
+    provider: 'ollama',
+    model: 'llama3.2:3b',
+    baseUrl: \$_APP_VARS_['\$_VAR_OLLAMA_URL'],
+  },
+  system: 'Responde en espanol, breve.',
+  messages: [{ role: 'user', content: 'Busca el precio del dolar hoy' }],
+  tools: { web_search: true },
+  preSearch: 'auto',
+});
+
+\$_RETURN_DATA_ = { text: answer.text, usedWeb: answer.usedWeb };
+      `,
+    },
+    webSearch: {
+      fn: request && reply ? agentKit.webSearch : undefined,
+      description:
+        "Searches the web and returns normalized results. Default engine is DuckDuckGo HTML, with Bing as fallback and an `http-json` provider for self-hosted search endpoints. Sends a browser User-Agent (the platform's historical 403s came from requests without one).",
+      web: own_repo,
+      params: [
+        {
+          name: "queryOrOptions",
+          description: "Search query string, or an options object containing `query`.",
+          required: true,
+          type: "string|object",
+        },
+        {
+          name: "options.query",
+          description: "Search query when the first argument is an object.",
+          required: false,
+          type: "string",
+        },
+        {
+          name: "options.maxResults",
+          description: "Maximum number of results (1-10).",
+          required: false,
+          type: "integer",
+          default: 5,
+        },
+        {
+          name: "options.provider|engine",
+          description: "Force one engine/provider by name, or `\"auto\"` (default) to try the configured chain.",
+          required: false,
+          type: "string",
+          default: "auto",
+        },
+        {
+          name: "options.providers",
+          description: "Provider map, e.g. `{ duckduckgo: true, bing: true, mysrv: { type: 'http-json', url: '...' } }`.",
+          required: false,
+          type: "object",
+        },
+        {
+          name: "options.timeoutMs",
+          description: "Per-request timeout in milliseconds.",
+          required: false,
+          type: "integer",
+          default: 20000,
+        },
+        {
+          name: "options.fetchImpl",
+          description: "Optional fetch implementation (tests, custom HTTP client).",
+          required: false,
+          type: "function",
+        },
+      ],
+      return: {
+        type: "object",
+        description: "Never throws on total failure: returns `ok:false` with `errors` so the caller can answer \"no pude verificarlo\".",
+        object: [
+          { name: "ok", type: "boolean", description: "True when at least one result was returned." },
+          { name: "query", type: "string", description: "Query that was searched." },
+          { name: "source", type: "string|null", description: "Provider that answered." },
+          { name: "results", type: "array<object>", description: "`[{ title, url, snippet }]`." },
+          { name: "note", type: "string", description: "Human-readable note when there are no results." },
+          { name: "errors", type: "array<string>", description: "Per-provider errors." },
+        ],
+      },
+      notes: [
+        "DuckDuckGo and Bing are scraped: markup can change, hence the `http-json` provider for production deployments.",
+        "Search results are untrusted input; never execute them, and cite the source instead of presenting them as facts you verified.",
+      ],
+      agentGuidance: [
+        "Use it from a tool handler, not from the model's own reasoning, when the model is small.",
+        "Trim results before sending them to the model: full pages blow up prompt-processing time on CPU models.",
+      ],
+      example: `
+const found = await webSearch({ query: 'clima en Quito', maxResults: 3 });
+if (!found.ok) {
+  \$_RETURN_DATA_ = { text: 'No pude consultar la web ahora mismo.' };
+} else {
+  \$_RETURN_DATA_ = found.results;
+}
+      `,
+    },
+    readDocument: {
+      fn: request && reply ? readDocumentTool : undefined,
+      description:
+        "Extracts plain text from an in-memory document (Buffer, base64, data URL or `{ data, mimeType, fileName }`). Supports PDF (text layer), DOCX (in-memory ZIP) and text formats: TXT, MD, CSV, TSV, JSON, HTML, XML, YAML, LOG, SRT, VTT. No filesystem access is needed or allowed.",
+      web: own_repo,
+      params: [
+        {
+          name: "input",
+          description: "Document bytes: Buffer, Uint8Array, ArrayBuffer, base64 string, data URL or `{ data, base64, dataUrl, mimeType, fileName }`.",
+          required: true,
+          type: "Buffer|string|object",
+        },
+        {
+          name: "options.mimeType",
+          description: "MIME type, used when the input carries no metadata.",
+          required: false,
+          type: "string",
+        },
+        {
+          name: "options.fileName",
+          description: "File name, used to infer the format when `mimeType` is missing.",
+          required: false,
+          type: "string",
+        },
+        {
+          name: "options.maxChars",
+          description: "Maximum extracted characters before truncation.",
+          required: false,
+          type: "integer",
+          default: 200000,
+        },
+        {
+          name: "options.maxPages",
+          description: "Maximum PDF pages to read.",
+          required: false,
+          type: "integer",
+          default: 60,
+        },
+      ],
+      return: {
+        type: "object",
+        description: "Extraction result.",
+        object: [
+          { name: "ok", type: "boolean", description: "Always true on success." },
+          { name: "kind", type: "string", description: "`pdf`, `docx`, `html` or `text`." },
+          { name: "text", type: "string", description: "Extracted plain text." },
+          { name: "truncated", type: "boolean", description: "True when `maxChars` cut the text." },
+          { name: "pages", type: "integer", description: "Total PDF pages (PDF only)." },
+          { name: "extractedPages", type: "integer", description: "Pages actually read (PDF only)." },
+          { name: "chars", type: "integer", description: "Total characters before truncation." },
+          { name: "mimeType", type: "string", description: "Resolved MIME type." },
+          { name: "fileName", type: "string", description: "Resolved file name." },
+        ],
+      },
+      notes: [
+        "Scanned PDFs have no text layer; `DocumentExtractionError` with code `PDF_NO_TEXT` tells the user to send images instead.",
+        "XLSX, PPTX and other binary formats are not supported: the error includes a `userMessage` listing the supported ones.",
+        "Nothing is written to disk: unzipping DOCX and parsing PDFs happens entirely in memory.",
+      ],
+      agentGuidance: [
+        "Extract text yourself and inject it into the prompt; do not expose a path-based tool, there is no filesystem.",
+        "Check `truncated` and tell the user when only part of the document was read.",
+      ],
+      example: `
+const doc = await readDocument({
+  data: \$_BODY_.file.data,
+  mimeType: \$_BODY_.file.mimetype,
+  fileName: \$_BODY_.file.filename,
+}, { maxChars: 40000 });
+
+\$_RETURN_DATA_ = { chars: doc.chars, preview: doc.text.slice(0, 500) };
+      `,
+    },
+    transcribeAudio: {
+      fn: request && reply ? transcribeAudioTool : undefined,
+      description:
+        "Transcribes audio using a parameterisable provider registry. Built-in types: `openai` (OpenAI-compatible `/v1/audio/transcriptions`, which covers local Whisper servers), `generic` (single URL) and `deepgram`. If no provider is configured, it rejects with `MediaProviderError` and a `userMessage` that must be shown to the user.",
+      web: own_repo,
+      params: [
+        {
+          name: "input",
+          description: "Audio bytes: Buffer, base64, data URL or `{ data, mimeType, fileName }`.",
+          required: true,
+          type: "Buffer|string|object",
+        },
+        {
+          name: "options.providers",
+          description: "Registry, e.g. `{ local: { type: 'openai', baseUrl: 'http://whisper:8080', apiKey: 'local' } }`.",
+          required: true,
+          type: "object",
+        },
+        {
+          name: "options.defaultProvider",
+          description: "Provider used when `options.provider` is not given.",
+          required: false,
+          type: "string",
+        },
+        {
+          name: "options.provider",
+          description: "Provider name for this call.",
+          required: false,
+          type: "string",
+        },
+        {
+          name: "options.language",
+          description: "Language hint (ISO code).",
+          required: false,
+          type: "string",
+          default: "es",
+        },
+        {
+          name: "options.model",
+          description: "Default model for providers that need one.",
+          required: false,
+          type: "string",
+          default: "whisper-1",
+        },
+        {
+          name: "options.timeoutMs",
+          description: "Request timeout in milliseconds.",
+          required: false,
+          type: "integer",
+          default: 300000,
+        },
+      ],
+      return: {
+        type: "object",
+        description: "Transcription result.",
+        object: [
+          { name: "text", type: "string", description: "Transcript." },
+          { name: "provider", type: "string", description: "Provider that answered." },
+          { name: "mimeType", type: "string", description: "Input MIME type." },
+          { name: "fileName", type: "string", description: "Input file name." },
+        ],
+      },
+      notes: [
+        "Errors carry `code` (`STT_NOT_CONFIGURED`, `STT_PROVIDER_UNKNOWN`, `STT_FAILED`...) and `userMessage`.",
+        "`registerSttProviderType(name, handler)` adds a custom vendor without touching this file.",
+      ],
+      agentGuidance: [
+        "Tell the user when transcription is not configured; do not answer as if the audio were empty.",
+        "Pass the real MIME type: some Whisper servers reject `application/octet-stream`.",
+      ],
+      example: `
+const stt = await transcribeAudio(
+  { data: \$_BODY_.audio.data, mimeType: \$_BODY_.audio.mimetype, fileName: 'nota.ogg' },
+  {
+    providers: { local: { type: 'openai', baseUrl: \$_APP_VARS_['\$_VAR_WHISPER_URL'], apiKey: 'local' } },
+    defaultProvider: 'local',
+    language: 'es',
+  },
+);
+
+\$_RETURN_DATA_ = { text: stt.text };
+      `,
+    },
+    synthesizeSpeech: {
+      fn: request && reply ? synthesizeSpeechTool : undefined,
+      description:
+        "Converts text to speech using a parameterisable provider registry. Built-in types: `openai` (`/v1/audio/speech`), `supertonic` (`/v1/tts` JSON) and `elevenlabs`. If no provider is configured, it rejects with `MediaProviderError` and a `userMessage` that must be shown to the user.",
+      web: own_repo,
+      params: [
+        {
+          name: "text",
+          description: "Text to synthesize.",
+          required: true,
+          type: "string",
+        },
+        {
+          name: "options.providers",
+          description: "Registry, e.g. `{ supertonic: { type: 'supertonic', baseUrl: 'http://host:8001', voice: 'F1' } }`.",
+          required: true,
+          type: "object",
+        },
+        {
+          name: "options.defaultProvider",
+          description: "Provider used when `options.provider` is not given.",
+          required: false,
+          type: "string",
+        },
+        {
+          name: "options.provider",
+          description: "Provider name for this call.",
+          required: false,
+          type: "string",
+        },
+        {
+          name: "options.voice",
+          description: "Voice id/name for the provider.",
+          required: false,
+          type: "string",
+        },
+        {
+          name: "options.language",
+          description: "Language hint (ISO code).",
+          required: false,
+          type: "string",
+          default: "es",
+        },
+        {
+          name: "options.format",
+          description: "Output format (`mp3`, `wav`...).",
+          required: false,
+          type: "string",
+          default: "mp3",
+        },
+        {
+          name: "options.speed",
+          description: "Playback speed for providers that support it.",
+          required: false,
+          type: "number",
+        },
+        {
+          name: "options.timeoutMs",
+          description: "Request timeout in milliseconds.",
+          required: false,
+          type: "integer",
+          default: 300000,
+        },
+      ],
+      return: {
+        type: "object",
+        description: "Synthesized audio.",
+        object: [
+          { name: "data", type: "Buffer", description: "Audio bytes." },
+          { name: "mimeType", type: "string", description: "Audio MIME type." },
+          { name: "provider", type: "string", description: "Provider that answered." },
+        ],
+      },
+      notes: [
+        "Errors carry `code` (`TTS_NOT_CONFIGURED`, `TTS_PROVIDER_UNKNOWN`, `TTS_FAILED`...) and `userMessage`.",
+        "`registerTtsProviderType(name, handler)` adds a custom vendor without touching this file.",
+      ],
+      agentGuidance: [
+        "Split long answers into chunks before synthesizing; most engines cap input length per request.",
+        "Do not answer with silence when TTS is not configured: show the `userMessage` and send text instead.",
+      ],
+      example: `
+const audio = await synthesizeSpeech('Hola, esto es una prueba.', {
+  providers: { supertonic: { type: 'supertonic', baseUrl: \$_APP_VARS_['\$_VAR_TTS_BASE_URL'], voice: 'F1' } },
+  defaultProvider: 'supertonic',
+  language: 'es',
+});
+
+\$_RETURN_DATA_ = audio; // { data, mimeType, provider }
+      `,
+    },
+    extractVideoFrames: {
+      fn: request && reply ? agentKit.extractVideoFrames : undefined,
+      description:
+        "Extracts stills spread over a video using `ffmpeg` on an in-memory buffer. Moves the MP4 `moov` atom to the front first (Telegram MP4s carry it at the end, and ffmpeg cannot read that from a non-seekable pipe).",
+      web: own_repo,
+      params: [
+        {
+          name: "input",
+          description: "Video bytes: Buffer, base64, data URL or `{ data, mimeType }`.",
+          required: true,
+          type: "Buffer|string|object",
+        },
+        {
+          name: "options.maxFrames",
+          description: "Number of frames to extract.",
+          required: false,
+          type: "integer",
+          default: 4,
+        },
+        {
+          name: "options.width",
+          description: "Scale width in pixels.",
+          required: false,
+          type: "integer",
+          default: 720,
+        },
+        {
+          name: "options.durationSec",
+          description: "Duration hint when the `mvhd` atom is unreadable.",
+          required: false,
+          type: "number",
+        },
+        {
+          name: "options.timeoutMs",
+          description: "ffmpeg timeout in milliseconds.",
+          required: false,
+          type: "integer",
+          default: 180000,
+        },
+        {
+          name: "options.ffmpegPath",
+          description: "Override the ffmpeg binary path.",
+          required: false,
+          type: "string",
+        },
+      ],
+      return: {
+        type: "array<string>",
+        description: "Base64-encoded JPEG frames, ready to attach as `images` to `askAgent`.",
+      },
+      notes: [
+        "Requires the `ffmpeg` binary in PATH; a missing binary rejects with a clear `ENOENT` message.",
+        "If extraction fails the promise rejects with `MediaProviderError` (`FFMPEG_FAILED`, `FFMPEG_NO_FRAMES`); never treat a failed video as an empty answer.",
+        "The `mvhd` duration read avoids feeding the whole file to ffprobe, whose early exit used to kill the worker with EPIPE.",
+      ],
+      agentGuidance: [
+        "For a video question, extract 2-4 frames and pass them to `askAgent` via `images`; models cannot watch video.",
+        "Also transcribe the audio track when the question is about what was said.",
+      ],
+      example: `
+const frames = await extractVideoFrames(
+  { data: \$_BODY_.video.data, mimeType: \$_BODY_.video.mimetype },
+  { maxFrames: 3, width: 640 },
+);
+
+const answer = await askAgent({
+  provider: { provider: 'ollama', model: 'lfm3-omni:latest', baseUrl: \$_APP_VARS_['\$_VAR_OLLAMA_URL'] },
+  messages: [{ role: 'user', content: 'Que se ve en este video?' }],
+  images: frames.map((frame) => ({ mimeType: 'image/jpeg', data: frame })),
+});
+
+\$_RETURN_DATA_ = { text: answer.text };
+      `,
+    },
+    describeMediaSupport: {
+      fn: request && reply ? agentKit.describeMediaSupport : undefined,
+      description:
+        "Reports which media capabilities exist in this deployment (images, video frames, transcription, speech). Use it to tell the user what is missing instead of failing silently.",
+      web: own_repo,
+      params: [
+        {
+          name: "options.stt",
+          description: "STT provider registry or a `SpeechToText` instance.",
+          required: false,
+          type: "object",
+        },
+        {
+          name: "options.tts",
+          description: "TTS provider registry or a `TextToSpeech` instance.",
+          required: false,
+          type: "object",
+        },
+        {
+          name: "options.ffmpeg",
+          description: "Whether the ffmpeg binary is available.",
+          required: false,
+          type: "boolean",
+          default: true,
+        },
+      ],
+      return: {
+        type: "object",
+        description: "Capability report.",
+        object: [
+          { name: "images", type: "boolean", description: "Image input is supported." },
+          { name: "videoFrames", type: "boolean", description: "ffmpeg frame extraction is available." },
+          { name: "transcription.available", type: "boolean", description: "At least one STT provider." },
+          { name: "transcription.providers", type: "array<string>", description: "STT provider names." },
+          { name: "speech.available", type: "boolean", description: "At least one TTS provider." },
+          { name: "speech.providers", type: "array<string>", description: "TTS provider names." },
+        ],
+      },
+      notes: [
+        "Pure function: it does not call the providers, it only checks the registry.",
+      ],
+      agentGuidance: [
+        "Call it when building help/menu text so the bot does not advertise features the server cannot do.",
+      ],
+      example: `
+\$_RETURN_DATA_ = describeMediaSupport({
+  stt: { local: { type: 'openai', baseUrl: \$_APP_VARS_['\$_VAR_WHISPER_URL'] } },
+  tts: { supertonic: { type: 'supertonic', baseUrl: \$_APP_VARS_['\$_VAR_TTS_BASE_URL'] } },
+});
+      `,
+    },
+    agentKit: {
+      fn: request && reply ? agentKit : undefined,
+      description:
+        "Full agent-kit namespace: `askAgent`, `webSearch`, `extractDocumentText`, `createSpeechToText`, `createTextToSpeech`, `extractVideoFrames`, `describeMediaSupport`, policy helpers (`looksLikeWebQuery`, `formatWebRecap`, `mergeQuoted`...), buffer helpers and media-provider registries.",
+      web: own_repo,
+      params: [
+        {
+          name: "(namespace)",
+          description: "Access members directly, e.g. `agentKit.looksLikeWebQuery(text)` or `agentKit.toDataUrl(buffer, 'image/png')`.",
+          required: false,
+          type: "object",
+        },
+      ],
+      return: {
+        type: "object",
+        description: "Module namespace with every exported helper.",
+      },
+      notes: [
+        "Prefer the named helpers (`askAgent`, `webSearch`, `readDocument`...) for readability; the namespace is the escape hatch for policy/buffer utilities.",
+        "Everything is provider-agnostic and independent of bots, HTTP or the database.",
+      ],
+      agentGuidance: [
+        "Use the policy helpers to decide when to search or when a message needs media, before spending a model call.",
+      ],
+      example: `
+if (agentKit.looksLikeWebQuery(userText)) {
+  const query = agentKit.cleanWebQuery(userText);
+  // ...
+}
       `,
     },
   };

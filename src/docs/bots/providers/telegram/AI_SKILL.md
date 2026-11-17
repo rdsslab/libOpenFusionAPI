@@ -43,7 +43,7 @@ In order:
 
 ```js
 start({
-  allowed_updates: ["message", "callback_query"],
+  allowed_updates: ["message", "callback_query", "poll", "poll_answer"],
   drop_pending_updates: true,
   handleSignals: false,
 })
@@ -51,7 +51,8 @@ start({
 
 **Two consequences you must respect and communicate to the user:**
 
-- **`allowed_updates` is fixed.** Telegram will only deliver `message` and `callback_query` updates. Handlers registered for `inline_query`, `edited_message`, `my_chat_member`, `chat_member`, `poll`, `poll_answer`, `channel_post`, `edited_channel_post`, `shipping_query`, `pre_checkout_query`, `chat_join_request`, etc. **can never fire**. Do not propose a design that depends on them; say so explicitly instead of writing dead handlers.
+- **`allowed_updates` is fixed.** Telegram will deliver `message`, `callback_query`, `poll` and `poll_answer` updates. Handlers registered for `inline_query`, `edited_message`, `my_chat_member`, `chat_member`, `channel_post`, `edited_channel_post`, `shipping_query`, `pre_checkout_query`, `chat_join_request`, etc. **can never fire**. Do not propose a design that depends on them; say so explicitly instead of writing dead handlers.
+- **Polls: only your own.** `poll_answer` arrives for **polls the bot created** (`ctx.replyWithPoll(...)`); Telegram never lets a bot read the results of a poll sent by a user or another bot. To show results, either track the `poll_answer` updates or call `ctx.api.stopPoll(chatId, messageId)`, which closes voting and returns the official counts.
 - **`drop_pending_updates: true`.** Messages sent while the bot was stopped, restarting, or in cooldown are discarded. A bot restarts whenever its token, code or app variables change, so never design a flow that assumes no message is ever lost.
 
 ---

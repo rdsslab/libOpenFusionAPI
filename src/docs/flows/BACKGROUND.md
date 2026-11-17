@@ -117,7 +117,7 @@ flowchart TD
     CS --> ERR
 
     VM -- "load ok" --> GETME["bot.api.getMe() → authenticate"]
-    GETME -- "ok" --> START["bot.start( drop_pending_updates,<br/>handleSignals:false,<br/>allowed_updates: message, callback_query )"]
+    GETME -- "ok" --> START["bot.start( drop_pending_updates,<br/>handleSignals:false,<br/>allowed_updates: message, callback_query, poll, poll_answer )"]
     START --> POST["postMessage STARTED → runtime_status RUNNING<br/>(resets failure streak after BOT_HEALTHY_AFTER_MS=60 s)"]
     START -- "error" --> CLSF
     GETME -- "error" --> CLSF

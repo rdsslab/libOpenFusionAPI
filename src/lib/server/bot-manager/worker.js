@@ -155,7 +155,11 @@ Nota importante: Este tiempo límite aplica solo a la carga inicial del código 
             onStart: () => {
               console.log(`[Worker ${botId}] Bot started!`);
             },
-            allowed_updates: ["message", "callback_query"], // Optional: specific updates
+            // `poll_answer` is only delivered when it is listed here, and it is
+            // the only way a bot can watch the votes of a poll it created
+            // (Telegram never lets a bot read a foreign poll). `poll` is included
+            // so a bot can at least explain why it cannot read someone else's.
+            allowed_updates: ["message", "callback_query", "poll", "poll_answer"],
             // Arranque en caliente (reinicio por cambio de configuración de un bot que ya
             // estaba arriba): NO se descartan las actualizaciones pendientes para no perder
             // los mensajes de los usuarios llegados durante la ventana de parada/arranque.

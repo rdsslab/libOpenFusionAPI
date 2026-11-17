@@ -520,6 +520,22 @@ async function runAllTests() {
         command: "node",
         args: ["appvar_end_to_end_test.js"],
       },
+      {
+        // Puro: el "arnes" que antes vivia dentro del bot de Telegram ahora es un
+        // modulo de la plataforma (agentKit). Cubre las decisiones deterministas
+        // (cuando buscar en la web, recaps de historial/web, medios ausentes), la
+        // lectura de documentos en memoria (PDF, DOCX, texto, formatos no
+        // soportados), los registros de STT/TTS con sus `userMessage`, los parsers
+        // de busqueda y el contrato `ok:false`, la extraccion de fotogramas con
+        // ffmpeg (si esta instalado) y `askAgent` de punta a punta contra un
+        // servidor OpenAI-compatible falso: imagenes, bucle de tools, pre-busqueda
+        // determinista, inyeccion de documentos y deduplicado one-shot. Tambien
+        // fija que los helpers quedan expuestos en functionVars y que las
+        // conversiones de imagen de ia.js (OpenAI/Anthropic/Gemini) no se rompen.
+        label: "agentkit_test.js",
+        command: "node",
+        args: ["agentkit_test.js"],
+      },
     ];
 
     // Se recorren TODAS las suites aunque alguna falle: con `break` en el primer
