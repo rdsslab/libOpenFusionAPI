@@ -57,10 +57,11 @@ see [MIGRATION.md](./MIGRATION.md).
 
 - **Documentacion del Agent Kit**: las 7 librerias del kit tenian metadata completa en `functionVars.js` pero **no existia ninguna pagina de documentacion**, asi que `GET /api/handler/js/libraries?handler=JS` seguia listando 84 librerias sin el kit y ningun agente podia descubrirlo. Ahora `npm run docs:js-api` genera `agentKit.md`, `askAgent.md`, `webSearch.md`, `readDocument.md`, `transcribeAudio.md`, `synthesizeSpeech.md`, `extractVideoFrames.md` y `describeMediaSupport.md`, y el indice los lista.
 - **Seccion "Agent Kit" en `src/docs/handlers/JS/AI_SKILL.md`**: tabla de los helpers con nombre, ejemplo de uso (leer un PDF en memoria y responder con el modelo) y las reglas que un agente necesita: procesamiento enteramente en memoria, providers explicitos (el kit nunca lee credenciales de la base por su cuenta), forma del resultado de `readDocument` (`ok`, `kind`, `text`, `truncated`, `pages`, `chars`) y `userMessage`/`code` en los errores (`PDF_NO_TEXT`, `FFMPEG_FAILED`).
+- **Pagina de la landing regenerada** con la version 14.3.1 (`www/index.html`).
 
 ### Fixed
 
-- **El numero de version es la senal que usa npm para mover una dependencia git**. `caafe99` (el fix del CI) y `deb70c4` (el release 14.3.0) tienen la misma version, asi que `npm update` no movia el SHA fijado en el lockfile del wrapper y el despliegue se quedaba en el commit anterior. Con este parche (14.3.1) la comparacion de versiones si detecta el cambio y el lockfile se actualiza al reconstruir la imagen.
+- **Por que el despliegue del servidor `.126` se habia quedado en `deb70c4` y no en `caafe99`** (el fix del CI, con la descripcion MCP corregida de `list_async_jobs`). La causa **no** era npm: se verificó con un repositorio git de prueba y con el repositorio real que `npm update` mueve el SHA de una dependencia git **aunque la version no cambie**, asi que el lockfile fijado no era un obstaculo. El motivo real es de orden temporal: la imagen del servidor se construyo a las **05:42:46 UTC**, y `caafe99` se publico a las **05:58:18 UTC**, quince minutos despues. La imagen no podia contener un commit que todavia no existia, y por eso el seed (que se re-aplica en cada arranque) seguia escribiendo la descripcion antigua. Este parche (14.3.1) hace visible el cambio de version y arrastra el lockfile del wrapper al commit nuevo, de modo que la proxima imagen lo incluye.
 
 ### Verified
 
