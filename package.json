@@ -61,7 +61,7 @@
     "@fastify/websocket": "^11.2.0",
     "@google/genai": "^1.36.0",
     "@modelcontextprotocol/sdk": "^1.24.3",
-    "@rdsslab/agentkit": "git+https://github.com/rdsslab/libAgentKit.git#eda22970f59b860764ac9c9fed2bfedd08ccbd82",
+    "@rdsslab/agentkit": "git+https://github.com/rdsslab/libAgentKit.git#f6bc001b83bb9a83cf343c9dc75ce3461891cded",
     "@rdsslab/sequential-promises": "git+https://github.com/rdsslab/sequential-promises.git",
     "@rdsslab/uFetch": "git+https://github.com/rdsslab/uFetch.git",
     "@sap/hana-client": "^2.22.32",
