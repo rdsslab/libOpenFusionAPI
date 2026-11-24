@@ -45,7 +45,7 @@ function esc(s) {
 const pkg = readPackageJson();
 const repoUrl = normalizeRemote(pkg.repository);
 const issuesUrl = GITHUB_ISSUES;
-const versionMajor = 14;
+const versionMajor = Number.parseInt(pkg.version.split(".")[0], 10) || 14;
 
 const ICONS = {
   bolt:
@@ -1004,13 +1004,8 @@ async function generateFavicon() {
   }
 }
 
-fs.mkdirSync(OUT_DIR, { recursive: true });
-fs.writeFileSync(OUT_FILE, html, "utf8");
-console.log(`Index generated at: ${OUT_FILE}`);
-
-await generateFavicon();
-
 if (process.argv.includes("--check")) {
+  // Modo solo lectura: un `check` no debe reescribir la landing ni el favicon.
   const required = [
     esc(pkg.name),
     esc(pkg.version),
@@ -1024,5 +1019,18 @@ if (process.argv.includes("--check")) {
     console.error(`Validation failed. Missing in output: ${missing.join(", ")}`);
     process.exit(1);
   }
-  console.log("Validation passed: generated index includes expected metadata and working links.");
+  const current = fs.existsSync(OUT_FILE) ? fs.readFileSync(OUT_FILE, "utf8") : null;
+  if (current !== html) {
+    console.error(
+      `${OUT_FILE} is out of date (generated from package.json ${pkg.version}). ` +
+        "Run 'npm run www:generate' and commit the result.",
+    );
+    process.exit(1);
+  }
+  console.log("Validation passed: www/index.html matches the generator and includes the expected metadata and links.");
+} else {
+  fs.mkdirSync(OUT_DIR, { recursive: true });
+  fs.writeFileSync(OUT_FILE, html, "utf8");
+  console.log(`Index generated at: ${OUT_FILE}`);
+  await generateFavicon();
 }

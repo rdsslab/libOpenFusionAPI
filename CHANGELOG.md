@@ -22,19 +22,19 @@ see [MIGRATION.md](./MIGRATION.md).
 
 ### Added
 
-- **Encriptación obligatoria de AppVars**: todos los valores de Application Variables se almacenan encriptados con AES-256-GCM usando la variable de entorno `APPVAR_ENCRYPTION_KEY` (obligatoria). Los backups exportan valores encriptados por defecto. El valor plano solo se expone con autorización explícita (`plaintext_authorized=true`).
-  - Nuevo modelo: campo `valueEncrypted` es el campo principal
-  - Campo `value` antiguo eliminado después de migración automática
-  - Variable `APPVAR_ENCRYPTION_KEY` obligatoria al arranque (la app no arranca sin ella)
-  - Migración automática en primer arranque
-  - Referencia: [Issue #1](https://github.com/rdsslab/libOpenFusionAPI/issues/1)
 - **JS Handler – soporte `ffmpeg`/`ffprobe`**: nuevos helpers seguros `ffmpeg.run(args, options?)` y `ffprobe.run(args, options?)` expuestos en `functionVars` (sandbox de handlers JS). Ejecutan los binarios del sistema con `child_process.spawn` (`shell:false`, whitelist `ffmpeg|ffprobe`, `args: string[]`) para evitar inyección de comandos y desbordes de buffer de `exec` ante la salida verbosa de ffmpeg; capturan `stdout/stderr` con límites configurables, timeout y sin callbacks de streaming/progreso. Si el binario no está instalado en `PATH`, `run()` rechaza con error `ENOENT` claro. Documentación autogenerada para humanos/agentes (`src/docs/handlers/JS/libraries/ffmpeg.md`, `ffprobe.md`, índice) y mención en `src/docs/handlers/JS/README.md`. Prueba E2E: `dev/test/ffmpeg_functionvars_test.js`.
+
+### Proposed (not implemented)
+
+- **Encriptación de AppVars (propuesta pendiente)**: el [feature request](./.github/ISSUE_TEMPLATE/appvars_encryption_feature_request.md) y [Issue #1](https://github.com/rdsslab/libOpenFusionAPI/issues/1) describen AES-256-GCM con una clave `APPVAR_ENCRYPTION_KEY` por entorno, campo `valueEncrypted`, backups cifrados por defecto y `plaintext_authorized=true` para migraciones. **Nada de esto está en el código actual**: los AppVars se guardan y se exportan en texto plano, la clave no existe y el servidor arranca sin ella. No configurar `APPVAR_ENCRYPTION_KEY` esperando que cifre nada.
 
 ### Changed
 
-- **Variable de entorno obligatoria**: `APPVAR_ENCRYPTION_KEY` ahora es requerida. Genera una clave única por entorno con: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
+- **Documentación de AppVars corregida**: `README.md` y `env.example` ya no afirman que la encriptación esté implementada ni que `APPVAR_ENCRYPTION_KEY` sea obligatoria. El link roto a `ENCRYPTION_APPROACH.md` apunta ahora al feature request existente.
 
 ### Fixed
+
+- **Generador de la landing (`scripts/generate-index-html.js`) restaurado**: el archivo estaba borrado pero `package.json` sigue referenciándolo en `www:generate` / `www:check`. Además, `--check` ya no reescribe `www/index.html` ni `www/favicon.png` (solo valida y detecta desincronización) y la versión mayor del badge se deriva de `package.json` en vez de estar fija en 14.
 
 - **CI "MCP Docs Contract" en verde (llevaba rojo en todos los pushes desde v14.1.2)**: los 3 hallazgos que lo bloqueaban eran del auditor, no del contrato.
   - `list_async_jobs`: su descripción MCP empezaba por `"READ ONLY."` en vez de `"READ ONLY:"`, el único prefijo mal formado entre las 50 tools de lectura. Ahora usa el encabezado estándar (`READ ONLY: This tool does not modify persistent data.` + `Usage:`), que es el que leen los agentes. El seed se re-aplica en cada arranque, así que la descripción corregida llega sola a los despliegues existentes.
@@ -43,11 +43,7 @@ see [MIGRATION.md](./MIGRATION.md).
 
 ### Migration
 
-- **Para producción**: 
-  1. Generar `APPVAR_ENCRYPTION_KEY` único por entorno
-  2. Levantar la app - migración automática
-  3. Verificar que todos los AppVars estén encriptados
-  4. Actualizar procedimientos de backup/restore
+- **No hay migración de encriptación pendiente**: la propuesta de AppVars cifrados aún no está implementada, así que no hay clave que generar ni columna que migrar. Cuando se implemente, esta sección documentará el procedimiento.
 
 ---
 

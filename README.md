@@ -85,6 +85,7 @@ For AI workflows, the speed gain is even more pronounced:
 - [Creating Endpoints](./src/docs/endpoint/README.md)
 - [Handler Reference](./src/docs/handlers/README.md)
 - [Auth & Users (login, password recovery, admin reset)](./src/docs/auth/USER_RECOVERY.md)
+- [AppVars encryption (proposed, not implemented)](./.github/ISSUE_TEMPLATE/appvars_encryption_feature_request.md)
 - [Internal flow diagrams (Mermaid, human reference)](./src/docs/flows/README.md)
 - [Documentation System Architecture](./src/docs/DOCUMENTATION_SYSTEM_REPORT.md)
 
@@ -279,6 +280,8 @@ Copy [.env.example](.env.example) to `.env` and adjust the values for your setup
 | `OFAPI_RESTORE_CONCURRENCY` | Writes `saveAppWithEndpoints` may have in flight (app vars, endpoints, endpoint backups, bots, interval tasks). The limit has to be the platform's, not the caller's: too high is what produces the MSSQL deadlock (error 1205) between two MERGE statements | `4` | No |
 | `OFAPI_TASK_BATCH_SIZE` | Due interval tasks fetched per scheduler cycle. Bounds the size of a single query, not the start of any task: a full batch is drained immediately, so a task that does not fit goes into the next batch, which leaves right away | `200` | No |
 | `TIME_SYNC_ENABLED` | Enable external clock-drift correction for JWT `iat`/`exp`/`nbf`, for hosts whose system clock cannot be trusted | `false` | No |
+| `APPVAR_ENCRYPTION_KEY` | **Proposed, not implemented.** Intended master key (64 hex chars) for encrypting AppVars at rest. Current code ignores it: the server does not require it and AppVars are stored in plaintext. Design: [feature request](./.github/ISSUE_TEMPLATE/appvars_encryption_feature_request.md) | — | No |
+| `BACKUP_ENCRYPT_VALUES` | **Proposed, not implemented.** Intended switch for encrypted AppVar values in backups. Current backups always export plaintext values. | — | No |
 
 ## 🔄 Recommended Creation Flow
 
@@ -304,7 +307,13 @@ For AI agents, the intended operating model is:
 OpenFusionAPI also supports recurring task automation. An interval task schedules an **existing** endpoint to run unattended, on a fixed interval or on a cron expression with a timezone and an execution window. Agents and operators manage them with the system tools `get_interval_task_skill` (the full contract and diagnostics runbook), `list_interval_tasks` and `get_interval_task_runs` (read), and `upsert_interval_task`, `run_interval_task_now`, `reset_interval_task_attempts` and `delete_interval_task` (writes require explicit authorization). See [src/docs/interval_tasks/](src/docs/interval_tasks/). Tasks that must not overlap can share an `exclusive_group` (`skip` or `wait` policy), and an endpoint marked `exclusive` serializes every caller with `409 ENDPOINT_LOCKED`; both are opt-in and covered in the same guide.
 
 That workflow lets an agent create usable services with minimal or no handwritten code, which is one of the main reasons OpenFusionAPI can dramatically accelerate service deployment.
- 
+
+## 🔐 AppVars & Security
+
+**Current behavior:** AppVar values are stored in the database in plaintext and backups export them in plaintext. There is no encryption key, no `valueEncrypted` column and no `plaintext_authorized` parameter in the running code. Treat AppVars as sensitive data and protect the database and backups accordingly.
+
+**Proposed (not implemented):** AES-256-GCM encryption at rest with a per-environment `APPVAR_ENCRYPTION_KEY`, a `valueEncrypted` field, encrypted backups by default and an explicit `plaintext_authorized=true` escape hatch for migrations. See the [feature request](./.github/ISSUE_TEMPLATE/appvars_encryption_feature_request.md) and [Issue #1](https://github.com/rdsslab/libOpenFusionAPI/issues/1). Do not configure `APPVAR_ENCRYPTION_KEY` expecting encryption today: it has no effect.
+
 ---
 
 <p align="center"><strong>OpenFusion API — Build smarter, faster, and more scalable APIs.</strong></p>
