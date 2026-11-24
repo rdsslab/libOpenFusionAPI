@@ -2,22 +2,25 @@
 
 # `agentKit([(namespace)])`
 
-[External Documentation](https://github.com/rdsslab/libOpenFusionAPI) 
+[External Documentation](https://github.com/rdsslab/libAgentKit) 
 
-Full agent-kit namespace: `askAgent`, `webSearch`, `extractDocumentText`, `createSpeechToText`, `createTextToSpeech`, `extractVideoFrames`, `describeMediaSupport`, policy helpers (`looksLikeWebQuery`, `formatWebRecap`, `mergeQuoted`...), buffer helpers and media-provider registries.
+Full `@rdsslab/agentkit` namespace: `askAgent`, `AgentSession`, `askAgentText`, `webSearch`, `extractDocumentText`, `createSpeechToText`, `createTextToSpeech`, `extractVideoFrames`, `describeMediaSupport`, plus `MemoryStore`, `createOllamaTokenCounter`, `checkGrounding`, capability/compaction/config helpers, policy helpers (`looksLikeWebQuery`, `formatWebRecap`, `mergeQuoted`...), buffer helpers and media-provider registries.
 
 **Notes**
 
-- Prefer the named helpers (`askAgent`, `webSearch`, `readDocument`...) for readability; the namespace is the escape hatch for policy/buffer utilities.
+- Prefer the named helpers (`askAgent`, `AgentSession`, `webSearch`, `readDocument`...) for readability; the namespace is the escape hatch for policies, memory, compaction, config and buffer utilities.
 - Everything is provider-agnostic and independent of bots, HTTP or the database.
+- The provider layer is re-exported by the platform from `src/lib/server/ia.js`. In agentkit 0.4.0 the `./ia` subpath is not declared in `exports`, so do not import `@rdsslab/agentkit/ia` directly; use the platform re-export.
 
 **Agent Guidance**
 
 - Use the policy helpers to decide when to search or when a message needs media, before spending a model call.
+- Use `agentKit.MemoryStore`, `agentKit.createOllamaTokenCounter()` and `agentKit.checkGrounding()` for deterministic memory, context verification and source checking.
+- Use `agentKit.createAgentSession(options)` when a factory is more convenient than `new agentKit.AgentSession(options)`.
 
 **Parameters**
 
-*   `(namespace)` <object> **Optional**. Access members directly, e.g. `agentKit.looksLikeWebQuery(text)` or `agentKit.toDataUrl(buffer, 'image/png')`.
+*   `(namespace)` <object> **Optional**. Access members directly, e.g. `agentKit.looksLikeWebQuery(text)`, `agentKit.toDataUrl(buffer, 'image/png')` or `new agentKit.AgentSession({ provider })`.
 
 *   Returns: <object> Module namespace with every exported helper.
 
@@ -29,6 +32,8 @@ if (agentKit.looksLikeWebQuery(userText)) {
   const query = agentKit.cleanWebQuery(userText);
   // ...
 }
+
+const session = agentKit.createAgentSession({ provider });
       
 ```
 

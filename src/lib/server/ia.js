@@ -7,5 +7,7 @@
  * tests use (`__internalIAForTests`).
  */
 
-export * from "@rdsslab/agentkit/ia";
-export { default } from "@rdsslab/agentkit/ia";
+// El paquete 0.4.0 no declara el subpath "./ia" en `exports`, así que se importa
+// por su ruta real dentro del paquete. La API de este archivo no cambia.
+export * from "@rdsslab/agentkit/src/ia.js";
+export { default } from "@rdsslab/agentkit/src/ia.js";

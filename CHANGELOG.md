@@ -29,8 +29,12 @@ see [MIGRATION.md](./MIGRATION.md).
   - Migración automática en primer arranque
   - Referencia: [Issue #1](https://github.com/rdsslab/libOpenFusionAPI/issues/1)
 - **JS Handler – soporte `ffmpeg`/`ffprobe`**: nuevos helpers seguros `ffmpeg.run(args, options?)` y `ffprobe.run(args, options?)` expuestos en `functionVars` (sandbox de handlers JS). Ejecutan los binarios del sistema con `child_process.spawn` (`shell:false`, whitelist `ffmpeg|ffprobe`, `args: string[]`) para evitar inyección de comandos y desbordes de buffer de `exec` ante la salida verbosa de ffmpeg; capturan `stdout/stderr` con límites configurables, timeout y sin callbacks de streaming/progreso. Si el binario no está instalado en `PATH`, `run()` rechaza con error `ENOENT` claro. Documentación autogenerada para humanos/agentes (`src/docs/handlers/JS/libraries/ffmpeg.md`, `ffprobe.md`, índice) y mención en `src/docs/handlers/JS/README.md`. Prueba E2E: `dev/test/ffmpeg_functionvars_test.js`.
+- **JS Handler – `AgentSession` y contrato actualizado de `askAgent`**: `functionVars` expone `AgentSession` (conversaciones multi-turno con historial propio, memoria híbrida, compactación de contexto y eventos `onEvent`) y la metadata de `askAgent` ahora refleja el contrato de `@rdsslab/agentkit` 0.4.0: `attachments`, `media`, `config`, `approveToolCall`, `webSearchFn`, streaming (`onTextDelta`/`onThinking`/`onToolStart`/`onToolFinish`), capacidades, presupuesto de contexto y el envelope con `media`, `mode`, `usage`, `injectedContextChars` e `injectedContext`. Documentación para agentes (`AI_SKILL.md`) y para humanos (`README.md` + páginas autogeneradas `libraries/AgentSession.md` y `libraries/askAgent.md`).
 
 ### Changed
+
+- **Dependencia `@rdsslab/agentkit` fijada al commit `eda2297`** (v0.4.0 + sesiones, memoria híbrida, medios nativos y guía de API). El commit ya está publicado en `rdsslab/libAgentKit` (`main`), verificado con una instalación limpia desde cero.
+- **`src/lib/server/ia.js` importa `@rdsslab/agentkit/src/ia.js`**: la versión 0.4.0 del paquete no declara el subpath `./ia` en `exports`, así que se usa la ruta real del archivo. La API pública de `ia.js` no cambia.
 
 - **Variable de entorno obligatoria**: `APPVAR_ENCRYPTION_KEY` ahora es requerida. Genera una clave única por entorno con: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
 
@@ -40,6 +44,15 @@ see [MIGRATION.md](./MIGRATION.md).
   - `list_async_jobs`: su descripción MCP empezaba por `"READ ONLY."` en vez de `"READ ONLY:"`, el único prefijo mal formado entre las 50 tools de lectura. Ahora usa el encabezado estándar (`READ ONLY: This tool does not modify persistent data.` + `Usage:`), que es el que leen los agentes. El seed se re-aplica en cada arranque, así que la descripción corregida llega sola a los despliegues existentes.
   - Falsos positivos de referencias cruzadas: el auditor confundía con nombres de tool unas columnas del modelo citadas en la prosa. `exclusive_group` es una columna del modelo de interval task (en `upsert_interval_task` es parámetro de entrada, por eso esa tool no se marcaba) y `user_agent`, `req_headers`, `res_headers` y `response_data` son columnas de las filas de `ofapi_log`. Se declaran en `DOMAIN_IDENTIFIERS`, que es la lista de identificadores del dominio exentos de esa regla, sin tocar la prosa que ve el agente.
   - La landing page (`www/index.html`) se regenera con el branding de v14.3.0 (el número de versión estaba en v14.2.1 desde 14.2.2).
+
+### Verified
+
+- `dev/test/agentkit_test.js`, `dev/test/bot_v225_kit_contract_test.js` y
+  `dev/test/bot_v225_sandbox_load_test.js` en verde con el kit 0.4.0; las aserciones de
+  `agentkit_test.js` se ajustaron al contrato actual (`cleanWebQuery` centrado en entidades,
+  recaps en inglés, `video` en `describeMediaSupport`, errores de búsqueda con fallback y logs
+  de herramientas bajo `diagnostics`).
+- `npm run docs:js-api:check` (94 archivos) y `npm run docs:handlers:validate` en verde.
 
 ### Migration
 

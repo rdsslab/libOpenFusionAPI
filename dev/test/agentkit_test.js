@@ -348,7 +348,7 @@ async function main() {
     assert.equal(looksLikeWebQuery("cual es el precio del dolar hoy"), true);
     assert.equal(looksLikeWebQuery("hola, como estas"), false);
     assert.equal(cleanWebQuery("Busca en internet quien es X"), "quien es X");
-    assert.equal(cleanWebQuery("investiga en google la capital de Francia"), "la capital de Francia");
+    assert.equal(cleanWebQuery("investiga en google la capital de Francia"), "Francia capital");
 
     assert.equal(pickWebQuery({ ownText: "busca en la web el clima", quotedText: "otra cosa" }), "el clima");
     assert.equal(pickWebQuery({ ownText: "responde a este mensaje", quotedText: "busca en internet el dolar" }), "el dolar");
@@ -363,7 +363,7 @@ async function main() {
       query: "clima quito",
       results: [{ title: "Clima", url: "https://example.com", snippet: "22 grados" }],
     });
-    assert.match(recap, /RESULTADOS DE BUSQUEDA WEB/);
+    assert.match(recap, /WEB SEARCH RESULTS/);
     assert.match(recap, /22 grados/);
 
     const trimmed = trimWebResults({ ok: true, source: "ddg", results: [{ title: "T", url: "u", snippet: "s" }] });
@@ -372,7 +372,7 @@ async function main() {
     const history = formatHistoryRecap({
       results: [{ created_at: "2026-01-01", role: "user", kind: "photo", content: "foto de la gallina" }],
     });
-    assert.match(history, /HISTORIAL/);
+    assert.match(history, /PREVIOUS MESSAGES/);
     assert.match(history, /gallina/);
 
     assert.equal(looksLikeMissingMedia("analiza esta imagen"), true);
@@ -477,6 +477,11 @@ async function main() {
       {
         images: true,
         videoFrames: true,
+        video: {
+          frames: true,
+          native: false,
+          strategies: ["frames+stt", "frames", "stt"],
+        },
         transcription: { available: true, providers: ["local"] },
         speech: { available: true, providers: ["supertonic"] },
       },
@@ -637,7 +642,11 @@ async function main() {
     });
     assert.equal(failed.ok, false);
     assert.deepEqual(failed.results, []);
-    assert.equal(failed.errors.length, 2);
+    // 0.4.0 also tries the built-in engines before giving up, so the list can
+    // contain more errors than the explicitly configured providers.
+    assert.ok(failed.errors.some((error) => error.startsWith("a: ")));
+    assert.ok(failed.errors.some((error) => error.startsWith("b: ")));
+    assert.ok(Array.isArray(failed.providersTried));
 
     await assert.rejects(() => webSearch(""), /A search query is required/);
 
@@ -760,7 +769,7 @@ async function main() {
     assert.equal(preSearched.webSource, "duckduckgo");
     assert.equal(preSearched.webQuery, "el clima en quito para manana");
     assert.equal(preSearched.webResults.length, 2);
-    assert.match(JSON.stringify(openai.requests.at(-1).body.messages), /RESULTADOS DE BUSQUEDA WEB/);
+    assert.match(JSON.stringify(openai.requests.at(-1).body.messages), /WEB SEARCH RESULTS/);
     assert.match(JSON.stringify(openai.requests.at(-1).body.messages), /22 grados/);
     checks.agentPreSearch = true;
   } finally {
@@ -782,13 +791,16 @@ async function main() {
       tools: { web_search: true },
       preSearch: false,
       webSearch: { fetchImpl: async () => makeFakeResponse({ contentType: "text/html", body: DDG_HTML }) },
+      includeDiagnostics: true,
     });
 
     assert.equal(result.text, "El clima en Quito es soleado (segun la busqueda).");
     assert.equal(result.hasTools, true);
-    assert.equal(result.toolExecutions.length, 1);
-    assert.equal(result.toolExecutions[0].tool, "web_search");
-    assert.equal(result.toolExecutions[0].ok, true);
+    // 0.4.0 only exposes the detailed execution log under diagnostics.
+    const executions = result.diagnostics?.toolExecutions || [];
+    assert.equal(executions.length, 1);
+    assert.equal(executions[0].toolName, "web_search");
+    assert.equal(executions[0].isError, false);
 
     const toolMessage = toolServer.requests.at(-1).body.messages.find((message) => message.role === "tool");
     assert.ok(toolMessage, "the tool result must be sent back to the model");
@@ -813,11 +825,13 @@ async function main() {
       tools: { web_search: true },
       preSearch: false,
       webSearch: { fetchImpl: async () => makeFakeResponse({ contentType: "text/html", body: DDG_HTML }) },
+      includeDiagnostics: true,
     });
 
     assert.equal(result.text, "fin");
-    assert.equal(result.toolExecutions.length, 2);
-    assert.equal(result.toolExecutions[1].deduplicated, true);
+    const oneShotExecutions = result.diagnostics?.toolExecutions || [];
+    assert.equal(oneShotExecutions.length, 2);
+    assert.equal(oneShotExecutions[1].deduplicated, true);
     const secondToolMessage = oneShotServer.requests.at(-1).body.messages
       .filter((message) => message.role === "tool")
       .at(-1);
@@ -859,6 +873,7 @@ async function main() {
     const listed = listFunctionsVars({ headers: {} }, { openfusionapi: {} }, "dev");
     for (const name of [
       "askAgent",
+      "AgentSession",
       "webSearch",
       "readDocument",
       "transcribeAudio",
@@ -873,6 +888,8 @@ async function main() {
     assert.equal(typeof listed.agentKit.fn, "object", "agentKit must be exposed as a namespace");
     assert.ok(listed.agentKit.description, "agentKit must document itself");
     assert.equal(typeof listed.agentKit.fn.askAgent, "function");
+    assert.equal(typeof listed.agentKit.fn.AgentSession, "function");
+    assert.equal(typeof listed.AgentSession.fn.prototype.ask, "function");
 
     const media = listed.describeMediaSupport.fn({ stt: { local: { type: "openai" } }, tts: {} });
     assert.equal(media.transcription.available, true);

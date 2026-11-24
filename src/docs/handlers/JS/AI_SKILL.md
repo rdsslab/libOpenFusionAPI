@@ -62,7 +62,8 @@ independent of any bot, HTTP layer or database, and it is available in bot sandb
 
 | Helper | What it does |
 | --- | --- |
-| `askAgent(options)` | Runs an LLM turn with tool calls, optional pre-search and continuation. |
+| `askAgent(options)` | Runs **one stateless** LLM turn with tools, deterministic pre-search, in-memory media/documents and a single result envelope. |
+| `AgentSession(options)` | Runs **multi-turn** conversations: owns history and memory, recalls past facts, compacts the context and emits events. |
 | `webSearch(options)` | Web search with a provider chain (DuckDuckGo → Bing → http-json). |
 | `readDocument(input, options)` | Extracts text from an in-memory PDF, DOCX or text file. |
 | `transcribeAudio(input, options)` | Speech to text through the configured STT providers. |
@@ -71,8 +72,15 @@ independent of any bot, HTTP layer or database, and it is available in bot sandb
 | `describeMediaSupport(options)` | Reports which media capabilities are available right now. |
 
 **`agentKit`** is the full namespace: use it for the policy helpers (`looksLikeWebQuery`,
-`cleanWebQuery`, `formatWebRecap`, `mergeQuoted`), the buffer helpers and the media-provider
-registries.
+`cleanWebQuery`, `formatWebRecap`, `mergeQuoted`), `MemoryStore`, `createOllamaTokenCounter`,
+`checkGrounding`, the buffer helpers and the media-provider registries.
+
+`askAgent()` does not remember anything between calls: re-send `messages`/`history` or use
+`AgentSession`. A session keeps the history inside the instance, searches it with hybrid
+memory (lexical always, cosine when embeddings are available), compacts at a configurable
+share of the context window and reports every step through one `onEvent({ type, at, turn, ... })`
+callback. Pass `eventLevel: 'compact'` when the endpoint only needs milestones (`done`,
+`recall`, `compaction_*`, `error`); the default `full` forwards every streaming delta.
 
 ```javascript
 // Read a PDF that arrived as base64 and answer with the model.
@@ -90,6 +98,30 @@ const answer = await askAgent({
 $_RETURN_DATA_ = { chars: doc.chars, answer: answer.text };
 ```
 
+Multi-turn example (create the session inside the endpoint; it is not shared between requests):
+
+```javascript
+const events = [];
+const session = new AgentSession({
+  provider: {
+    provider: 'ollama',
+    model: 'llama3.2:3b',
+    baseUrl: OLLAMA_URL,
+    contextLength: 8192,
+  },
+  system: 'Answer briefly. Use the conversation history when it is relevant.',
+  memory: { mode: 'hybrid', topK: 5, budget: 1800 },
+  context: { thresholdPercent: 90 },
+  eventLevel: 'compact',
+  onEvent: (event) => events.push(event.type),
+});
+
+await session.ask('Hi, I am Ana');
+const reply = await session.ask('What is my name?');
+
+$_RETURN_DATA_ = { text: reply.text, events, stats: session.stats() };
+```
+
 **Rules**
 
 - Nothing is written to disk: documents, audio and video are processed entirely in memory.
@@ -101,6 +133,14 @@ $_RETURN_DATA_ = { chars: doc.chars, answer: answer.text };
   Check `truncated` and tell the caller when only part of the document was read.
 - Errors thrown by the kit carry a `userMessage` suitable for showing to an end user, next to
   the technical `message` and a `code` such as `PDF_NO_TEXT` or `FFMPEG_FAILED`.
+- `askAgent()` returns `text`, `usedWeb`, `webResults`, `documents`, `media`, `mode`,
+  `injectedContextChars` and `injectedContext` in one envelope. `usage` and detailed
+  `toolExecutions` are `null`/empty unless `includeDiagnostics: true` is set; keep diagnostics in
+  logs, not in the HTTP response.
+- Never pass `history`, `prompt`, `messages` or event callbacks to `session.ask()`: the session
+  owns them and ignores those keys. Use `session.ask(text, { recall: false })` to skip one lookup.
+- A session is process-local with in-memory `MemoryStore`: create it inside the endpoint and do
+  not promise recall across HTTP requests unless your own code persists and restores `history`.
 
 Full reference for each helper: `GET /api/handler/js/libraries?handler=JS&library=<name>`
 (or `agentKit` for the namespace).

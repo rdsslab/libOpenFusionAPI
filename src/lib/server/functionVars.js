@@ -715,6 +715,8 @@ export const listFunctionsVars = (request, reply, environment) => {
   const fnUrlae = new URLAutoEnvironment({ environment, port: PORT, headers });
 
   const own_repo = "https://github.com/rdsslab/libOpenFusionAPI";
+  const agentkit_repo = "https://github.com/rdsslab/libAgentKit";
+  const agentkit_api_guide = `${agentkit_repo}/blob/main/docs/AGENT_API_GUIDE.md`;
 
   const ofapi = {
     server: reply ? reply?.openfusionapi?.server : undefined,
@@ -3422,13 +3424,13 @@ $_RETURN_DATA_ = JSON.parse(result.stdout);
     askAgent: {
       fn: request && reply ? agentKit.askAgent : undefined,
       description:
-        "Provider-agnostic agent turn on top of `ia.js`. Adds deterministic web pre-search for weak models, local tools (including `web_search`), in-memory document injection, optional MCP servers, and returns a single envelope with the answer, search results and diagnostics. Works with Ollama, OpenAI-compatible providers, OpenRouter, DeepSeek, Anthropic and Gemini.",
-      web: own_repo,
+        "Stateless, provider-agnostic agent turn from `@rdsslab/agentkit`. Deterministic web pre-search, in-memory documents and media attachments, local tools, MCP servers with trust approvals, bounded context injections, grounding checks and optional streaming. Returns one consistent envelope across Ollama, OpenAI-compatible providers, OpenRouter, DeepSeek, Anthropic, Gemini, Groq, Mistral and xAI.",
+      web: agentkit_api_guide,
       params: [
         {
           name: "options.provider",
           description:
-            "Provider configuration (same shape as `askIAWithMCP`), or a preset name such as `ollama`, `openai`, `openai-compatible`, `openrouter`, `deepseek`, `anthropic` or `google-gemini`. Must include `model`.",
+            "Provider config accepted by the IA layer (or a preset name such as `ollama`, `openai`, `openai-compatible`, `openrouter`, `deepseek`, `anthropic`, `google-gemini`). Must include `model`; `contextLength` enables context budgeting. Use App Vars for base URLs and API keys.",
           required: true,
           type: "object|string",
         },
@@ -3452,7 +3454,7 @@ $_RETURN_DATA_ = JSON.parse(result.stdout);
         },
         {
           name: "options.history",
-          description: "Prior conversation, oldest first, prepended to `messages`.",
+          description: "Prior conversation, oldest first, prepended to `messages`. For multi-turn conversations prefer `AgentSession`, which owns the history.",
           required: false,
           type: "array<object>",
         },
@@ -3464,10 +3466,33 @@ $_RETURN_DATA_ = JSON.parse(result.stdout);
         },
         {
           name: "options.documents",
-          description:
-            "In-memory documents whose text is extracted and injected into the prompt. Accepts Buffers, base64, data URLs or `{ data, mimeType, fileName }`. Supported: PDF, DOCX and text formats.",
+          description: "In-memory documents whose text is extracted and injected into the prompt: Buffers, base64, data URLs or `{ data, mimeType, fileName }`. Supported: PDF, DOCX and text formats.",
           required: false,
           type: "array<any>",
+        },
+        {
+          name: "options.attachments",
+          description: "Unified media items `{ kind, data, mimeType, name }`; `kind` can be inferred from the MIME type. Images are native; documents are extracted to text; audio/video use STT or frames unless native media is declared on the provider.",
+          required: false,
+          type: "array<object>",
+        },
+        {
+          name: "options.media",
+          description: "Media processing options: `{ maxFrames, frameWidth, timeoutMs, language, onError, stt }`.",
+          required: false,
+          type: "object",
+        },
+        {
+          name: "options.config",
+          description: "Effective AgentKit config override. STT is read from `config.stt` or `config.media.stt`.",
+          required: false,
+          type: "object",
+        },
+        {
+          name: "options.configOptions",
+          description: "Options forwarded to `loadEffectiveConfig()` when `config` is absent. Pass an explicit config for reproducible runs.",
+          required: false,
+          type: "object",
         },
         {
           name: "options.tools",
@@ -3477,7 +3502,7 @@ $_RETURN_DATA_ = JSON.parse(result.stdout);
         },
         {
           name: "options.toolHandlers",
-          description: "Extra local tool handlers merged into `tools` (same shape as `askIAWithMCP`).",
+          description: "Extra local tool handlers merged into `tools` (same shape as `askIAWithProviderMCP`).",
           required: false,
           type: "object",
         },
@@ -3489,22 +3514,34 @@ $_RETURN_DATA_ = JSON.parse(result.stdout);
         },
         {
           name: "options.mcpServers",
-          description: "MCP servers connected for this turn, same shape as `askIAWithMCP`.",
+          description: "MCP servers connected for this turn. Supports HTTP and stdio transports plus `trusted`, `untrusted` and `disabled` levels.",
           required: false,
           type: "array<object>",
         },
         {
+          name: "options.approveToolCall",
+          description: "Hook `({ serverName, toolName, toolAlias, arguments }) => boolean|{approved}` required for tools of `untrusted` MCP servers. Without it those calls fail closed.",
+          required: false,
+          type: "function",
+        },
+        {
           name: "options.preSearch",
-          description: "Deterministic web search before the model: `\"auto\"` (default, only when the text asks for fresh data), `true`/`\"always\"` (always), or `false` (never).",
+          description: "Deterministic web search before the model: `\"auto\"` (default: explicit search requests and URLs), `true`/`\"always\"`, or `false` (never).",
           required: false,
           type: "boolean|string",
           default: "auto",
         },
         {
           name: "options.webSearch",
-          description: "Options forwarded to the search helper: `providers`, `maxResults`, `timeoutMs`, `fetchImpl`...",
+          description: "Options forwarded to `webSearch()`: `providers`, `maxResults`, `timeoutMs`, `maxInjectedContextChars`, `preSearch`...",
           required: false,
           type: "object",
+        },
+        {
+          name: "options.webSearchFn",
+          description: "Optional search function injected for tests/CI. Receives the merged web-search config (`query`, `maxResults`, `signal`...) and returns a `webSearch()`-shaped result.",
+          required: false,
+          type: "function",
         },
         {
           name: "options.maxToolRounds",
@@ -3515,9 +3552,44 @@ $_RETURN_DATA_ = JSON.parse(result.stdout);
         },
         {
           name: "options.includeDiagnostics",
-          description: "When true, the result includes full documents and the `ia.js` diagnostics object.",
+          description: "When true, returns full documents and the raw provider diagnostics (including `usage` and detailed `toolExecutions`) under `diagnostics`; the default path returns only the provider text and an empty `toolExecutions` summary.",
           required: false,
           type: "boolean",
+          default: false,
+        },
+        {
+          name: "options.autoCompact",
+          description: "Compact the supplied history before the provider call; useful when driving `askAgent()` directly with long histories.",
+          required: false,
+          type: "boolean|object",
+          default: false,
+        },
+        {
+          name: "options.compactionThresholdPercent",
+          description: "Estimated context usage that triggers compaction when `autoCompact` is enabled.",
+          required: false,
+          type: "number",
+          default: 25,
+        },
+        {
+          name: "options.compactionKeepLastMessages",
+          description: "Recent messages kept when compaction uses the truncate strategy.",
+          required: false,
+          type: "integer",
+          default: 12,
+        },
+        {
+          name: "options.compactionStrategy",
+          description: "Compaction strategy: `\"summary\"` (default) or `\"truncate\"`.",
+          required: false,
+          type: "string",
+          default: "summary",
+        },
+        {
+          name: "options.responseProcessing",
+          description: "Optional deterministic post-processing: repair partial output, extract code blocks, detect refusals and validate minimum content. Disabled by default for chat.",
+          required: false,
+          type: "boolean|object",
           default: false,
         },
         {
@@ -3526,31 +3598,101 @@ $_RETURN_DATA_ = JSON.parse(result.stdout);
           required: false,
           type: "AbortSignal",
         },
+        {
+          name: "options.onTextDelta",
+          description: "Optional streaming callback `(delta, meta) => void`. When present the provider uses its streaming path; without it the non-streaming path is unchanged.",
+          required: false,
+          type: "function",
+        },
+        {
+          name: "options.onThinking",
+          description: "Optional callback for real provider reasoning deltas (Ollama `thinking`, OpenAI `reasoning_content`, Anthropic/Gemini thinking parts).",
+          required: false,
+          type: "function",
+        },
+        {
+          name: "options.onToolStart",
+          description: "Optional observer invoked when a tool call starts.",
+          required: false,
+          type: "function",
+        },
+        {
+          name: "options.onToolFinish",
+          description: "Optional observer invoked when a tool call finishes.",
+          required: false,
+          type: "function",
+        },
+        {
+          name: "options.capabilities",
+          description: "Capability gates for tools. Missing categories are filled in; embedded hosts fail closed for `terminal` and `filesystem`. A per-tool override wins over its category.",
+          required: false,
+          type: "object",
+        },
+        {
+          name: "options.interactive",
+          description: "Marks an interactive host so capability defaults can enable terminal/filesystem tools. Keep false in HTTP handlers.",
+          required: false,
+          type: "boolean",
+          default: false,
+        },
+        {
+          name: "options.mode",
+          description: "Harness mode reported in the envelope, e.g. `\"build\"` (default) or `\"ask\"`.",
+          required: false,
+          type: "string",
+          default: "build",
+        },
+        {
+          name: "options.onUserInputRequest",
+          description: "Optional hook used by tools that need to ask the user a question in interactive hosts.",
+          required: false,
+          type: "function",
+        },
+        {
+          name: "options.usage",
+          description: "Whether to include provider token usage in the envelope when available.",
+          required: false,
+          type: "boolean",
+          default: true,
+        },
       ],
       return: {
         type: "object",
-        description: "Promise resolving to one envelope for every provider.",
+        description: "Promise resolving to the same envelope for every provider.",
         object: [
           { name: "text", type: "string", description: "Assistant answer." },
-          { name: "usedWeb", type: "boolean", description: "True when web results were injected into the prompt." },
-          { name: "webQuery", type: "string", description: "Query used by the deterministic pre-search." },
+          { name: "usedWeb", type: "boolean", description: "True when deterministic pre-search or a `web_search` tool result was injected." },
+          { name: "webQuery", type: "string", description: "Query used by the web search." },
           { name: "webResults", type: "array<object>", description: "Results `{ title, url, snippet }`." },
           { name: "webSource", type: "string|null", description: "Engine that answered the search." },
           { name: "webErrors", type: "array<string>", description: "Per-provider search errors, when any." },
-          { name: "documents", type: "array<object>", description: "Metadata of the injected documents." },
-          { name: "toolExecutions", type: "array<object>", description: "Summary `{ tool, server, ok, deduplicated }`." },
+          { name: "documents", type: "array<object>", description: "Injected document metadata (full text only with `includeDiagnostics`)." },
+          { name: "media", type: "object", description: "Normalized images/audio/video frames sent with the turn." },
+          { name: "toolExecutions", type: "array<object>", description: "Summary `{ tool, server, ok, deduplicated }`. With the default `includeDiagnostics: false` this array is empty; the detailed log lives in `diagnostics.toolExecutions` when diagnostics are requested." },
           { name: "hasTools", type: "boolean", description: "True when any tool was offered to the model." },
-          { name: "diagnostics", type: "object", description: "Full `ia.js` diagnostics when `includeDiagnostics` is true." },
+          { name: "mode", type: "string", description: "Effective harness mode." },
+          { name: "usage", type: "object|null", description: "Provider token usage when the provider layer exposes diagnostics; `null` on the default non-diagnostics path." },
+          { name: "injectedContextChars", type: "number", description: "Total characters injected from media, documents, web and tools." },
+          { name: "injectedContext", type: "object", description: "Character breakdown: `{ media, documents, web, tools }`." },
+          { name: "diagnostics", type: "object", description: "Raw `ia.js` diagnostics only when `includeDiagnostics` is true; includes full documents, `toolExecutions` and `usage`." },
+          { name: "incomplete/reason/compaction", type: "any", description: "Optional diagnostic flags for partial answers, stop reasons and compaction; present with `includeDiagnostics: true`." },
         ],
       },
       notes: [
-        "The deterministic pre-search fixes the common failure of small local models that answer \"no tengo acceso a internet\" even when a search tool is available.",
-        "Documents are extracted before the model call because JS handlers have no filesystem: pass the bytes, not a path.",
+        "`askAgent` is stateless: pass the full `messages`/`history` on every call, or use `AgentSession` for multi-turn conversations with recall and auto-compaction.",
+        "The deterministic pre-search fixes the common failure of small local models that answer \"no tengo acceso a internet\" even when a search tool is available. `preSearch: 'auto'` also detects URLs.",
+        "Documents and media are processed in memory because JS handlers have no filesystem: pass bytes or data URLs, not paths.",
+        "Web and tool recaps are capped to the free context of each turn; `injectedContext` reports the total and its breakdown by source.",
+        "MCP trust levels fail closed: `untrusted` tools need `approveToolCall`, and `disabled` servers are never connected.",
         "A `MediaProviderError`, `DocumentExtractionError` or `AgentError` carries a `userMessage` that can be shown to the end user verbatim.",
       ],
       agentGuidance: [
-        "Prefer `askAgent` over `askIAWithMCP` when you need web access or document reading: it does the plumbing for you.",
+        "Use `askAgent` for one isolated turn; use `AgentSession` when the answer depends on previous turns, recall or automatic compaction.",
+        "Prefer it over `askIAWithMCP` when you need web access, documents or media: it does the plumbing for you.",
         "Keep `maxToolRounds` low (2-4) for slow local models; each round is a full prompt processing pass.",
+        "Read provider URLs and keys from `$_APP_VARS_`; never take credentials from `request.body` or `request.query`.",
+        "For deterministic tests inject `webSearchFn` and pass an explicit `config`; do not depend on live search or host config files.",
+        "Return only `text` and small metadata to the caller. Keep `diagnostics` in logs, not in the HTTP response.",
       ],
       example: `
 const answer = await askAgent({
@@ -3558,14 +3700,145 @@ const answer = await askAgent({
     provider: 'ollama',
     model: 'llama3.2:3b',
     baseUrl: \$_APP_VARS_['\$_VAR_OLLAMA_URL'],
+    contextLength: 8192,
   },
-  system: 'Responde en espanol, breve.',
+  system: 'Responde en espanol, breve y sin inventar datos.',
   messages: [{ role: 'user', content: 'Busca el precio del dolar hoy' }],
   tools: { web_search: true },
   preSearch: 'auto',
+  maxToolRounds: 3,
 });
 
-\$_RETURN_DATA_ = { text: answer.text, usedWeb: answer.usedWeb };
+\$_RETURN_DATA_ = {
+  text: answer.text,
+  usedWeb: answer.usedWeb,
+  usage: answer.usage,
+};
+      `,
+    },
+    AgentSession: {
+      fn: request && reply ? agentKit.AgentSession : undefined,
+      description:
+        "Stateful, self-compacting conversation session from `@rdsslab/agentkit`. It owns the message history, searches it with hybrid memory (lexical always, cosine when embeddings are available), compacts at a configurable share of the context window and reports every meaningful step through a single `onEvent` callback. Use it for multi-turn endpoints; `askAgent` stays stateless.",
+      web: agentkit_api_guide,
+      params: [
+        {
+          name: "options.provider",
+          description: "Provider config passed to `askAgent()` (or a preset name). `contextLength` enables threshold events and automatic compaction.",
+          required: true,
+          type: "object|string",
+        },
+        {
+          name: "options.system",
+          description: "System prompt prepended to every turn. It survives compaction as part of the summary.",
+          required: false,
+          type: "string",
+        },
+        {
+          name: "options.onEvent",
+          description: "Callback `({ type, at, turn, ...data }) => void`. Types: `recall`, `context_warning`, `context_verified`, `context_overflow`, `compaction_start`, `compaction_end`, `grounding`, `thinking`, `answer_delta`, `answer_text`, `tool`, `done`, `error`, `reset`.",
+          required: false,
+          type: "function",
+        },
+        {
+          name: "options.memory",
+          description: "Memory config or an existing `MemoryStore`: `{ mode: 'hybrid', topK, budget, embeddings?, autoEmbeddings? }`. In-memory only; Ollama auto-configures `nomic-embed-text` unless disabled.",
+          required: false,
+          type: "object|MemoryStore",
+          default: "hybrid defaults",
+        },
+        {
+          name: "options.context",
+          description: "Context settings: `{ limit, thresholdPercent, maxSummaryChars, injectionBudgetRatio, compactionCooldownTurns, urgentCompactionPercent, verifyBandStartPercent, verifyBandEndPercent, countTokens }`.",
+          required: false,
+          type: "object",
+        },
+        {
+          name: "options.summarize",
+          description: "Optional `async (messages) => summary`. By default the summary is deterministic and makes no extra LLM call.",
+          required: false,
+          type: "function",
+        },
+        {
+          name: "options.countTokens",
+          description: "Optional exact counter `async ({ messages, text, system, provider, signal }) => { tokens }`. It runs only in the uncertainty band; `createOllamaTokenCounter()` is available in the `agentKit` namespace.",
+          required: false,
+          type: "function",
+        },
+        {
+          name: "options.eventLevel",
+          description: "`\"full\"` forwards every streaming delta; `\"compact\"` buffers them into a single `answer_text` event, emitted even when the provider sends no deltas.",
+          required: false,
+          type: "string",
+          default: "full",
+        },
+        {
+          name: "options.streaming",
+          description: "Enables streaming from the provider. Events still work when disabled.",
+          required: false,
+          type: "boolean",
+          default: true,
+        },
+        {
+          name: "...askAgentOptions",
+          description: "Every other `askAgent` option (`tools`, `toolHandlers`, `mcpServers`, `approveToolCall`, `webSearch`, `preSearch`, `capabilities`, etc.) is kept as a default for `session.ask()`. `history`, `prompt`, `messages` and callback options passed to `session.ask()` are ignored because the session owns them.",
+          required: false,
+          type: "object",
+        },
+      ],
+      return: {
+        type: "AgentSession",
+        description: "Session instance. `ask()` resolves to the full `askAgent()` envelope.",
+        object: [
+          { name: "ask(text, [options])", type: "function", description: "Runs one turn (recall, context check, optional compaction, model call, grounding) and returns the `askAgent()` envelope. Supports per-turn `provider`, `preSearch`, `attachments`, `signal` and `recall: false`." },
+          { name: "compact([options])", type: "function", description: "Manually compacts the history into one bounded summary and purges the memory index." },
+          { name: "reset([reason])", type: "function", description: "Clears history, turn counter and memory index, then emits a `reset` event." },
+          { name: "stats()", type: "function", description: "Returns turns, history size, memory stats, token calibration and last grounding." },
+          { name: "history / summary / turn / memory", type: "property", description: "Live conversation state, current flat summary, turn counter and `MemoryStore` instance." },
+        ],
+      },
+      notes: [
+        "After compaction the live history is exactly `[system, summary]`; older turns are dropped and the memory index is rebuilt with only that summary. Repeated compactions do not nest summaries.",
+        "Recall is triggered by Spanish/English recall phrasings; use `session.ask(text, { recall: false })` to skip the lookup for one turn.",
+        "The session is process-local: an HTTP endpoint should create it inside the handler. There is no database persistence unless the host exports/imports `history` itself.",
+        "With an Ollama provider and no explicit embedding config, `nomic-embed-text` is configured automatically; set `memory.autoEmbeddings: false` to opt out.",
+        "`eventLevel: 'compact'` is the right default for agents that only need milestones instead of a stream of deltas.",
+      ],
+      agentGuidance: [
+        "Use `AgentSession` when the user refers to previous turns ('what did we discuss', 'my name was...'); `askAgent` cannot do that without a manually rebuilt `history`.",
+        "Do not pass `history`, `prompt`, `messages` or event callbacks to `session.ask()`: the session owns them and ignores those keys.",
+        "Set `context.limit` (or a provider `contextLength`) so threshold warnings and compaction have a real budget; otherwise the session degrades silently.",
+        "Collect only `done`, `error`, `compaction_*` and `recall` events unless the caller needs live streaming; enable `eventLevel: 'compact'` for endpoints.",
+        "Do not store credentials or raw provider diagnostics in the session history or in the HTTP response; read secrets from `$_APP_VARS_`.",
+      ],
+      example: `
+const events = [];
+
+const session = new AgentSession({
+  provider: {
+    provider: 'ollama',
+    model: 'llama3.2:3b',
+    baseUrl: \$_APP_VARS_['\$_VAR_OLLAMA_URL'],
+    contextLength: 8192,
+  },
+  system: 'Responde en espanol, breve.',
+  memory: { mode: 'hybrid', topK: 5, budget: 1800 },
+  context: { thresholdPercent: 90 },
+  eventLevel: 'compact',
+  onEvent: (event) => {
+    if (event.type !== 'answer_delta') events.push(event.type);
+  },
+  tools: { web_search: true },
+});
+
+await session.ask('Hola, soy Ana');
+const reply = await session.ask('¿Cómo me llamo?', { recall: true });
+
+\$_RETURN_DATA_ = {
+  text: reply.text,
+  events,
+  stats: session.stats(),
+};
       `,
     },
     webSearch: {
@@ -4024,12 +4297,12 @@ const answer = await askAgent({
     agentKit: {
       fn: request && reply ? agentKit : undefined,
       description:
-        "Full agent-kit namespace: `askAgent`, `webSearch`, `extractDocumentText`, `createSpeechToText`, `createTextToSpeech`, `extractVideoFrames`, `describeMediaSupport`, policy helpers (`looksLikeWebQuery`, `formatWebRecap`, `mergeQuoted`...), buffer helpers and media-provider registries.",
-      web: own_repo,
+        "Full `@rdsslab/agentkit` namespace: `askAgent`, `AgentSession`, `askAgentText`, `webSearch`, `extractDocumentText`, `createSpeechToText`, `createTextToSpeech`, `extractVideoFrames`, `describeMediaSupport`, plus `MemoryStore`, `createOllamaTokenCounter`, `checkGrounding`, capability/compaction/config helpers, policy helpers (`looksLikeWebQuery`, `formatWebRecap`, `mergeQuoted`...), buffer helpers and media-provider registries.",
+      web: agentkit_repo,
       params: [
         {
           name: "(namespace)",
-          description: "Access members directly, e.g. `agentKit.looksLikeWebQuery(text)` or `agentKit.toDataUrl(buffer, 'image/png')`.",
+          description: "Access members directly, e.g. `agentKit.looksLikeWebQuery(text)`, `agentKit.toDataUrl(buffer, 'image/png')` or `new agentKit.AgentSession({ provider })`.",
           required: false,
           type: "object",
         },
@@ -4039,17 +4312,22 @@ const answer = await askAgent({
         description: "Module namespace with every exported helper.",
       },
       notes: [
-        "Prefer the named helpers (`askAgent`, `webSearch`, `readDocument`...) for readability; the namespace is the escape hatch for policy/buffer utilities.",
+        "Prefer the named helpers (`askAgent`, `AgentSession`, `webSearch`, `readDocument`...) for readability; the namespace is the escape hatch for policies, memory, compaction, config and buffer utilities.",
         "Everything is provider-agnostic and independent of bots, HTTP or the database.",
+        "The provider layer is re-exported by the platform from `src/lib/server/ia.js`. In agentkit 0.4.0 the `./ia` subpath is not declared in `exports`, so do not import `@rdsslab/agentkit/ia` directly; use the platform re-export.",
       ],
       agentGuidance: [
         "Use the policy helpers to decide when to search or when a message needs media, before spending a model call.",
+        "Use `agentKit.MemoryStore`, `agentKit.createOllamaTokenCounter()` and `agentKit.checkGrounding()` for deterministic memory, context verification and source checking.",
+        "Use `agentKit.createAgentSession(options)` when a factory is more convenient than `new agentKit.AgentSession(options)`.",
       ],
       example: `
 if (agentKit.looksLikeWebQuery(userText)) {
   const query = agentKit.cleanWebQuery(userText);
   // ...
 }
+
+const session = agentKit.createAgentSession({ provider });
       `,
     },
   };
