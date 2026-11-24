@@ -34,6 +34,7 @@ see [MIGRATION.md](./MIGRATION.md).
 
 ### Fixed
 
+- **`max_failed_attempts` por defecto alineado a `0` (nunca suspender)**: `src/lib/timer/schedule.js` y `src/docs/interval_tasks/manifest.json` ya usaban 0 desde v13.13.1, pero el `defaultValue` del modelo (`models.js`) y el `default` del schema de la tool (`default/system.js`) seguían en 10, y el test `interval_task_schedule_test.js` esperaba 10. Ahora los cuatro coinciden: una tarea sin el campo configurado no se suspende por acumular fallos; los valores positivos siguen suspendiendo al llegar al tope. La suite completa pasa 57/57.
 - **Generador de la landing (`scripts/generate-index-html.js`) restaurado**: el archivo estaba borrado pero `package.json` sigue referenciándolo en `www:generate` / `www:check`. Además, `--check` ya no reescribe `www/index.html` ni `www/favicon.png` (solo valida y detecta desincronización) y la versión mayor del badge se deriva de `package.json` en vez de estar fija en 14.
 
 - **CI "MCP Docs Contract" en verde (llevaba rojo en todos los pushes desde v14.1.2)**: los 3 hallazgos que lo bloqueaban eran del auditor, no del contrato.

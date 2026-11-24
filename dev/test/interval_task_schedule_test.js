@@ -57,16 +57,19 @@ assert.strictEqual(
   assert.strictEqual(shouldDisableForFailures({ max_failed_attempts: 0 }, 0), false);
   assert.strictEqual(shouldDisableForFailures({ max_failed_attempts: 0 }, 1), false);
   assert.strictEqual(shouldDisableForFailures({ max_failed_attempts: 0 }, 9999), false);
-  // Comportamiento previo conservado para los valores positivos y el default.
+  // Comportamiento previo conservado para los valores positivos.
   assert.strictEqual(shouldDisableForFailures({ max_failed_attempts: 3 }, 2), false);
   assert.strictEqual(shouldDisableForFailures({ max_failed_attempts: 3 }, 3), true);
   assert.strictEqual(shouldDisableForFailures({ max_failed_attempts: 3 }, 4), true);
+  // Sin configurar (o null) el default es 0 = nunca suspender, por muchos
+  // fallos que se acumulen. Coincide con schedule.js, models.js, el schema de
+  // la tool y default_max_failed_attempts en manifest.json.
+  assert.strictEqual(shouldDisableForFailures({}, 0), false);
   assert.strictEqual(shouldDisableForFailures({}, 9), false);
-  assert.strictEqual(shouldDisableForFailures({}, 10), true);
-  assert.strictEqual(shouldDisableForFailures({}, 11), true);
-  // null / indefinido siguen significando "sin configurar" -> 10.
-  assert.strictEqual(shouldDisableForFailures({ max_failed_attempts: null }, 10), true);
-  assert.strictEqual(shouldDisableForFailures({ max_failed_attempts: null }, 9), false);
+  assert.strictEqual(shouldDisableForFailures({}, 10), false);
+  assert.strictEqual(shouldDisableForFailures({}, 9999), false);
+  assert.strictEqual(shouldDisableForFailures({ max_failed_attempts: null }, 10), false);
+  assert.strictEqual(shouldDisableForFailures({ max_failed_attempts: null }, 9999), false);
 }
 
 // El backoff sigue duplicando con los valores por defecto.

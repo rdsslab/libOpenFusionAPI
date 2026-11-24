@@ -1849,7 +1849,7 @@ export const IntervalTask = dbsequelize.define(
     max_failed_attempts: {
       type: DataTypes.SMALLINT,
       allowNull: false,
-      defaultValue: 10,
+      defaultValue: 0,
       comment:
         "Fallos consecutivos antes de suspender la tarea automáticamente. El backoff espacia los reintentos hasta llegar aquí. 0 = nunca suspender automáticamente",
     },

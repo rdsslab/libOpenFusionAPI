@@ -7308,7 +7308,7 @@ export const system_app = {
               "max_failed_attempts": {
                 "type": "integer",
                 "minimum": 0,
-                "default": 10,
+                "default": 0,
                 "description": "Consecutive failures tolerated before the task is suspended automatically. Retries are spaced with exponential backoff up to 'max_backoff_seconds'. On reaching the limit the scheduler sets `disabled_by = 'system'` but leaves `enabled` (the user's intent) untouched. Use 0 to mean NEVER suspend the task automatically: it keeps running and keeps logging failures however many accumulate, which is what a monitoring task usually wants. Clear the counter and the suspension with 'reset_interval_task_attempts' after fixing the cause."
               },
               "backoff_enabled": {
