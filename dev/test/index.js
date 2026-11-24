@@ -126,6 +126,11 @@ async function runAllTests() {
         args: ["backup_restore_test.js"],
       },
       {
+        label: "appclient_backup_test.js",
+        command: "node",
+        args: ["appclient_backup_test.js"],
+      },
+      {
         label: "interval_task_upsert_test.js",
         command: "node",
         args: ["interval_task_upsert_test.js"],
