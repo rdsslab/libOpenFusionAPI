@@ -48,6 +48,25 @@ see [MIGRATION.md](./MIGRATION.md).
 
 ---
 
+## [14.4.0] - 2026-11-27
+
+### Added
+
+- **Telegram bots – superficie grammY completa**: `allowed_updates` suscribe los 29 tipos de `Update` de `@grammyjs/types` 5.2.0, incluidos `chat_member`, `message_reaction`, `message_reaction_count`, `inline_query`, `business_*`, pagos, boosts y `subscription`. Telegram excluye tres de ellos de su lista por defecto, por eso se declaran explícitamente. La lista y el namespace de plugins viven en `src/lib/server/bot-manager/telegramSandbox.js`.
+- **Telegram bots – plugins oficiales inyectados**: `grammyPlugins` expone `autoRetry`, `conversations`, `createConversation`, `Menu`, `I18n`, `fmt`, `hydrate`, `hydrateFiles`, `Router` y `emoji` desde los paquetes `@grammyjs/*`. El sandbox no tiene `require()`, así que antes no se podía usar ninguno. Se excluyen `@grammyjs/runner` y webhooks porque el worker posee el long polling.
+
+### Changed
+
+- **Telegram bots – init antes del código del bot**: el worker crea e inicializa `$BOT` con `bot.init()` antes de evaluar el script, por lo que `bot.botInfo` y `ctx.me` están disponibles al registrar handlers y `getMe()` se llama una sola vez. `drop_pending_updates` sigue siendo `true` en arranque frío y `false` en reinicio en caliente.
+- **Telegram bots – `catch` del usuario preservado**: un `$BOT.catch(...)` registrado por el código del bot se ejecuta antes del logger `BOT_ERROR` del runtime en vez de ser sobrescrito. El handler por defecto de grammY (que detiene el polling y relanza) nunca se encadena.
+- **Documentación de bots actualizada** para humanos y agentes: `providers/telegram/{README.md,examples.md,manifest.json,AI_SKILL.md}`, `bots/README.md`, `flows/BACKGROUND.md` y el comentario del bot del sistema. El skill servido por `get_bot_provider_skill` ya no dice que los otros tipos de update «nunca pueden dispararse» y documenta los requisitos de BotFather/permisos de administrador.
+
+### Added (tests)
+
+- `dev/test/bot_runtime_capabilities_test.js` verifica los 29 tipos de update, los plugins inyectados, el orden del `catch` encadenado, el aislamiento del sandbox y la sincronización con la documentación.
+
+---
+
 ## [14.3.4] - 2026-11-24
 
 ### Added

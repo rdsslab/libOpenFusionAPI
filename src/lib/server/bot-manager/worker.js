@@ -1,6 +1,7 @@
 import { parentPort, workerData } from "node:worker_threads";
 import vm from "node:vm";
 import * as grammyModule from "grammy";
+import { TELEGRAM_ALLOWED_UPDATES, grammyPlugins, chainErrorHandler } from "./telegramSandbox.js";
 import { functionsVars } from "../functionVars.js";
 import crypto from "node:crypto";
 
@@ -58,11 +59,6 @@ parentPort.on("message", async (message) => {
       const { token, code, botId, environment, app_env_vars, traceId, isRunningRestart } = message.payload;
       console.log(`[Worker ${botId}] Starting...`);
 
-      const defaults = {
-        grammy: grammyModule,
-        $BOT_TOKEN: token, // The bot code can access '$BOT_TOKEN' variable
-      };
-
       const mockRequest = {
         // El trace lo asigna el ciclo de vida para que los logs del arranque y los
         // `ofapi.log` del código del bot queden en el mismo trace. Fallback local
@@ -93,27 +89,45 @@ parentPort.on("message", async (message) => {
         }
       };
 
-      const sandbox = { ...defaults, ...functionsVars(mockRequest, mockReply, environment), ...app_env_vars };
+      // 1-3. Build the sandbox, context and wrapper. Everything stays inside the
+      // try below so a bad token is reported like any other startup error.
+      try {
+        // The runtime owns the Bot instance. Creating it before evaluating the
+        // code lets handlers read `bot.botInfo` / `ctx.me` at registration time
+        // and avoids a second getMe() later.
+        const bot = new grammyModule.Bot(token);
+        const defaults = {
+          grammy: grammyModule,
+          grammyPlugins,
+          $BOT: bot,
+          $BOT_TOKEN: token, // The bot code can access '$BOT_TOKEN' variable
+        };
 
-      // 2. Create Context
-      vm.createContext(sandbox);
+        const sandbox = { ...defaults, ...functionsVars(mockRequest, mockReply, environment), ...app_env_vars };
+        vm.createContext(sandbox);
 
-      // 3. Wrap the user code.
-      // We wrap their code to extract the 'bot' instance if they define it globally
-      const wrappedCode = `
-               
-// Instantiate the bot.
-    globalThis.$BOT = new grammy.Bot($BOT_TOKEN);
-    const $BOT = globalThis.$BOT;
+        // `$BOT` is injected in `defaults`; the local const keeps existing bot
+        // code unchanged.
+        const wrappedCode = `
+const $BOT = globalThis.$BOT;
 
 ${code}
+`;
 
+        // Remember a handler registered by the bot so the runtime can call it
+        // before its own BOT_ERROR logger instead of overwriting it.
+        let userErrorHandler = null;
+        const originalCatch = bot.catch.bind(bot);
+        bot.catch = (handler) => {
+          userErrorHandler = handler;
+          return originalCatch(handler);
+        };
 
+        // Validate token and fill bot.botInfo before the script runs.
+        console.log(`[Worker ${botId}] Validating bot connection and token...`);
+        await bot.init();
+        console.log(`[Worker ${botId}] Authenticated successfully as @${bot.botInfo?.username}`);
 
-            `;
-
-      // 4. Run Execution
-      try {
         const script = new vm.Script(wrappedCode);
         // Execute code.
         script.runInContext(sandbox, { timeout: 10000 }); // 10s timeout
@@ -126,10 +140,11 @@ Nota importante: Este tiempo límite aplica solo a la carga inicial del código 
         if (potentialBot && typeof potentialBot.start === "function") {
           activeBot = potentialBot;
 
-          // Handle bot errors to prevent crash
-          activeBot.catch((err) => {
+          // Handle bot errors to prevent a crash. A handler registered by the
+          // bot runs first; the runtime logger always runs after it.
+          const runtimeErrorHandler = async (err) => {
             console.error(`[Worker ${botId}] Bot Error (caught):`, err);
-            
+
             // In grammY, the thrown error is wrapped in err.error
             const innerError = err.error || err;
             const errorInfo = {
@@ -143,23 +158,23 @@ Nota importante: Este tiempo límite aplica solo a la carga inicial del código 
               botId,
               error: errorInfo
             });
-          });
+          };
 
-          // Validate token and connection before starting
-          console.log(`[Worker ${botId}] Validating bot connection and token...`);
-          const botInfo = await activeBot.api.getMe();
-          console.log(`[Worker ${botId}] Authenticated successfully as @${botInfo.username}`);
+          chainErrorHandler(
+            activeBot,
+            activeBot === bot ? userErrorHandler : null,
+            runtimeErrorHandler
+          );
 
           // Start the bot without handling signals (manager handles that)
           activeBot.start({
             onStart: () => {
               console.log(`[Worker ${botId}] Bot started!`);
             },
-            // `poll_answer` is only delivered when it is listed here, and it is
-            // the only way a bot can watch the votes of a poll it created
-            // (Telegram never lets a bot read a foreign poll). `poll` is included
-            // so a bot can at least explain why it cannot read someone else's.
-            allowed_updates: ["message", "callback_query", "poll", "poll_answer"],
+            // Full Update surface. Telegram silently excludes chat_member and
+            // both reaction updates from its default list, so all of them are
+            // listed explicitly. See TELEGRAM_ALLOWED_UPDATES above.
+            allowed_updates: [...TELEGRAM_ALLOWED_UPDATES],
             // Arranque en caliente (reinicio por cambio de configuración de un bot que ya
             // estaba arriba): NO se descartan las actualizaciones pendientes para no perder
             // los mensajes de los usuarios llegados durante la ventana de parada/arranque.
@@ -168,7 +183,7 @@ Nota importante: Este tiempo límite aplica solo a la carga inicial del código 
             handleSignals: false
           });
 
-          parentPort.postMessage({ type: "STARTED", botId, botInfo });
+          parentPort.postMessage({ type: "STARTED", botId, botInfo: activeBot.botInfo });
         } else {
           throw new Error("Code did not define a valid $BOT instance.");
         }

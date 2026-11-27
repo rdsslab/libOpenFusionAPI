@@ -40,6 +40,8 @@ BotLifecycleTask ──────────────► BotManager ──
 
 The `provider` column accepts any string, but only the providers listed as executed have a worker implementation. A row with any other provider is stored and listed, never started. The authoritative list lives in `manifest.json` (`providers[]`) and in `src/lib/server/bot-manager/providers.js` (`RUNTIME_SUPPORTED_PROVIDERS`).
 
+The Telegram worker exposes the full 29-type grammY update surface plus the official plugin namespace `grammyPlugins`; both are defined in `src/lib/server/bot-manager/telegramSandbox.js` and documented in the [provider guide](providers/telegram/README.md).
+
 ## REST surface
 
 All bot management goes through the system application (`idapp` `cfcd2084-95d5-65ef-66e7-dff9f98764da`). Routes are built as `/api/<app><resource>/<environment>`:

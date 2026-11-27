@@ -6,10 +6,14 @@
 // que compartían el mismo token y entraban en conflicto por el long polling.
 //
 // Restricciones del runtime (ver src/lib/server/bot-manager/worker.js):
-//   - El worker envuelve el código: ya instancia `$BOT` (nunca `new grammy.Bot`).
-//   - Nunca llamar `$BOT.start()` / `$BOT.stop()`.
+//   - El worker crea E inicializa `$BOT` antes de evaluar el código: `bot.botInfo` ya existe
+//     al registrar handlers (nunca `new grammy.Bot`).
+//   - Nunca llamar `$BOT.start()` / `$BOT.stop()` ni configurar webhooks.
 //   - El script solo REGISTRA handlers; debe terminar en < 10 segundos (sin await top-level).
-//   - Long polling fijo: allowed_updates = ["message", "callback_query", "poll", "poll_answer"].
+//   - `$BOT.catch(...)` propio se encadena antes del logger BOT_ERROR del runtime.
+//   - Long polling fijo: los 29 tipos de Update de @grammyjs/types 5.2.0, definidos en
+//     bot-manager/telegramSandbox.js (incluye reacciones, chat_member e inline_query).
+//   - Plugins oficiales disponibles en `grammyPlugins` (menus, conversaciones, i18n, etc.).
 //   - Llamadas internas: uFetchAutoEnv.auto("/api/system<resource>/auto").
 //
 // Funciones por tipo de chat:

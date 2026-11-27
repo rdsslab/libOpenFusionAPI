@@ -89,14 +89,15 @@ Logging is done through a `LogBuffer` that flushes every 10 s (batch 100, buffer
 
 ## 2. Bot lifecycle (Telegram, worker + failure policy)
 
-Each bot runs in its own worker thread. The manager starts/stops workers; the worker loads user
-code in a VM sandbox, validates the token with `getMe()`, and reports failure signals. The
-manager classifies failures and decides **retry vs. quarantine vs. disable**.
+Each bot runs in its own worker thread. The manager starts/stops workers; the worker creates and
+initializes the bot (one `getMe()`), loads user code in a VM sandbox, and reports failure signals.
+The manager classifies failures and decides **retry vs. quarantine vs. disable**.
 
 ```mermaid
 flowchart TD
-    A["worker: START message<br/>(token, code, botId, env, app_env_vars, traceId)"] --> SANDBOX["vm sandbox<br/>grammy + $BOT_TOKEN + functionsVars + app vars"]
-    SANDBOX --> WRAP["wrap: $BOT = new grammy.Bot(token)<br/>+ user code"]
+    A["worker: START message<br/>(token, code, botId, env, app_env_vars, traceId)"] --> SANDBOX["vm sandbox<br/>grammy + grammyPlugins + $BOT + $BOT_TOKEN + functionsVars + app vars"]
+    SANDBOX --> INIT["new grammy.Bot(token) → bot.init()<br/>bot.botInfo available before user code"]
+    INIT --> WRAP["wrap: const $BOT = globalThis.$BOT<br/>+ user code"]
     WRAP --> VM["vm.Script + runInContext<br/>timeout 10 s (initial load only)"]
 
     VM -- "throws at load" --> CLSF["classifyStartupError"]
@@ -116,11 +117,11 @@ flowchart TD
     CN --> ERR
     CS --> ERR
 
-    VM -- "load ok" --> GETME["bot.api.getMe() → authenticate"]
-    GETME -- "ok" --> START["bot.start( drop_pending_updates,<br/>handleSignals:false,<br/>allowed_updates: message, callback_query, poll, poll_answer )"]
+    VM -- "load ok" --> CATCH["chain user $BOT.catch<br/>+ runtime BOT_ERROR logger"]
+    CATCH --> START["bot.start( drop_pending_updates: cold=true/hot=false,<br/>handleSignals:false,<br/>allowed_updates: all 29 Update types<br/>from telegramSandbox.js )"]
     START --> POST["postMessage STARTED → runtime_status RUNNING<br/>(resets failure streak after BOT_HEALTHY_AFTER_MS=60 s)"]
     START -- "error" --> CLSF
-    GETME -- "error" --> CLSF
+    INIT -- "error" --> CLSF
 
     POST --> ERRB
     subgraph RUNT["manager failure policy (classifyBotFailure)"]

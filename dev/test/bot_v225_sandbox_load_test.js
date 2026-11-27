@@ -24,10 +24,10 @@ const appVars = {
   '$_VAR_HISTORY_LIMIT': '12',
 };
 
-// Un $BOT falso que registra lo que el codigo pide, sin red.
-// El worker envuelve el codigo y hace `globalThis.$BOT = new grammy.Bot(...)`,
-// asi que hay que parchear el PROTOTIPO: sustituir solo la instancia del
-// sandbox no serviria, porque el wrapper la reemplaza.
+// Un $BOT que registra lo que el codigo pide, sin red.
+// Desde v14.4.0 el worker crea la instancia fuera del sandbox y la inyecta,
+// pero parcheamos el PROTOTIPO para que siga funcionando tanto con el wrapper
+// actual como con el antiguo que creaba `new grammy.Bot(...)` dentro del vm.
 // grammY: `Bot extends Composer`; los filtros viven en Composer.prototype y
 // `catch` esta en Bot.prototype.
 const registered = { commands: [], on: [], callbackQuery: [], use: 0, catch: 0 };
@@ -82,10 +82,12 @@ async function runSandbox({ withKit }) {
     sandbox.agentKit = kit;
   }
 
+  // v14.4.0: the worker creates and injects $BOT before evaluating the code.
+  sandbox.$BOT = new grammyModule.Bot(sandbox.$BOT_TOKEN);
+
   vm.createContext(sandbox);
 
   const wrapped = `
-    globalThis.$BOT = new grammy.Bot($BOT_TOKEN);
     const $BOT = globalThis.$BOT;
 ${code}
   `;

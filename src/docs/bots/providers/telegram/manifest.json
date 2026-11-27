@@ -3,7 +3,7 @@
   "label": "Telegram",
   "status": "active",
   "runtime_supported": true,
-  "summary": "Telegram bots implemented with grammY. The runtime pre-creates the $BOT instance from the resolved token, evaluates your code to register handlers, validates the token against the Telegram API, and then starts long polling in a dedicated Worker thread.",
+  "summary": "Telegram bots implemented with grammY 1.48.0. The worker creates and initializes $BOT before evaluating your code, injects the official plugin namespace, then starts long polling with the full Update surface in a dedicated Worker thread.",
   "library": {
     "name": "grammy",
     "npm": "grammy",
@@ -12,6 +12,7 @@
   "sandbox": {
     "injected": [
       "grammy",
+      "grammyPlugins (autoRetry, conversations, createConversation, Menu, I18n, fmt, hydrate, hydrateFiles, Router, emoji)",
       "$BOT",
       "$BOT_TOKEN",
       "$_APP_VARS_",
@@ -23,11 +24,23 @@
   },
   "runtime": {
     "worker": "src/lib/server/bot-manager/worker.js",
+    "surface_module": "src/lib/server/bot-manager/telegramSandbox.js",
     "load_timeout_ms": 10000,
-    "allowed_updates": ["message", "callback_query", "poll", "poll_answer"],
-    "drop_pending_updates": true,
+    "allowed_updates": [
+      "message", "edited_message", "channel_post", "edited_channel_post",
+      "business_connection", "business_message", "edited_business_message",
+      "deleted_business_messages", "guest_message", "message_reaction",
+      "message_reaction_count", "inline_query", "chosen_inline_result",
+      "callback_query", "widget_query", "shared_widget_query", "shipping_query",
+      "pre_checkout_query", "purchased_paid_media", "poll", "poll_answer",
+      "my_chat_member", "chat_member", "chat_join_request", "chat_boost",
+      "removed_chat_boost", "managed_bot", "subscription",
+      "stopped_message_generation"
+    ],
+    "drop_pending_updates": "true on cold start, false on hot restart",
     "handle_signals": false,
-    "token_validation": "api.getMe() before start"
+    "token_validation": "bot.init() / api.getMe() before evaluating code",
+    "error_handler": "bot.catch registered by the code runs first, then the runtime BOT_ERROR logger"
   },
   "fields": {
     "token": "Telegram Bot API token from @BotFather, or an application variable reference such as $_VAR_TELEGRAM_TOKEN (resolved for the bot's environment).",
